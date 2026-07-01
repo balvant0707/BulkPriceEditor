@@ -1,0 +1,57 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Note that some adapters may set a maximum length for the String type by default, please ensure your strings are long
+// enough when changing adapters.
+// See https://www.prisma.io/docs/orm/reference/prisma-schema-reference#string for more information
+datasource db {
+  provider = "sqlite"
+  url      = "file:dev.sqlite"
+}
+
+model Session {
+  id                  String    @id
+  shop                String
+  state               String
+  isOnline            Boolean   @default(false)
+  scope               String?
+  expires             DateTime?
+  accessToken         String
+  userId              BigInt?
+  firstName           String?
+  lastName            String?
+  email               String?
+  accountOwner        Boolean   @default(false)
+  locale              String?
+  collaborator        Boolean?  @default(false)
+  emailVerified       Boolean?  @default(false)
+  refreshToken        String?
+  refreshTokenExpires DateTime?
+}
+
+model shop {
+  id                      Int       @id @default(autoincrement())
+  shop                    String    @unique(map: "Shop_shop_key")
+  accessToken             String?
+  installed               Boolean   @default(false)
+  status                  String?   @default("installed") @db.VarChar(32)
+  ownerName               String?   @db.VarChar(255)
+  email                   String?   @db.VarChar(320)
+  contactEmail            String?   @db.VarChar(320)
+  name                    String?   @db.VarChar(255)
+  country                 String?   @db.VarChar(100)
+  city                    String?   @db.VarChar(100)
+  currency                String?   @db.VarChar(10)
+  phone                   String?   @db.VarChar(50)
+  primaryDomain           String?   @db.VarChar(255)
+  plan                    String?   @db.VarChar(100)
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+  onboardedAt             DateTime?
+  uninstalledAt           DateTime?
+  announcementEmailSentAt DateTime?
+}
