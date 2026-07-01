@@ -243,6 +243,7 @@ export default function Index() {
               description="Bulk edit prices in your shop."
               actionLabel="Create task"
               actionUrl="/app/tasks/new"
+              className="ppe-tasks-card"
               rows={[
                 { label: "All tasks", count: 0, url: "/app/tasks" },
                 {
@@ -268,6 +269,7 @@ export default function Index() {
               description="Run manual or scheduled sales."
               actionLabel="Create sale"
               actionUrl="/app/sales/new"
+              className="ppe-sales-card"
               rows={[
                 { label: "All sales", count: 0, url: "/app/sales" },
                 { label: "Active", count: 0, url: "/app/sales?status=active" },
