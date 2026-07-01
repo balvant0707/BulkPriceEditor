@@ -13,9 +13,9 @@ const SHOP_DETAILS_QUERY = `#graphql
         url
       }
       plan {
-        publicDisplayName
+        displayName
       }
-      shopAddress {
+      billingAddress {
         country
         city
         phone
@@ -45,12 +45,12 @@ export async function syncShopDetails({ admin, session }) {
     email: shopDetails.email,
     contactEmail: shopDetails.contactEmail,
     name: shopDetails.name,
-    country: shopDetails.shopAddress?.country,
-    city: shopDetails.shopAddress?.city,
+    country: shopDetails.billingAddress?.country,
+    city: shopDetails.billingAddress?.city,
     currency: shopDetails.currencyCode,
-    phone: shopDetails.shopAddress?.phone,
+    phone: shopDetails.billingAddress?.phone,
     primaryDomain: shopDetails.primaryDomain?.url ?? shopDetails.myshopifyDomain,
-    plan: shopDetails.plan?.publicDisplayName,
+    plan: shopDetails.plan?.displayName,
     uninstalledAt: null,
   };
 
