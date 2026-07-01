@@ -1,6 +1,6 @@
 // app/routes/app.tasks.jsx
 import { json } from "@remix-run/node";
-import { useLoaderData } from "@remix-run/react";
+import { useLoaderData, useNavigation } from "@remix-run/react";
 import {
   Page,
   Card,
@@ -17,6 +17,7 @@ import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 
 const TASK_HELP_URL = "https://help.platmart.io/article/28-how-to-use-tasks";
+const NEW_TASK_URL = "/app/tasks/new";
 
 export const loader = async ({ request }) => {
   await authenticate.admin(request);
@@ -28,12 +29,17 @@ export const loader = async ({ request }) => {
 };
 
 function EmptyTasksPage() {
+  const navigation = useNavigation();
+  const isOpeningNewTask = navigation.location?.pathname === NEW_TASK_URL;
+
   return (
     <Page
       title="Tasks"
       primaryAction={{
         content: "Create task",
-        url: "/app/tasks/new",
+        url: NEW_TASK_URL,
+        loading: isOpeningNewTask,
+        disabled: isOpeningNewTask,
       }}
     >
       <TitleBar title="Tasks" />
@@ -52,7 +58,9 @@ function EmptyTasksPage() {
                 heading="Manage tasks"
                 action={{
                   content: "Create first task",
-                  url: "/app/tasks/new",
+                  url: NEW_TASK_URL,
+                  loading: isOpeningNewTask,
+                  disabled: isOpeningNewTask,
                 }}
                 secondaryAction={{
                   content: "Learn more",
@@ -85,12 +93,17 @@ function EmptyTasksPage() {
 }
 
 function TasksListPage() {
+  const navigation = useNavigation();
+  const isOpeningNewTask = navigation.location?.pathname === NEW_TASK_URL;
+
   return (
     <Page
-      heading="Tasks"
+      title="Tasks"
       primaryAction={{
-        content: "Create Task",
-        url: "/app/tasks/new",
+        content: "Create task",
+        url: NEW_TASK_URL,
+        loading: isOpeningNewTask,
+        disabled: isOpeningNewTask,
       }}
     >
       <TitleBar title="Tasks" />
@@ -109,7 +122,12 @@ function TasksListPage() {
                 </Text>
 
                 <InlineStack>
-                  <Button variant="primary" url="/app/tasks/new">
+                  <Button
+                    variant="primary"
+                    url={NEW_TASK_URL}
+                    loading={isOpeningNewTask}
+                    disabled={isOpeningNewTask}
+                  >
                     Create task
                   </Button>
                 </InlineStack>
