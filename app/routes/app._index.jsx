@@ -157,7 +157,7 @@ function HelpCard() {
               </Text>
             </BlockStack>
 
-            <InlineStack gap="300" wrap>
+            <InlineStack gap="300" wrap justifyContent="flex-start">
               <Button
                 url="https://help.platmart.io/collection/170-platmart-price-editor"
                 external
