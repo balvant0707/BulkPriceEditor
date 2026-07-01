@@ -139,7 +139,7 @@ function HelpCard() {
   return (
     <Card>
       <Box padding="400">
-        <InlineStack align="space-between" blockAlign="center" gap="500" wrap>
+        <InlineStack align="space-between" blockAlign="center" gap="500">
           <BlockStack gap="300">
             <Text as="h2" variant="headingMd">
               Need help?
