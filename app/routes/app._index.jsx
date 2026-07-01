@@ -144,19 +144,6 @@ function HelpCard() {
   return (
     <Card>
       <InlineStack gap="500" align="space-between" blockAlign="center" wrap>
-        <Box width="140px">
-          <Image
-            source="/image/needhelp.png"
-            alt="Need help"
-            style={{
-              width: "120px",
-              height: "120px",
-              borderRadius: "24px",
-              objectFit: "cover",
-            }}
-          />
-        </Box>
-
         <Box width="calc(100% - 180px)">
           <BlockStack gap="400">
             <BlockStack gap="100">
@@ -186,6 +173,18 @@ function HelpCard() {
               </Button>
             </InlineStack>
           </BlockStack>
+        </Box>
+        <Box width="140px">
+          <Image
+            source="/image/needhelp.png"
+            alt="Need help"
+            style={{
+              width: "120px",
+              height: "120px",
+              borderRadius: "24px",
+              objectFit: "cover",
+            }}
+          />
         </Box>
       </InlineStack>
     </Card>
