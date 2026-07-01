@@ -1,4 +1,4 @@
-// app/routes/app.tasks.jsx
+// app/routes/app.task.jsx
 import { json } from "@remix-run/node";
 import { useLoaderData } from "@remix-run/react";
 import {
@@ -19,8 +19,7 @@ import { authenticate } from "../shopify.server";
 export const loader = async ({ request }) => {
   await authenticate.admin(request);
 
-  // Replace this with your real task count from DB later
-  // Example: const taskCount = await prisma.task.count({ where: { shop } });
+  // Later replace this with real DB task count
   const taskCount = 0;
 
   return json({ taskCount });
@@ -32,7 +31,7 @@ function EmptyTasksPage() {
       title="Tasks"
       primaryAction={{
         content: "Create task",
-        url: "/app/tasks/new",
+        url: "/app/task/new",
       }}
     >
       <TitleBar title="Tasks" />
@@ -45,7 +44,7 @@ function EmptyTasksPage() {
                 heading="Manage tasks"
                 action={{
                   content: "Create first task",
-                  url: "/app/tasks/new",
+                  url: "/app/task/new",
                 }}
                 secondaryAction={{
                   content: "Learn more",
@@ -82,7 +81,7 @@ function TasksListPage() {
       title="Tasks"
       primaryAction={{
         content: "Create task",
-        url: "/app/tasks/new",
+        url: "/app/task/new",
       }}
     >
       <TitleBar title="Tasks" />
@@ -101,7 +100,7 @@ function TasksListPage() {
                 </Text>
 
                 <InlineStack>
-                  <Button variant="primary" url="/app/tasks/new">
+                  <Button variant="primary" url="/app/task/new">
                     Create task
                   </Button>
                 </InlineStack>
@@ -114,7 +113,7 @@ function TasksListPage() {
   );
 }
 
-export default function TasksPage() {
+export default function TaskPage() {
   const { taskCount } = useLoaderData();
 
   if (!taskCount || taskCount <= 0) {
