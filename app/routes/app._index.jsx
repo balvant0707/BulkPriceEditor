@@ -11,6 +11,7 @@ import {
   Link,
   List,
   Divider,
+  Image,
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 
@@ -25,10 +26,6 @@ const statsRowStyle = {
 const statsValueStyle = {
   fontWeight: 600,
   color: "#202223",
-};
-
-const cardMinHeight = {
-  minHeight: "100%",
 };
 
 const taskStats = [
@@ -73,57 +70,40 @@ function StatsCard({
 }) {
   return (
     <Card>
-      <div style={cardMinHeight}>
-        <BlockStack gap="400">
-          <InlineStack align="space-between" blockAlign="center">
-            <Text as="h2" variant="headingMd">
-              {title}
-            </Text>
-
-            <Button url={actionUrl} variant="plain">
-              {actionLabel}
-            </Button>
-          </InlineStack>
-
-          <Text as="p" tone="subdued">
-            {description}
+      <BlockStack gap="400">
+        <InlineStack align="space-between" blockAlign="center">
+          <Text as="h2" variant="headingMd">
+            {title}
           </Text>
 
-          <BlockStack gap="0">
-            {stats.map((item) => (
-              <div key={item.label} style={statsRowStyle}>
-                <Link url={item.url} monochrome removeUnderline>
-                  {item.label}
-                </Link>
-                <span style={statsValueStyle}>{item.value}</span>
-              </div>
-            ))}
-          </BlockStack>
+          <Button url={actionUrl} variant="plain">
+            {actionLabel}
+          </Button>
+        </InlineStack>
 
-          <Box paddingBlockStart="200">
-            <Button url={learnMoreUrl} external>
-              Learn more
-            </Button>
-          </Box>
+        <Text as="p" tone="subdued">
+          {description}
+        </Text>
+
+        <BlockStack gap="0">
+          {stats.map((item) => (
+            <div key={item.label} style={statsRowStyle}>
+              <Link url={item.url} monochrome removeUnderline>
+                {item.label}
+              </Link>
+
+              <span style={statsValueStyle}>{item.value}</span>
+            </div>
+          ))}
         </BlockStack>
-      </div>
-    </Card>
-  );
-}
 
-function YouTubeIcon() {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="#FF0000"
-      style={{ display: "block", flexShrink: 0 }}
-      aria-hidden="true"
-    >
-      <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z" />
-    </svg>
+        <Box paddingBlockStart="200">
+          <Button url={learnMoreUrl} external>
+            Learn more
+          </Button>
+        </Box>
+      </BlockStack>
+    </Card>
   );
 }
 
@@ -160,85 +140,54 @@ function WhatsNewCard() {
   );
 }
 
-function VideoTutorialCard() {
-  return (
-    <Card>
-      <BlockStack gap="300">
-        <Text as="h2" variant="headingMd">
-          Video tutorials
-        </Text>
-
-        <a
-          href="https://youtu.be/tgK8qUpq_O4"
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{
-            display: "block",
-            padding: "14px 16px",
-            border: "1px solid #DADBDD",
-            borderRadius: 10,
-            textDecoration: "none",
-            color: "inherit",
-            background: "#fff",
-          }}
-        >
-          <InlineStack align="space-between" blockAlign="center" gap="300">
-            <InlineStack gap="300" blockAlign="center">
-              <YouTubeIcon />
-              <Text as="span" variant="bodyMd">
-                Bulk Edit Shopify Prices by Margin - Here&apos;s How
-              </Text>
-            </InlineStack>
-
-            <Text as="span" tone="subdued">
-              ›
-            </Text>
-          </InlineStack>
-        </a>
-      </BlockStack>
-    </Card>
-  );
-}
-
 function HelpCard() {
-  const openChat = () => {
-    if (typeof window !== "undefined" && window.openChat) {
-      window.openChat();
-      return;
-    }
-
-    window.open(
-      "https://help.platmart.io/collection/170-platmart-price-editor",
-      "_blank",
-      "noopener,noreferrer"
-    );
-  };
-
   return (
     <Card>
-      <BlockStack gap="400">
-        <Text as="h2" variant="headingMd">
-          Need help?
-        </Text>
+      <InlineStack gap="500" align="space-between" blockAlign="center" wrap>
+        <Box width="140px">
+          <Image
+            source="/image/needhelp.png"
+            alt="Need help"
+            style={{
+              width: "120px",
+              height: "120px",
+              borderRadius: "24px",
+              objectFit: "cover",
+            }}
+          />
+        </Box>
 
-        <Text as="p" tone="subdued">
-          We are here for you. For assistance, click support button in the
-          corner of your screen. We also provide comprehensive documentation
-          with answers to most common questions.
-        </Text>
+        <Box width="calc(100% - 180px)">
+          <BlockStack gap="400">
+            <BlockStack gap="100">
+              <Text as="h2" variant="headingMd">
+                Need help?
+              </Text>
 
-        <InlineStack gap="300">
-          <Button onClick={openChat}>Contact support</Button>
+              <Text as="p" tone="subdued">
+                We are here for you. For assistance, contact our support team or
+                check the documentation for common setup questions.
+              </Text>
+            </BlockStack>
 
-          <Button
-            url="https://help.platmart.io/collection/170-platmart-price-editor"
-            external
-            variant="plain"
-          >
-            View documentation
-          </Button>
-        </InlineStack>
-      </BlockStack>
+            <InlineStack gap="300" wrap>
+              <Button
+                url="https://help.platmart.io/collection/170-platmart-price-editor"
+                external
+              >
+                View documentation
+              </Button>
+
+              <Button
+                url="https://platmart.io/contact"
+                external
+              >
+                Contact support
+              </Button>
+            </InlineStack>
+          </BlockStack>
+        </Box>
+      </InlineStack>
     </Card>
   );
 }
@@ -247,14 +196,17 @@ function FooterLinks() {
   return (
     <Box paddingBlockStart="400" paddingBlockEnd="400">
       <Divider />
+
       <Box paddingBlockStart="400">
         <InlineStack align="center" gap="200">
           <Link url="https://platmart.io/terms/" external>
             Terms of Service
           </Link>
+
           <Text as="span" tone="subdued">
             ・
           </Text>
+
           <Link url="https://platmart.io/privacy/" external>
             Privacy Policy
           </Link>
@@ -295,10 +247,6 @@ export default function AppIndex() {
 
           <Layout.Section>
             <WhatsNewCard />
-          </Layout.Section>
-
-          <Layout.Section>
-            <VideoTutorialCard />
           </Layout.Section>
 
           <Layout.Section>
