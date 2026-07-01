@@ -20,7 +20,7 @@ const statsRowStyle = {
   justifyContent: "space-between",
   alignItems: "center",
   padding: "10px 0",
-  textDecoration: underline,
+  textDecoration: "underline",
 };
 
 const statsValueStyle = {
