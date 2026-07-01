@@ -1,6 +1,12 @@
 // app/routes/app.tasks.jsx
 import { json } from "@remix-run/node";
-import { useLoaderData, useNavigate, useNavigation } from "@remix-run/react";
+import {
+  Outlet,
+  useLoaderData,
+  useLocation,
+  useNavigate,
+  useNavigation,
+} from "@remix-run/react";
 import {
   Page,
   Card,
@@ -150,6 +156,11 @@ function TasksListPage() {
 
 export default function TaskPage() {
   const { taskCount } = useLoaderData();
+  const location = useLocation();
+
+  if (location.pathname === NEW_TASK_URL) {
+    return <Outlet />;
+  }
 
   if (!taskCount || taskCount <= 0) {
     return <EmptyTasksPage />;

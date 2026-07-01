@@ -1,5 +1,11 @@
 import { json } from "@remix-run/node";
-import { useLoaderData, useNavigate, useNavigation } from "@remix-run/react";
+import {
+  Outlet,
+  useLoaderData,
+  useLocation,
+  useNavigate,
+  useNavigation,
+} from "@remix-run/react";
 import {
   Page,
   Card,
@@ -24,10 +30,15 @@ export const loader = async ({ request }) => {
 
 export default function SalesPage() {
   const { saleCount } = useLoaderData();
+  const location = useLocation();
   const navigate = useNavigate();
   const navigation = useNavigation();
   const isOpeningNewSale = navigation.location?.pathname === NEW_SALE_URL;
   const openNewSale = () => navigate(NEW_SALE_URL);
+
+  if (location.pathname === NEW_SALE_URL) {
+    return <Outlet />;
+  }
 
   if (!saleCount || saleCount <= 0) {
     return (
