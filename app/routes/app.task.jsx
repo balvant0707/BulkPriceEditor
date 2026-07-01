@@ -84,9 +84,9 @@ function EmptyTasksPage() {
 function TasksListPage() {
   return (
     <Page
-      title="Tasks"
+      heading="Tasks"
       primaryAction={{
-        content: "Create task",
+        content: "Create Task",
         url: "/app/task/new",
       }}
     >
