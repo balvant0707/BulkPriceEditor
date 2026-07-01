@@ -15,11 +15,6 @@ const SHOP_DETAILS_QUERY = `#graphql
       plan {
         displayName
       }
-      billingAddress {
-        country
-        city
-        phone
-      }
     }
   }
 `;
@@ -29,12 +24,38 @@ export async function syncShopDetails({ admin, session }) {
     return;
   }
 
-  const response = await admin.graphql(SHOP_DETAILS_QUERY);
-  const responseJson = await response.json();
-  const shopDetails = responseJson.data?.shop;
+  await db.shop.upsert({
+    where: { shop: session.shop },
+    create: {
+      shop: session.shop,
+      accessToken: session.accessToken,
+      installed: true,
+      status: "installed",
+      onboardedAt: new Date(),
+      uninstalledAt: null,
+    },
+    update: {
+      accessToken: session.accessToken,
+      installed: true,
+      status: "installed",
+      uninstalledAt: null,
+    },
+  });
+
+  let shopDetails;
+
+  try {
+    const response = await admin.graphql(SHOP_DETAILS_QUERY);
+    const responseJson = await response.json();
+    shopDetails = responseJson.data?.shop;
+  } catch (error) {
+    console.error(`Unable to load Shopify shop details for ${session.shop}`, error);
+    return;
+  }
 
   if (!shopDetails) {
-    throw new Error(`Unable to load Shopify shop details for ${session.shop}`);
+    console.error(`Shopify shop details response was empty for ${session.shop}`);
+    return;
   }
 
   const data = {
@@ -45,10 +66,7 @@ export async function syncShopDetails({ admin, session }) {
     email: shopDetails.email,
     contactEmail: shopDetails.contactEmail,
     name: shopDetails.name,
-    country: shopDetails.billingAddress?.country,
-    city: shopDetails.billingAddress?.city,
     currency: shopDetails.currencyCode,
-    phone: shopDetails.billingAddress?.phone,
     primaryDomain: shopDetails.primaryDomain?.url ?? shopDetails.myshopifyDomain,
     plan: shopDetails.plan?.displayName,
     uninstalledAt: null,
