@@ -22,8 +22,9 @@ import {
   Modal,
   Tag,
   Badge,
+  Spinner,
 } from "@shopify/polaris";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { authenticate } from "../shopify.server";
 
 export async function loader({ request }) {
@@ -274,6 +275,21 @@ function ResourcePickerModal({
 }) {
   const [query, setQuery] = useState("");
   const [tempSelectedIds, setTempSelectedIds] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!active) return undefined;
+
+    setLoading(true);
+    setQuery("");
+    setTempSelectedIds([]);
+
+    const timer = setTimeout(() => {
+      setLoading(false);
+    }, 650);
+
+    return () => clearTimeout(timer);
+  }, [active, resourceType]);
 
   const selectedIdSet = useMemo(
     () => new Set(tempSelectedIds),
@@ -343,6 +359,7 @@ function ResourcePickerModal({
   const handleClose = () => {
     setQuery("");
     setTempSelectedIds([]);
+    setLoading(false);
     onClose();
   };
 
@@ -351,6 +368,7 @@ function ResourcePickerModal({
     onAdd(selected);
     setQuery("");
     setTempSelectedIds([]);
+    setLoading(false);
   };
 
   return (
@@ -362,7 +380,7 @@ function ResourcePickerModal({
       primaryAction={{
         content: addButtonLabel,
         onAction: handleAdd,
-        disabled: tempSelectedIds.length === 0,
+        disabled: tempSelectedIds.length === 0 || loading,
       }}
       secondaryActions={[
         {
@@ -372,144 +390,166 @@ function ResourcePickerModal({
       ]}
     >
       <Modal.Section>
-        <BlockStack gap="400">
-          <TextField
-            label={searchPlaceholder}
-            labelHidden
-            placeholder={searchPlaceholder}
-            value={query}
-            onChange={setQuery}
-            autoComplete="off"
-          />
-
+        {loading ? (
           <div
             style={{
-              border: "1px solid #E5E7EB",
-              borderRadius: 10,
-              overflow: "hidden",
+              minHeight: 420,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
             }}
           >
+            <BlockStack gap="300" inlineAlign="center">
+              <Spinner accessibilityLabel={`Loading ${resourceLabel}`} size="large" />
+              <Text as="p" tone="subdued">
+                Loading {resourceLabel}...
+              </Text>
+            </BlockStack>
+          </div>
+        ) : (
+          <BlockStack gap="400">
+            <TextField
+              label={searchPlaceholder}
+              labelHidden
+              placeholder={searchPlaceholder}
+              value={query}
+              onChange={setQuery}
+              autoComplete="off"
+            />
+
             <div
               style={{
-                display: "grid",
-                gridTemplateColumns: "minmax(0, 2fr) minmax(0, 1fr)",
-                alignItems: "center",
-                background: "#F6F6F7",
-                borderBottom: "1px solid #E5E7EB",
-                padding: "8px 16px",
+                border: "1px solid #E5E7EB",
+                borderRadius: 10,
+                overflow: "hidden",
               }}
             >
-              <Text as="span" tone="subdued" variant="bodySm">
-                {leftHeader}
-              </Text>
-
-              <div style={{ textAlign: "right" }}>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "minmax(0, 2fr) minmax(0, 1fr)",
+                  alignItems: "center",
+                  background: "#F6F6F7",
+                  borderBottom: "1px solid #E5E7EB",
+                  padding: "8px 16px",
+                }}
+              >
                 <Text as="span" tone="subdued" variant="bodySm">
-                  {rightHeader}
+                  {leftHeader}
                 </Text>
+
+                <div style={{ textAlign: "right" }}>
+                  <Text as="span" tone="subdued" variant="bodySm">
+                    {rightHeader}
+                  </Text>
+                </div>
+              </div>
+
+              <div
+                style={{
+                  maxHeight: 430,
+                  overflowY: "auto",
+                }}
+              >
+                {filteredItems.length === 0 ? (
+                  <Box padding="500">
+                    <Text as="p" tone="subdued">
+                      No {resourceLabel} found.
+                    </Text>
+                  </Box>
+                ) : (
+                  filteredItems.map((item) => {
+                    const checked = selectedIdSet.has(item.id);
+
+                    return (
+                      <div
+                        key={item.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => handleToggle(item.id)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            handleToggle(item.id);
+                          }
+                        }}
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "minmax(0, 2fr) minmax(0, 1fr)",
+                          alignItems: "center",
+                          gap: 16,
+                          padding: "10px 16px",
+                          borderBottom: "1px solid #F1F1F1",
+                          cursor: "pointer",
+                          background: checked ? "#F1F8FF" : "#FFFFFF",
+                        }}
+                      >
+                        <InlineStack gap="300" blockAlign="center" wrap={false}>
+                          <div onClick={(event) => event.stopPropagation()}>
+                            <Checkbox
+                              label={item.title}
+                              labelHidden
+                              checked={checked}
+                              onChange={() => handleToggle(item.id)}
+                            />
+                          </div>
+
+                          <ResourceAvatar title={item.productTitle || item.title} />
+
+                          <BlockStack gap="050">
+                            <Text as="span" variant="bodyMd">
+                              {item.title}
+                            </Text>
+
+                            {item.productTitle ? (
+                              <Text as="span" tone="subdued" variant="bodySm">
+                                {item.productTitle}
+                              </Text>
+                            ) : null}
+
+                            {item.status ? (
+                              <Box paddingBlockStart="050">
+                                <Badge
+                                  tone={
+                                    item.status === "Active" ? "success" : "attention"
+                                  }
+                                >
+                                  {item.status}
+                                </Badge>
+                              </Box>
+                            ) : null}
+                          </BlockStack>
+                        </InlineStack>
+
+                        <div style={{ textAlign: "right" }}>
+                          <Text as="span" variant="bodySm">
+                            {resourceType === "collection"
+                              ? item.productsCount
+                              : resourceType === "variant"
+                                ? item.productTitle
+                                : item.variantsCount}
+                          </Text>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
               </div>
             </div>
 
-            <div
-              style={{
-                maxHeight: 430,
-                overflowY: "auto",
-              }}
-            >
-              {filteredItems.length === 0 ? (
-                <Box padding="500">
-                  <Text as="p" tone="subdued">
-                    No {resourceLabel} found.
-                  </Text>
-                </Box>
-              ) : (
-                filteredItems.map((item) => {
-                  const checked = selectedIdSet.has(item.id);
-
-                  return (
-                    <div
-                      key={item.id}
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => handleToggle(item.id)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          handleToggle(item.id);
-                        }
-                      }}
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "minmax(0, 2fr) minmax(0, 1fr)",
-                        alignItems: "center",
-                        gap: 16,
-                        padding: "10px 16px",
-                        borderBottom: "1px solid #F1F1F1",
-                        cursor: "pointer",
-                        background: checked ? "#F1F8FF" : "#FFFFFF",
-                      }}
-                    >
-                      <InlineStack gap="300" blockAlign="center" wrap={false}>
-                        <div onClick={(event) => event.stopPropagation()}>
-                          <Checkbox
-                            label={item.title}
-                            labelHidden
-                            checked={checked}
-                            onChange={() => handleToggle(item.id)}
-                          />
-                        </div>
-
-                        <ResourceAvatar title={item.productTitle || item.title} />
-
-                        <BlockStack gap="050">
-                          <Text as="span" variant="bodyMd">
-                            {item.title}
-                          </Text>
-
-                          {item.productTitle ? (
-                            <Text as="span" tone="subdued" variant="bodySm">
-                              {item.productTitle}
-                            </Text>
-                          ) : null}
-
-                          {item.status ? (
-                            <Box paddingBlockStart="050">
-                              <Badge tone={item.status === "Active" ? "success" : "attention"}>
-                                {item.status}
-                              </Badge>
-                            </Box>
-                          ) : null}
-                        </BlockStack>
-                      </InlineStack>
-
-                      <div style={{ textAlign: "right" }}>
-                        <Text as="span" variant="bodySm">
-                          {resourceType === "collection"
-                            ? item.productsCount
-                            : resourceType === "variant"
-                              ? item.productTitle
-                              : item.variantsCount}
-                        </Text>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-
-          <InlineStack align="space-between" blockAlign="center">
-            <Text as="p" tone="subdued">
-              {tempSelectedIds.length}/{limit} {resourceLabel} selected
-            </Text>
-
-            {selectedItems.length > 0 ? (
+            <InlineStack align="space-between" blockAlign="center">
               <Text as="p" tone="subdued">
-                Already added: {selectedItems.length}
+                {tempSelectedIds.length}/{limit} {resourceLabel} selected
               </Text>
-            ) : null}
-          </InlineStack>
-        </BlockStack>
+
+              {selectedItems.length > 0 ? (
+                <Text as="p" tone="subdued">
+                  Already added: {selectedItems.length}
+                </Text>
+              ) : null}
+            </InlineStack>
+          </BlockStack>
+        )}
       </Modal.Section>
     </Modal>
   );
@@ -548,7 +588,10 @@ function ResourcePickerField({
 
   const addUniqueItems = (currentItems, newItems) => {
     const existingIds = new Set(currentItems.map((item) => item.id));
-    return [...currentItems, ...newItems.filter((item) => !existingIds.has(item.id))];
+    return [
+      ...currentItems,
+      ...newItems.filter((item) => !existingIds.has(item.id)),
+    ];
   };
 
   if (collectionMode) {
@@ -811,7 +854,7 @@ function PriceChangeFields({
     action !== "reset_cost_per_item";
 
   return (
-    <BlockStack gap="400">
+    <BlockStack gap="200">
       <FormLayout>
         <FormLayout.Group>
           <Select
@@ -901,6 +944,15 @@ export default function NewTaskPage() {
   const [excludeProducts, setExcludeProducts] = useState([]);
   const [excludeVariants, setExcludeVariants] = useState([]);
 
+  const submitTaskForm = () => {
+    if (typeof document === "undefined") return;
+
+    const form = document.getElementById("task-create-form");
+    if (form) {
+      form.requestSubmit();
+    }
+  };
+
   return (
     <>
       <TitleBar title="New task" />
@@ -912,8 +964,21 @@ export default function NewTaskPage() {
           content: "Back",
           url: "/app",
         }}
+        primaryAction={{
+          content: isSubmitting ? "Saving..." : "Save",
+          onAction: submitTaskForm,
+          loading: isSubmitting,
+          disabled: isSubmitting,
+        }}
+        secondaryActions={[
+          {
+            content: "Discard",
+            url: "/app",
+            disabled: isSubmitting,
+          },
+        ]}
       >
-        <Form method="post">
+        <Form method="post" id="task-create-form">
           <input type="hidden" name="apply_changes_to" value={applyChangesTo} />
 
           <Layout>
@@ -1075,14 +1140,18 @@ export default function NewTaskPage() {
                   />
                 </SectionCard>
 
-                <InlineStack align="end">
+                <InlineStack align="end" gap="200">
+                  <Button url="/app" disabled={isSubmitting}>
+                    Discard
+                  </Button>
+
                   <Button
                     submit
                     variant="primary"
                     loading={isSubmitting}
                     disabled={isSubmitting}
                   >
-                    {isSubmitting ? "Creating..." : "Create"}
+                    {isSubmitting ? "Saving..." : "Save"}
                   </Button>
                 </InlineStack>
               </BlockStack>
