@@ -35,7 +35,13 @@ function EmptyTasksPage() {
       }}
     >
       <TitleBar title="Tasks" />
-
+<style>{`
+    .Polaris-EmptyState__Image,
+    .Polaris-EmptyState__Image img {
+      opacity: 1 !important;
+      filter: none !important;
+    }
+  `}</style>
       <Layout>
         <Layout.Section>
           <Card>
@@ -85,13 +91,7 @@ function TasksListPage() {
       }}
     >
       <TitleBar title="Tasks" />
-      <style>{`
-    .Polaris-EmptyState__Image,
-    .Polaris-EmptyState__Image img {
-      opacity: 1 !important;
-      filter: none !important;
-    }
-  `}</style>
+      
       <Layout>
         <Layout.Section>
           <Card>
