@@ -14,7 +14,7 @@ import {
   Image,
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
-import { useNavigation } from "@remix-run/react";
+import { useNavigate, useNavigation } from "@remix-run/react";
 
 const statsRowStyle = {
   display: "flex",
@@ -65,8 +65,8 @@ function StatsCard({
   title,
   description,
   actionLabel,
-  actionUrl,
   actionLoading = false,
+  onAction,
   stats,
   learnMoreUrl,
 }) {
@@ -78,7 +78,12 @@ function StatsCard({
             {title}
           </Text>
 
-          <Button url={actionUrl} variant="plain" loading={actionLoading}>
+          <Button
+            onClick={onAction}
+            variant="plain"
+            loading={actionLoading}
+            disabled={actionLoading}
+          >
             {actionLabel}
           </Button>
         </InlineStack>
@@ -213,6 +218,7 @@ function FooterLinks() {
 }
 
 export default function AppIndex() {
+  const navigate = useNavigate();
   const navigation = useNavigation();
   const nextPath = navigation.location?.pathname;
 
@@ -227,7 +233,7 @@ export default function AppIndex() {
               title="Tasks"
               description="Bulk edit prices in your shop."
               actionLabel="Create task"
-              actionUrl="/app/tasks/new"
+              onAction={() => navigate("/app/tasks/new")}
               actionLoading={nextPath === "/app/tasks/new"}
               stats={taskStats}
               learnMoreUrl="https://help.platmart.io/article/28-how-to-use-tasks"
@@ -239,7 +245,7 @@ export default function AppIndex() {
               title="Sales"
               description="Run manual or scheduled sales."
               actionLabel="Create sale"
-              actionUrl="/app/sales/new"
+              onAction={() => navigate("/app/sales/new")}
               actionLoading={nextPath === "/app/sales/new"}
               stats={saleStats}
               learnMoreUrl="https://help.platmart.io/article/29-how-to-use-sales"

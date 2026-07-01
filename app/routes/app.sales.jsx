@@ -1,5 +1,5 @@
 import { json } from "@remix-run/node";
-import { useLoaderData } from "@remix-run/react";
+import { useLoaderData, useNavigate, useNavigation } from "@remix-run/react";
 import {
   Page,
   Card,
@@ -14,6 +14,8 @@ import {
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 
+const NEW_SALE_URL = "/app/sales/new";
+
 export const loader = async ({ request }) => {
   await authenticate.admin(request);
 
@@ -22,6 +24,10 @@ export const loader = async ({ request }) => {
 
 export default function SalesPage() {
   const { saleCount } = useLoaderData();
+  const navigate = useNavigate();
+  const navigation = useNavigation();
+  const isOpeningNewSale = navigation.location?.pathname === NEW_SALE_URL;
+  const openNewSale = () => navigate(NEW_SALE_URL);
 
   if (!saleCount || saleCount <= 0) {
     return (
@@ -29,7 +35,10 @@ export default function SalesPage() {
         title="Sales"
         primaryAction={{
           content: "Create sale",
-          url: "/app/sales/new",
+          url: NEW_SALE_URL,
+          onAction: openNewSale,
+          loading: isOpeningNewSale,
+          disabled: isOpeningNewSale,
         }}
       >
         <TitleBar title="Sales" />
@@ -41,7 +50,10 @@ export default function SalesPage() {
                   heading="Manage sales"
                   action={{
                     content: "Create first sale",
-                    url: "/app/sales/new",
+                    url: NEW_SALE_URL,
+                    onAction: openNewSale,
+                    loading: isOpeningNewSale,
+                    disabled: isOpeningNewSale,
                   }}
                   image="/image/createtask.svg"
                 >
@@ -62,7 +74,10 @@ export default function SalesPage() {
       title="Sales"
       primaryAction={{
         content: "Create sale",
-        url: "/app/sales/new",
+        url: NEW_SALE_URL,
+        onAction: openNewSale,
+        loading: isOpeningNewSale,
+        disabled: isOpeningNewSale,
       }}
     >
       <TitleBar title="Sales" />
@@ -78,7 +93,13 @@ export default function SalesPage() {
                   Sale list will show here when sales are available.
                 </Text>
                 <InlineStack>
-                  <Button variant="primary" url="/app/sales/new">
+                  <Button
+                    variant="primary"
+                    url={NEW_SALE_URL}
+                    onClick={openNewSale}
+                    loading={isOpeningNewSale}
+                    disabled={isOpeningNewSale}
+                  >
                     Create sale
                   </Button>
                 </InlineStack>
@@ -90,4 +111,3 @@ export default function SalesPage() {
     </Page>
   );
 }
-

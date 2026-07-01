@@ -1,6 +1,6 @@
 // app/routes/app.tasks.jsx
 import { json } from "@remix-run/node";
-import { useLoaderData, useNavigation } from "@remix-run/react";
+import { useLoaderData, useNavigate, useNavigation } from "@remix-run/react";
 import {
   Page,
   Card,
@@ -29,8 +29,10 @@ export const loader = async ({ request }) => {
 };
 
 function EmptyTasksPage() {
+  const navigate = useNavigate();
   const navigation = useNavigation();
   const isOpeningNewTask = navigation.location?.pathname === NEW_TASK_URL;
+  const openNewTask = () => navigate(NEW_TASK_URL);
 
   return (
     <Page
@@ -38,6 +40,7 @@ function EmptyTasksPage() {
       primaryAction={{
         content: "Create task",
         url: NEW_TASK_URL,
+        onAction: openNewTask,
         loading: isOpeningNewTask,
         disabled: isOpeningNewTask,
       }}
@@ -59,6 +62,7 @@ function EmptyTasksPage() {
                 action={{
                   content: "Create first task",
                   url: NEW_TASK_URL,
+                  onAction: openNewTask,
                   loading: isOpeningNewTask,
                   disabled: isOpeningNewTask,
                 }}
@@ -93,8 +97,10 @@ function EmptyTasksPage() {
 }
 
 function TasksListPage() {
+  const navigate = useNavigate();
   const navigation = useNavigation();
   const isOpeningNewTask = navigation.location?.pathname === NEW_TASK_URL;
+  const openNewTask = () => navigate(NEW_TASK_URL);
 
   return (
     <Page
@@ -102,6 +108,7 @@ function TasksListPage() {
       primaryAction={{
         content: "Create task",
         url: NEW_TASK_URL,
+        onAction: openNewTask,
         loading: isOpeningNewTask,
         disabled: isOpeningNewTask,
       }}
@@ -125,6 +132,7 @@ function TasksListPage() {
                   <Button
                     variant="primary"
                     url={NEW_TASK_URL}
+                    onClick={openNewTask}
                     loading={isOpeningNewTask}
                     disabled={isOpeningNewTask}
                   >
