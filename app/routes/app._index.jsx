@@ -20,7 +20,7 @@ const statsRowStyle = {
   justifyContent: "space-between",
   alignItems: "center",
   padding: "10px 0",
-  borderBottom: "1px solid #EBEBEB",
+  textDecoration: underline,
 };
 
 const statsValueStyle = {
@@ -218,9 +218,9 @@ function FooterLinks() {
 export default function AppIndex() {
   return (
     <>
-      <TitleBar title="Platmart Price Editor" />
+      <TitleBar title="Pryxo Price Editor" />
 
-      <Page title="Platmart Price Editor">
+      <Page title="Pryxo Price Editor">
         <Layout>
           <Layout.Section variant="oneHalf">
             <StatsCard
