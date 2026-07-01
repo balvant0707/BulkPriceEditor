@@ -1,5 +1,5 @@
 // app/routes/app.sales.new.jsx
-import React, { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Page,
   Layout,

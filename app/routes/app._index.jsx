@@ -15,6 +15,7 @@ import {
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import { useNavigate, useNavigation } from "@remix-run/react";
+import { useState } from "react";
 
 const statsRowStyle = {
   display: "flex",
@@ -221,6 +222,13 @@ export default function AppIndex() {
   const navigate = useNavigate();
   const navigation = useNavigation();
   const nextPath = navigation.location?.pathname;
+  const [pendingPath, setPendingPath] = useState("");
+  const openingPath = nextPath || pendingPath;
+
+  const openPage = (path) => {
+    setPendingPath(path);
+    navigate(path);
+  };
 
   return (
     <>
@@ -233,8 +241,8 @@ export default function AppIndex() {
               title="Tasks"
               description="Bulk edit prices in your shop."
               actionLabel="Create task"
-              onAction={() => navigate("/app/tasks/new")}
-              actionLoading={nextPath === "/app/tasks/new"}
+              onAction={() => openPage("/app/tasks/new")}
+              actionLoading={openingPath === "/app/tasks/new"}
               stats={taskStats}
               learnMoreUrl="https://help.platmart.io/article/28-how-to-use-tasks"
             />
@@ -245,8 +253,8 @@ export default function AppIndex() {
               title="Sales"
               description="Run manual or scheduled sales."
               actionLabel="Create sale"
-              onAction={() => navigate("/app/sales/new")}
-              actionLoading={nextPath === "/app/sales/new"}
+              onAction={() => openPage("/app/sales/new")}
+              actionLoading={openingPath === "/app/sales/new"}
               stats={saleStats}
               learnMoreUrl="https://help.platmart.io/article/29-how-to-use-sales"
             />

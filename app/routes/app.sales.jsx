@@ -6,20 +6,45 @@ import {
   EmptyState,
   FooterHelp,
   Link,
+  Button,
+  BlockStack,
+  Box,
+  InlineStack,
+  Text,
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
+import {
+  Outlet,
+  useLocation,
+  useNavigate,
+  useNavigation,
+} from "@remix-run/react";
 
-const CREATE_SALE_URL = "/app/sales/new"; // change to "/sales/new" if your route is outside /app
+const CREATE_SALE_URL = "/app/sales/new";
 const HELP_URL = "https://help.platmart.io/article/29-how-to-use-sales";
 
 export default function SalesPage() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const navigation = useNavigation();
+  const isOpeningNewSale =
+    navigation.location?.pathname === CREATE_SALE_URL ||
+    location.pathname === CREATE_SALE_URL;
+  const openNewSale = () => navigate(CREATE_SALE_URL);
+
+  if (location.pathname === CREATE_SALE_URL) {
+    return <Outlet />;
+  }
+
   return (
     <>
       <TitleBar
         title="Sales"
         primaryAction={{
           content: "Create sale",
-          url: CREATE_SALE_URL,
+          onAction: openNewSale,
+          loading: isOpeningNewSale,
+          disabled: isOpeningNewSale,
         }}
       />
 
@@ -27,7 +52,9 @@ export default function SalesPage() {
         title="Sales"
         primaryAction={{
           content: "Create sale",
-          url: CREATE_SALE_URL,
+          onAction: openNewSale,
+          loading: isOpeningNewSale,
+          disabled: isOpeningNewSale,
         }}
       >
         <Layout>
@@ -38,7 +65,9 @@ export default function SalesPage() {
                 image="/image/sale.svg"
                 action={{
                   content: "Create first sale",
-                  url: CREATE_SALE_URL,
+                  onAction: openNewSale,
+                  loading: isOpeningNewSale,
+                  disabled: isOpeningNewSale,
                 }}
                 secondaryAction={{
                   content: "Learn more",
@@ -61,6 +90,31 @@ export default function SalesPage() {
             sales
           </Link>
         </FooterHelp>
+
+        <Box paddingBlockStart="400">
+          <Card>
+            <Box padding="400">
+              <BlockStack gap="300">
+                <Text as="h2" variant="headingMd">
+                  Your sales
+                </Text>
+                <Text as="p" tone="subdued">
+                  Sale list will show here when sales are available.
+                </Text>
+                <InlineStack>
+                  <Button
+                    variant="primary"
+                    onClick={openNewSale}
+                    loading={isOpeningNewSale}
+                    disabled={isOpeningNewSale}
+                  >
+                    Create sale
+                  </Button>
+                </InlineStack>
+              </BlockStack>
+            </Box>
+          </Card>
+        </Box>
       </Page>
     </>
   );
