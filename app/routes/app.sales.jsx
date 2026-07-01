@@ -35,7 +35,7 @@ export default function SalesPage() {
             <Card>
               <EmptyState
                 heading="Manage sales"
-                image="/iamge/sale.svg"
+                image="/image/sale.svg"
                 action={{
                   content: "Create first sale",
                   url: CREATE_SALE_URL,
