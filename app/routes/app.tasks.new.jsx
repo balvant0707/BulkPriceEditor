@@ -204,12 +204,20 @@ function ResourcePickerModal({
 }) {
   const [query, setQuery] = useState("");
   const [tempSelectedIds, setTempSelectedIds] = useState([]);
+  const autoLoadLockRef = useRef(false);
 
   useEffect(() => {
     if (!active) return;
     setQuery("");
     setTempSelectedIds([]);
+    autoLoadLockRef.current = false;
   }, [active, resourceType]);
+
+  useEffect(() => {
+    if (!loadingMore) {
+      autoLoadLockRef.current = false;
+    }
+  }, [loadingMore, pageInfo?.endCursor]);
 
   const selectedIdSet = useMemo(
     () => new Set(tempSelectedIds),
@@ -282,6 +290,19 @@ function ResourcePickerModal({
     onSearch(value);
   };
 
+  const handleListScroll = (event) => {
+    if (!pageInfo?.hasNextPage || loadingMore || autoLoadLockRef.current) return;
+
+    const list = event.currentTarget;
+    const distanceFromBottom =
+      list.scrollHeight - list.scrollTop - list.clientHeight;
+
+    if (distanceFromBottom <= 80) {
+      autoLoadLockRef.current = true;
+      onLoadNext();
+    }
+  };
+
   return (
     <Modal
       open={active}
@@ -318,35 +339,37 @@ function ResourcePickerModal({
             </BlockStack>
           </div>
         ) : (
-          <BlockStack gap="200">
-            <TextField
-              label={searchPlaceholder}
-              labelHidden
-              placeholder={searchPlaceholder}
-              value={query}
-              onChange={handleQueryChange}
-              autoComplete="off"
-            />
+          <BlockStack gap="0">
+            <Box paddingBlockEnd="300">
+              <TextField
+                label={searchPlaceholder}
+                labelHidden
+                placeholder={searchPlaceholder}
+                value={query}
+                onChange={handleQueryChange}
+                autoComplete="off"
+              />
+            </Box>
 
             {error ? (
-              <Banner tone="critical">{error}</Banner>
+              <Box paddingBlockEnd="300">
+                <Banner tone="critical">{error}</Banner>
+              </Box>
             ) : null}
 
             <div
               style={{
-                border: "1px solid #E5E7EB",
-                borderRadius: 10,
-                overflow: "hidden",
+                borderTop: "1px solid #E5E7EB",
+                borderBottom: "1px solid #E5E7EB",
               }}
             >
               <div
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "minmax(0, 2fr) minmax(0, 1fr)",
+                  gridTemplateColumns: "minmax(0, 1fr) 120px",
                   alignItems: "center",
-                  background: "#F6F6F7",
                   borderBottom: "1px solid #E5E7EB",
-                  padding: "8px 16px",
+                  padding: "12px 0",
                 }}
               >
                 <Text as="span" tone="subdued" variant="bodySm">
@@ -361,9 +384,13 @@ function ResourcePickerModal({
               </div>
 
               <div
+                onScroll={handleListScroll}
                 style={{
-                  maxHeight: 430,
+                  maxHeight: "min(360px, calc(100vh - 360px))",
                   overflowY: "auto",
+                  overflowX: "hidden",
+                  overscrollBehavior: "contain",
+                  scrollbarGutter: "stable",
                 }}
               >
                 {items.length === 0 ? (
@@ -390,13 +417,14 @@ function ResourcePickerModal({
                         }}
                         style={{
                           display: "grid",
-                          gridTemplateColumns: "minmax(0, 2fr) minmax(0, 1fr)",
+                          gridTemplateColumns: "minmax(0, 1fr) 120px",
                           alignItems: "center",
-                          gap: 16,
-                          padding: "10px 16px",
+                          gap: 12,
+                          minHeight: 72,
+                          padding: "10px 0",
                           borderBottom: "1px solid #F1F1F1",
                           cursor: "pointer",
-                          background: checked ? "#F1F8FF" : "#FFFFFF",
+                          background: checked ? "#F6F6F7" : "#FFFFFF",
                         }}
                       >
                         <InlineStack gap="300" blockAlign="center" wrap={false}>
@@ -449,28 +477,36 @@ function ResourcePickerModal({
                     );
                   })
                 )}
+
+                {loadingMore ? (
+                  <Box padding="400">
+                    <BlockStack gap="200" inlineAlign="center">
+                      <Spinner
+                        accessibilityLabel={`Loading more ${resourceLabel}`}
+                        size="small"
+                      />
+                      <Text as="p" tone="subdued" variant="bodySm">
+                        Loading more {resourceLabel}...
+                      </Text>
+                    </BlockStack>
+                  </Box>
+                ) : null}
               </div>
             </div>
 
-            {pageInfo?.hasNextPage ? (
-              <InlineStack align="center">
-                <Button loading={loadingMore} disabled={loadingMore} onClick={onLoadNext}>
-                  Load next 10
-                </Button>
-              </InlineStack>
-            ) : null}
+            <Box paddingBlockStart="300">
+              <InlineStack align="space-between" blockAlign="center">
+                <Text as="p" tone="subdued">
+                  {tempSelectedIds.length}/{limit} {resourceLabel} selected
+                </Text>
 
-            <InlineStack align="space-between" blockAlign="center">
-              <Text as="p" tone="subdued">
-                {tempSelectedIds.length}/{limit} {resourceLabel} selected
-              </Text>
-
-              {selectedItems.length > 0 ? (
+                {selectedItems.length > 0 ? (
                 <Text as="p" tone="subdued">
                   Already added: {selectedItems.length}
                 </Text>
-              ) : null}
-            </InlineStack>
+                ) : null}
+              </InlineStack>
+            </Box>
           </BlockStack>
         )}
       </Modal.Section>
@@ -560,7 +596,15 @@ function ResourcePickerField({
   };
 
   const loadNextPage = () => {
-    if (!activePicker || !pageInfo.endCursor) return;
+    if (
+      !activePicker ||
+      !pageInfo.hasNextPage ||
+      !pageInfo.endCursor ||
+      isLoadingMore ||
+      fetcher.state !== "idle"
+    ) {
+      return;
+    }
 
     setResourceError("");
     setIsLoadingMore(true);

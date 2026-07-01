@@ -1,124 +1,67 @@
-import { json } from "@remix-run/node";
-import {
-  Outlet,
-  useLoaderData,
-  useLocation,
-  useNavigate,
-  useNavigation,
-} from "@remix-run/react";
+// app/routes/app.sales.jsx
 import {
   Page,
-  Card,
-  Text,
-  Button,
-  BlockStack,
-  Box,
-  InlineStack,
-  EmptyState,
   Layout,
+  Card,
+  EmptyState,
+  FooterHelp,
+  Link,
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
-import { authenticate } from "../shopify.server";
 
-const NEW_SALE_URL = "/app/sales/new";
-
-export const loader = async ({ request }) => {
-  await authenticate.admin(request);
-
-  return json({ saleCount: 0 });
-};
+const CREATE_SALE_URL = "/app/sales/new"; // change to "/sales/new" if your route is outside /app
+const HELP_URL = "https://help.platmart.io/article/29-how-to-use-sales";
 
 export default function SalesPage() {
-  const { saleCount } = useLoaderData();
-  const location = useLocation();
-  const navigate = useNavigate();
-  const navigation = useNavigation();
-  const isOpeningNewSale = navigation.location?.pathname === NEW_SALE_URL;
-  const openNewSale = () => navigate(NEW_SALE_URL);
+  return (
+    <>
+      <TitleBar
+        title="Sales"
+        primaryAction={{
+          content: "Create sale",
+          url: CREATE_SALE_URL,
+        }}
+      />
 
-  if (location.pathname === NEW_SALE_URL) {
-    return <Outlet />;
-  }
-
-  if (!saleCount || saleCount <= 0) {
-    return (
       <Page
         title="Sales"
         primaryAction={{
           content: "Create sale",
-          url: NEW_SALE_URL,
-          onAction: openNewSale,
-          loading: isOpeningNewSale,
-          disabled: isOpeningNewSale,
+          url: CREATE_SALE_URL,
         }}
       >
-        <TitleBar title="Sales" />
         <Layout>
           <Layout.Section>
             <Card>
-              <Box>
-                <EmptyState
-                  heading="Manage sales"
-                  action={{
-                    content: "Create first sale",
-                    url: NEW_SALE_URL,
-                    onAction: openNewSale,
-                    loading: isOpeningNewSale,
-                    disabled: isOpeningNewSale,
-                  }}
-                  image="/image/createtask.svg"
-                >
-                  <Text as="p" variant="bodyMd" tone="subdued">
-                    Create sales to schedule price changes in your shop.
-                  </Text>
-                </EmptyState>
-              </Box>
+              <EmptyState
+                heading="Manage sales"
+                image="/iamge/sale.svg"
+                action={{
+                  content: "Create first sale",
+                  url: CREATE_SALE_URL,
+                }}
+                secondaryAction={{
+                  content: "Learn more",
+                  url: HELP_URL,
+                  external: true,
+                }}
+              >
+                <p>
+                  Create manual or scheduled sales that will start and stop at
+                  the specified time.
+                </p>
+              </EmptyState>
             </Card>
           </Layout.Section>
         </Layout>
-      </Page>
-    );
-  }
 
-  return (
-    <Page
-      title="Sales"
-      primaryAction={{
-        content: "Create sale",
-        url: NEW_SALE_URL,
-        onAction: openNewSale,
-        loading: isOpeningNewSale,
-        disabled: isOpeningNewSale,
-      }}
-    >
-      <TitleBar title="Sales" />
-      <Layout>
-        <Layout.Section>
-          <Card>
-            <Box padding="500">
-              <BlockStack gap="300">
-                <Text as="h2" variant="headingMd">
-                  Your sales
-                </Text>
-                <Text as="p" variant="bodyMd" tone="subdued">
-                  Sale list will show here when sales are available.
-                </Text>
-                <InlineStack>
-                  <Button
-                    variant="primary"
-                    url={NEW_SALE_URL}
-                    onClick={openNewSale}
-                    loading={isOpeningNewSale}
-                    disabled={isOpeningNewSale}
-                  >
-                    Create sale
-                  </Button>
-                </InlineStack>
-              </BlockStack>
-            </Box>
-          </Card>
-        </Layout.Section>
-      </Layout>
-    </Page>
+        <FooterHelp>
+          Learn more about{" "}
+          <Link url={HELP_URL} external removeUnderline>
+            sales
+          </Link>
+        </FooterHelp>
+      </Page>
+    </>
   );
 }
