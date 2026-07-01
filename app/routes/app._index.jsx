@@ -20,7 +20,7 @@ const statsRowStyle = {
   justifyContent: "space-between",
   alignItems: "center",
   padding: "10px 0",
-  textDecoration: "underline",
+  borderBottom: "1px solid #EBEBEB",
 };
 
 const statsValueStyle = {
@@ -29,17 +29,17 @@ const statsValueStyle = {
 };
 
 const taskStats = [
-  { label: "All tasks", value: 0, url: "/tasks" },
-  { label: "Completed", value: 0, url: "/tasks?status=completed" },
-  { label: "Archived", value: 0, url: "/tasks?status=archived" },
-  { label: "Canceled", value: 0, url: "/tasks?status=canceled" },
+  { label: "All tasks", value: 0, url: "/app/tasks" },
+  { label: "Completed", value: 0, url: "/app/tasks?status=completed" },
+  { label: "Archived", value: 0, url: "/app/tasks?status=archived" },
+  { label: "Canceled", value: 0, url: "/app/tasks?status=canceled" },
 ];
 
 const saleStats = [
-  { label: "All sales", value: 0, url: "/sales" },
-  { label: "Active", value: 0, url: "/sales?status=active" },
-  { label: "Scheduled", value: 0, url: "/sales?status=scheduled" },
-  { label: "Completed", value: 0, url: "/sales?status=completed" },
+  { label: "All sales", value: 0, url: "/app/sales" },
+  { label: "Active", value: 0, url: "/app/sales?status=active" },
+  { label: "Scheduled", value: 0, url: "/app/sales?status=scheduled" },
+  { label: "Completed", value: 0, url: "/app/sales?status=completed" },
 ];
 
 const changelogItems = [
@@ -88,7 +88,7 @@ function StatsCard({
         <BlockStack gap="0">
           {stats.map((item) => (
             <div key={item.label} style={statsRowStyle}>
-              <Link url={item.url} monochrome removeUnderline>
+              <Link url={item.url} monochrome>
                 {item.label}
               </Link>
 
@@ -128,10 +128,7 @@ function WhatsNewCard() {
         </List>
 
         <Box paddingBlockStart="200">
-          <Button
-            url="https://app.bulkpriceeditor.com/changelog"
-            external
-          >
+          <Button url="https://app.bulkpriceeditor.com/changelog" external>
             View full changelog
           </Button>
         </Box>
@@ -157,7 +154,7 @@ function HelpCard() {
               </Text>
             </BlockStack>
 
-            <InlineStack gap="300" wrap justifyContent="flex-start">
+            <InlineStack gap="300" align="start" wrap>
               <Button
                 url="https://help.platmart.io/collection/170-platmart-price-editor"
                 external
@@ -165,18 +162,16 @@ function HelpCard() {
                 View documentation
               </Button>
 
-              <Button
-                url="https://platmart.io/contact"
-                external
-              >
+              <Button url="https://platmart.io/contact" external>
                 Contact support
               </Button>
             </InlineStack>
           </BlockStack>
         </Box>
+
         <Box width="140px">
           <Image
-            source="/image/needhelp.png"
+            source="/images/needhelp.png"
             alt="Need help"
             style={{
               width: "120px",
@@ -227,7 +222,7 @@ export default function AppIndex() {
               title="Tasks"
               description="Bulk edit prices in your shop."
               actionLabel="Create task"
-              actionUrl="/tasks/new"
+              actionUrl="/app/tasks/new"
               stats={taskStats}
               learnMoreUrl="https://help.platmart.io/article/28-how-to-use-tasks"
             />
@@ -238,7 +233,7 @@ export default function AppIndex() {
               title="Sales"
               description="Run manual or scheduled sales."
               actionLabel="Create sale"
-              actionUrl="/sales/new"
+              actionUrl="/app/sales/new"
               stats={saleStats}
               learnMoreUrl="https://help.platmart.io/article/29-how-to-use-sales"
             />

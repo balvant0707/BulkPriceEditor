@@ -25,6 +25,7 @@ export default function App() {
           Home
         </Link>
         <Link to="/app/task">Tasks</Link>
+        <Link to="/app/sale">Sales</Link>
       </NavMenu>
       <Outlet />
     </AppProvider>
