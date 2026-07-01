@@ -35,7 +35,7 @@ function EmptyTasksPage() {
       }}
     >
       <TitleBar title="Tasks" />
-<style>{`
+      <style>{`
     .Polaris-EmptyState__Image,
     .Polaris-EmptyState__Image img {
       opacity: 1 !important;
@@ -56,7 +56,7 @@ function EmptyTasksPage() {
                   content: "Learn more",
                   url: "#",
                 }}
-                image="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
+                image="/image/createtask.svg"
               >
                 <Text as="p" variant="bodyMd" tone="subdued">
                   Create tasks to bulk edit prices in your shop.
@@ -91,7 +91,7 @@ function TasksListPage() {
       }}
     >
       <TitleBar title="Tasks" />
-      
+
       <Layout>
         <Layout.Section>
           <Card>
