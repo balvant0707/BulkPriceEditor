@@ -1,6 +1,6 @@
 // app/routes/app.tasks.new.jsx
 import { json, redirect } from "@remix-run/node";
-import { Form, useNavigation } from "@remix-run/react";
+import { Form, useFetcher, useNavigation } from "@remix-run/react";
 import { TitleBar } from "@shopify/app-bridge-react";
 import {
   Page,
@@ -24,7 +24,7 @@ import {
   Badge,
   Spinner,
 } from "@shopify/polaris";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { authenticate } from "../shopify.server";
 
 export async function loader({ request }) {
@@ -35,92 +35,15 @@ export async function loader({ request }) {
 export async function action({ request }) {
   await authenticate.admin(request);
 
-  const formData = await request.formData();
-
   // Later save this data in DB.
   // Example:
+  // const formData = await request.formData();
   // const selectedCollections = formData.getAll("apply_collection_ids[]");
   // const selectedProducts = formData.getAll("apply_product_ids[]");
   // const selectedVariants = formData.getAll("apply_variant_ids[]");
 
   return redirect("/app");
 }
-
-/* -------------------- Sample resources --------------------
-   Replace this static data with Shopify GraphQL data later.
------------------------------------------------------------ */
-
-const SAMPLE_COLLECTIONS = [
-  { id: "gid://shopify/Collection/1", title: "Accessories", productsCount: 9 },
-  {
-    id: "gid://shopify/Collection/2",
-    title: "All Products (ChatGPT-AI Product Description)",
-    productsCount: 37,
-  },
-  { id: "gid://shopify/Collection/3", title: "Cloth", productsCount: 11 },
-  { id: "gid://shopify/Collection/4", title: "Home page", productsCount: 7 },
-  { id: "gid://shopify/Collection/5", title: "Jeans", productsCount: 4 },
-  { id: "gid://shopify/Collection/6", title: "New Arrivals", productsCount: 18 },
-  { id: "gid://shopify/Collection/7", title: "Best Sellers", productsCount: 24 },
-];
-
-const SAMPLE_PRODUCTS = [
-  {
-    id: "gid://shopify/Product/101",
-    title: "Classic Cotton Shirt",
-    status: "Active",
-    variantsCount: 4,
-    variants: [
-      { id: "gid://shopify/ProductVariant/1001", title: "Small / White" },
-      { id: "gid://shopify/ProductVariant/1002", title: "Medium / White" },
-      { id: "gid://shopify/ProductVariant/1003", title: "Large / White" },
-      { id: "gid://shopify/ProductVariant/1004", title: "XL / White" },
-    ],
-  },
-  {
-    id: "gid://shopify/Product/102",
-    title: "Blue Denim Jeans",
-    status: "Active",
-    variantsCount: 3,
-    variants: [
-      { id: "gid://shopify/ProductVariant/2001", title: "30 / Blue" },
-      { id: "gid://shopify/ProductVariant/2002", title: "32 / Blue" },
-      { id: "gid://shopify/ProductVariant/2003", title: "34 / Blue" },
-    ],
-  },
-  {
-    id: "gid://shopify/Product/103",
-    title: "Leather Wallet",
-    status: "Draft",
-    variantsCount: 2,
-    variants: [
-      { id: "gid://shopify/ProductVariant/3001", title: "Brown" },
-      { id: "gid://shopify/ProductVariant/3002", title: "Black" },
-    ],
-  },
-  {
-    id: "gid://shopify/Product/104",
-    title: "Sports Shoes",
-    status: "Active",
-    variantsCount: 5,
-    variants: [
-      { id: "gid://shopify/ProductVariant/4001", title: "UK 7 / Black" },
-      { id: "gid://shopify/ProductVariant/4002", title: "UK 8 / Black" },
-      { id: "gid://shopify/ProductVariant/4003", title: "UK 9 / Black" },
-      { id: "gid://shopify/ProductVariant/4004", title: "UK 10 / Black" },
-      { id: "gid://shopify/ProductVariant/4005", title: "UK 11 / Black" },
-    ],
-  },
-];
-
-const SAMPLE_PRODUCT_VARIANTS = SAMPLE_PRODUCTS.flatMap((product) =>
-  product.variants.map((variant) => ({
-    id: variant.id,
-    title: variant.title,
-    productTitle: product.title,
-    productId: product.id,
-  })),
-);
 
 /* -------------------- Form options -------------------- */
 
@@ -268,45 +191,30 @@ function ResourcePickerModal({
   title,
   searchPlaceholder,
   items,
+  pageInfo,
+  loading,
+  loadingMore,
+  error,
   selectedItems,
   onClose,
   onAdd,
+  onSearch,
+  onLoadNext,
   limit = 100,
 }) {
   const [query, setQuery] = useState("");
   const [tempSelectedIds, setTempSelectedIds] = useState([]);
-  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!active) return undefined;
-
-    setLoading(true);
+    if (!active) return;
     setQuery("");
     setTempSelectedIds([]);
-
-    const timer = setTimeout(() => {
-      setLoading(false);
-    }, 650);
-
-    return () => clearTimeout(timer);
   }, [active, resourceType]);
 
   const selectedIdSet = useMemo(
     () => new Set(tempSelectedIds),
     [tempSelectedIds],
   );
-
-  const filteredItems = useMemo(() => {
-    const q = query.trim().toLowerCase();
-
-    if (!q) return items;
-
-    return items.filter((item) => {
-      const mainTitle = String(item.title || "").toLowerCase();
-      const productTitle = String(item.productTitle || "").toLowerCase();
-      return mainTitle.includes(q) || productTitle.includes(q);
-    });
-  }, [items, query]);
 
   const modalTitle =
     title ||
@@ -359,7 +267,6 @@ function ResourcePickerModal({
   const handleClose = () => {
     setQuery("");
     setTempSelectedIds([]);
-    setLoading(false);
     onClose();
   };
 
@@ -368,7 +275,11 @@ function ResourcePickerModal({
     onAdd(selected);
     setQuery("");
     setTempSelectedIds([]);
-    setLoading(false);
+  };
+
+  const handleQueryChange = (value) => {
+    setQuery(value);
+    onSearch(value);
   };
 
   return (
@@ -407,15 +318,19 @@ function ResourcePickerModal({
             </BlockStack>
           </div>
         ) : (
-          <BlockStack gap="400">
+          <BlockStack gap="200">
             <TextField
               label={searchPlaceholder}
               labelHidden
               placeholder={searchPlaceholder}
               value={query}
-              onChange={setQuery}
+              onChange={handleQueryChange}
               autoComplete="off"
             />
+
+            {error ? (
+              <Banner tone="critical">{error}</Banner>
+            ) : null}
 
             <div
               style={{
@@ -451,14 +366,14 @@ function ResourcePickerModal({
                   overflowY: "auto",
                 }}
               >
-                {filteredItems.length === 0 ? (
+                {items.length === 0 ? (
                   <Box padding="500">
                     <Text as="p" tone="subdued">
                       No {resourceLabel} found.
                     </Text>
                   </Box>
                 ) : (
-                  filteredItems.map((item) => {
+                  items.map((item) => {
                     const checked = selectedIdSet.has(item.id);
 
                     return (
@@ -537,6 +452,14 @@ function ResourcePickerModal({
               </div>
             </div>
 
+            {pageInfo?.hasNextPage ? (
+              <InlineStack align="center">
+                <Button loading={loadingMore} disabled={loadingMore} onClick={onLoadNext}>
+                  Load next 10
+                </Button>
+              </InlineStack>
+            ) : null}
+
             <InlineStack align="space-between" blockAlign="center">
               <Text as="p" tone="subdued">
                 {tempSelectedIds.length}/{limit} {resourceLabel} selected
@@ -568,6 +491,16 @@ function ResourcePickerField({
   setSelectedVariants,
 }) {
   const [activePicker, setActivePicker] = useState(null);
+  const [resourceItems, setResourceItems] = useState([]);
+  const [pageInfo, setPageInfo] = useState({
+    hasNextPage: false,
+    endCursor: null,
+  });
+  const [resourceError, setResourceError] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const appendNextPageRef = useRef(false);
+  const fetcher = useFetcher();
 
   const collectionMode = selectedCondition === "selected_collections";
   const productMode = selectedCondition === "selected_products";
@@ -594,6 +527,68 @@ function ResourcePickerField({
     ];
   };
 
+  const buildResourceUrl = (type, query = "", after = "") => {
+    const params = new URLSearchParams({ type });
+
+    if (query.trim()) params.set("query", query.trim());
+    if (after) params.set("after", after);
+
+    return `/app/resource-picker?${params.toString()}`;
+  };
+
+  const openPicker = (type) => {
+    setActivePicker(type);
+    setResourceItems([]);
+    setPageInfo({ hasNextPage: false, endCursor: null });
+    setResourceError("");
+    setSearchQuery("");
+    setIsLoadingMore(false);
+    appendNextPageRef.current = false;
+    fetcher.load(buildResourceUrl(type));
+  };
+
+  const searchResources = (query) => {
+    if (!activePicker) return;
+
+    setResourceItems([]);
+    setPageInfo({ hasNextPage: false, endCursor: null });
+    setResourceError("");
+    setSearchQuery(query);
+    setIsLoadingMore(false);
+    appendNextPageRef.current = false;
+    fetcher.load(buildResourceUrl(activePicker, query));
+  };
+
+  const loadNextPage = () => {
+    if (!activePicker || !pageInfo.endCursor) return;
+
+    setResourceError("");
+    setIsLoadingMore(true);
+    appendNextPageRef.current = true;
+    fetcher.load(buildResourceUrl(activePicker, searchQuery, pageInfo.endCursor));
+  };
+
+  useEffect(() => {
+    if (!fetcher.data) return;
+
+    const nextItems = fetcher.data.items || [];
+
+    setResourceError(fetcher.data.error || "");
+    setPageInfo(
+      fetcher.data.pageInfo || { hasNextPage: false, endCursor: null },
+    );
+    setResourceItems((currentItems) =>
+      appendNextPageRef.current
+        ? addUniqueItems(currentItems, nextItems)
+        : nextItems,
+    );
+    appendNextPageRef.current = false;
+    setIsLoadingMore(false);
+  }, [fetcher.data]);
+
+  const isInitialLoading =
+    fetcher.state !== "idle" && !isLoadingMore && resourceItems.length === 0;
+
   if (collectionMode) {
     return (
       <Box paddingBlockStart="300">
@@ -608,7 +603,7 @@ function ResourcePickerField({
               />
             </Box>
 
-            <Button onClick={() => setActivePicker("collection")}>Browse</Button>
+            <Button onClick={() => openPicker("collection")}>Browse</Button>
           </InlineStack>
 
           <SelectedResourceTags
@@ -631,9 +626,15 @@ function ResourcePickerField({
             resourceType="collection"
             title="Add collections"
             searchPlaceholder="Search collections"
-            items={SAMPLE_COLLECTIONS}
+            items={resourceItems}
+            pageInfo={pageInfo}
+            loading={isInitialLoading}
+            loadingMore={isLoadingMore}
+            error={resourceError}
             selectedItems={selectedCollections}
             onClose={() => setActivePicker(null)}
+            onSearch={searchResources}
+            onLoadNext={loadNextPage}
             onAdd={(items) => {
               setSelectedCollections((current) => addUniqueItems(current, items));
               setActivePicker(null);
@@ -658,7 +659,7 @@ function ResourcePickerField({
               />
             </Box>
 
-            <Button onClick={() => setActivePicker("product")}>Browse</Button>
+            <Button onClick={() => openPicker("product")}>Browse</Button>
           </InlineStack>
 
           <SelectedResourceTags
@@ -681,9 +682,15 @@ function ResourcePickerField({
             resourceType="product"
             title="Add products"
             searchPlaceholder="Search products"
-            items={SAMPLE_PRODUCTS}
+            items={resourceItems}
+            pageInfo={pageInfo}
+            loading={isInitialLoading}
+            loadingMore={isLoadingMore}
+            error={resourceError}
             selectedItems={selectedProducts}
             onClose={() => setActivePicker(null)}
+            onSearch={searchResources}
+            onLoadNext={loadNextPage}
             onAdd={(items) => {
               setSelectedProducts((current) => addUniqueItems(current, items));
               setActivePicker(null);
@@ -708,7 +715,7 @@ function ResourcePickerField({
               />
             </Box>
 
-            <Button onClick={() => setActivePicker("variant")}>Browse</Button>
+            <Button onClick={() => openPicker("variant")}>Browse</Button>
           </InlineStack>
 
           <SelectedResourceTags
@@ -731,9 +738,15 @@ function ResourcePickerField({
             resourceType="variant"
             title="Add product variants"
             searchPlaceholder="Search product variants"
-            items={SAMPLE_PRODUCT_VARIANTS}
+            items={resourceItems}
+            pageInfo={pageInfo}
+            loading={isInitialLoading}
+            loadingMore={isLoadingMore}
+            error={resourceError}
             selectedItems={selectedVariants}
             onClose={() => setActivePicker(null)}
+            onSearch={searchResources}
+            onLoadNext={loadNextPage}
             onAdd={(items) => {
               setSelectedVariants((current) => addUniqueItems(current, items));
               setActivePicker(null);

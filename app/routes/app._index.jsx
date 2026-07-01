@@ -171,7 +171,7 @@ function HelpCard() {
 
         <Box width="140px">
           <Image
-            source="/images/needhelp.png"
+            source="/image/needhelp.png"
             alt="Need help"
             style={{
               width: "120px",
@@ -198,7 +198,7 @@ function FooterLinks() {
           </Link>
 
           <Text as="span" tone="subdued">
-            ・
+            /
           </Text>
 
           <Link url="https://platmart.io/privacy/" external>
