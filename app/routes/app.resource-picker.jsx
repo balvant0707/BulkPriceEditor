@@ -200,9 +200,20 @@ export async function loader({ request }) {
   const type = url.searchParams.get("type") || "product";
   const after = url.searchParams.get("after");
   const searchQuery = url.searchParams.get("query")?.trim() || null;
+  const requestId = url.searchParams.get("requestId") || "";
 
   if (!RESOURCE_QUERIES[type]) {
-    return json({ items: [], pageInfo: { hasNextPage: false, endCursor: null } }, { status: 400 });
+    return json(
+      {
+        items: [],
+        pageInfo: { hasNextPage: false, endCursor: null },
+        type,
+        query: searchQuery || "",
+        after: after || "",
+        requestId,
+      },
+      { status: 400 },
+    );
   }
 
   const response = await admin.graphql(RESOURCE_QUERIES[type], {
@@ -226,6 +237,10 @@ export async function loader({ request }) {
         items: [],
         pageInfo: { hasNextPage: false, endCursor: null },
         error: "Unable to load Shopify resources.",
+        type,
+        query: searchQuery || "",
+        after: after || "",
+        requestId,
       },
       { status: 500 },
     );
@@ -244,5 +259,9 @@ export async function loader({ request }) {
       type === "tag"
         ? { hasNextPage: false, endCursor: null }
         : connection?.pageInfo || { hasNextPage: false, endCursor: null },
+    type,
+    query: searchQuery || "",
+    after: after || "",
+    requestId,
   });
 }

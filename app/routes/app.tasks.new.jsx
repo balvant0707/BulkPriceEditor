@@ -617,7 +617,8 @@ function ResourcePickerField({
   const [searchQuery, setSearchQuery] = useState("");
   const [fieldQueries, setFieldQueries] = useState({});
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const appendNextPageRef = useRef(false);
+  const requestIdRef = useRef(0);
+  const latestRequestIdRef = useRef("");
   const fetcher = useFetcher();
 
   const collectionMode = selectedCondition === "selected_collections";
@@ -650,7 +651,12 @@ function ResourcePickerField({
   };
 
   const buildResourceUrl = (type, query = "", after = "") => {
-    const params = new URLSearchParams({ type });
+    requestIdRef.current += 1;
+    latestRequestIdRef.current = String(requestIdRef.current);
+    const params = new URLSearchParams({
+      type,
+      requestId: latestRequestIdRef.current,
+    });
 
     if (query.trim()) params.set("query", query.trim());
     if (after) params.set("after", after);
@@ -665,7 +671,6 @@ function ResourcePickerField({
     setResourceError("");
     setSearchQuery(query);
     setIsLoadingMore(false);
-    appendNextPageRef.current = false;
     fetcher.load(buildResourceUrl(type, query));
   };
 
@@ -689,7 +694,6 @@ function ResourcePickerField({
     setResourceError("");
     setSearchQuery(query);
     setIsLoadingMore(false);
-    appendNextPageRef.current = false;
     fetcher.load(buildResourceUrl(activePicker, query));
   };
 
@@ -706,7 +710,6 @@ function ResourcePickerField({
 
     setResourceError("");
     setIsLoadingMore(true);
-    appendNextPageRef.current = true;
     fetcher.load(buildResourceUrl(activePicker, searchQuery, pageInfo.endCursor));
   };
 
@@ -714,19 +717,28 @@ function ResourcePickerField({
     if (!fetcher.data) return;
 
     const nextItems = fetcher.data.items || [];
+    const responseType = fetcher.data.type || "";
+    const responseQuery = fetcher.data.query || "";
+    const responseAfter = fetcher.data.after || "";
+    const responseRequestId = fetcher.data.requestId || "";
+
+    if (
+      responseRequestId !== latestRequestIdRef.current ||
+      responseType !== activePicker ||
+      responseQuery !== searchQuery.trim()
+    ) {
+      return;
+    }
 
     setResourceError(fetcher.data.error || "");
     setPageInfo(
       fetcher.data.pageInfo || { hasNextPage: false, endCursor: null },
     );
     setResourceItems((currentItems) =>
-      appendNextPageRef.current
-        ? addUniqueItems(currentItems, nextItems)
-        : nextItems,
+      responseAfter ? addUniqueItems(currentItems, nextItems) : nextItems,
     );
-    appendNextPageRef.current = false;
     setIsLoadingMore(false);
-  }, [fetcher.data]);
+  }, [activePicker, fetcher.data, searchQuery]);
 
   const isInitialLoading =
     fetcher.state !== "idle" && !isLoadingMore && resourceItems.length === 0;
