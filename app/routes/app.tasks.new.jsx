@@ -36,6 +36,11 @@ const MARKETS_QUERY = `#graphql
         handle
         enabled
         primary
+        currencySettings {
+          baseCurrency {
+            currencyCode
+          }
+        }
         regions(first: 20) {
           nodes {
             name
@@ -170,12 +175,10 @@ const excludeDiscountedChoices = [
 
 function normalizeMarkets(markets = []) {
   return markets.map((market) => {
+    const currencyCode =
+      market.currencySettings?.baseCurrency?.currencyCode || "";
     const regions = market.regions?.nodes || [];
-    const regionCodes = regions
-      .map((region) => region.code)
-      .filter(Boolean)
-      .join(", ");
-    const regionLabel = regionCodes ? ` (${regionCodes})` : "";
+    const currencyLabel = currencyCode ? ` (${currencyCode})` : "";
     const primaryLabel = market.primary ? " - primary" : "";
     const disabledLabel = market.enabled ? "" : " - disabled";
 
@@ -183,10 +186,11 @@ function normalizeMarkets(markets = []) {
       id: market.id,
       name: market.name,
       handle: market.handle || "",
+      currencyCode,
       enabled: Boolean(market.enabled),
       primary: Boolean(market.primary),
       regions,
-      label: `${market.name}${regionLabel}${primaryLabel}${disabledLabel}`,
+      label: `${market.name}${currencyLabel}${primaryLabel}${disabledLabel}`,
       disabled: !market.enabled,
     };
   });
@@ -1533,6 +1537,11 @@ export default function NewTaskPage() {
                                 type="hidden"
                                 name="selected_market_handles[]"
                                 value={market.handle}
+                              />
+                              <input
+                                type="hidden"
+                                name="selected_market_currency_codes[]"
+                                value={market.currencyCode}
                               />
                             </div>
                           ))}
