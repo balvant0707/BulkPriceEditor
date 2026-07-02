@@ -1,6 +1,6 @@
 // app/routes/app.tasks.new.jsx
 import { json, redirect } from "@remix-run/node";
-import { Form, useFetcher, useNavigation } from "@remix-run/react";
+import { Form, useFetcher, useLoaderData, useNavigation } from "@remix-run/react";
 import { TitleBar } from "@shopify/app-bridge-react";
 import {
   Page,
@@ -27,9 +27,55 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { authenticate } from "../shopify.server";
 
+const MARKETS_QUERY = `#graphql
+  query TaskMarkets {
+    markets(first: 50) {
+      nodes {
+        id
+        name
+        currencySettings {
+          baseCurrency {
+            currencyCode
+          }
+        }
+        catalogs(first: 1) {
+          nodes {
+            id
+            title
+            priceList {
+              id
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
 export async function loader({ request }) {
-  await authenticate.admin(request);
-  return json({});
+  const { admin } = await authenticate.admin(request);
+
+  try {
+    const response = await admin.graphql(MARKETS_QUERY);
+    const payload = await response.json();
+
+    if (payload.errors) {
+      return json({
+        markets: [],
+        marketsError: "Unable to load Shopify Markets.",
+      });
+    }
+
+    return json({
+      markets: normalizeMarkets(payload.data?.markets?.nodes),
+      marketsError: "",
+    });
+  } catch {
+    return json({
+      markets: [],
+      marketsError: "Unable to load Shopify Markets.",
+    });
+  }
 }
 
 export async function action({ request }) {
@@ -124,6 +170,28 @@ const excludeDiscountedChoices = [
   { label: "All products on sale", value: "products_on_sale" },
   { label: "All product types on sale", value: "product_types_on_sale" },
 ];
+
+function normalizeMarkets(markets = []) {
+  return markets.map((market) => {
+    const currencyCode =
+      market.currencySettings?.baseCurrency?.currencyCode || "";
+    const catalog = market.catalogs?.nodes?.[0];
+    const hasPriceList = Boolean(catalog?.priceList?.id);
+    const currencyLabel = currencyCode ? ` (${currencyCode})` : "";
+
+    return {
+      id: market.id,
+      name: market.name,
+      currencyCode,
+      catalogId: catalog?.id || "",
+      priceListId: catalog?.priceList?.id || "",
+      label: hasPriceList
+        ? `${market.name}${currencyLabel}`
+        : `${market.name}${currencyLabel} - no dedicated catalog`,
+      disabled: !hasPriceList,
+    };
+  });
+}
 
 /* -------------------- Small UI helpers -------------------- */
 
@@ -1309,12 +1377,26 @@ function PriceChangeFields({
 /* -------------------- Main page -------------------- */
 
 export default function NewTaskPage() {
+  const { markets = [], marketsError = "" } = useLoaderData();
   const navigation = useNavigation();
   const isSubmitting = navigation.state !== "idle";
 
   const [applyChangesTo, setApplyChangesTo] = useState("products");
   const [applyToFixedPrices, setApplyToFixedPrices] = useState(false);
   const [selectedMarkets, setSelectedMarkets] = useState([]);
+  const marketChoices = useMemo(
+    () =>
+      markets.map((market) => ({
+        label: market.label,
+        value: market.id,
+        disabled: market.disabled,
+      })),
+    [markets],
+  );
+  const selectedMarketDetails = useMemo(
+    () => markets.filter((market) => selectedMarkets.includes(market.id)),
+    [markets, selectedMarkets],
+  );
 
   const [applyTo, setApplyTo] = useState(["whole_store"]);
   const [exclude, setExclude] = useState(["nothing"]);
@@ -1330,6 +1412,25 @@ export default function NewTaskPage() {
   const [excludeProducts, setExcludeProducts] = useState([]);
   const [excludeVariants, setExcludeVariants] = useState([]);
   const [excludeTags, setExcludeTags] = useState([]);
+
+  useEffect(() => {
+    const enabledMarketIds = new Set(
+      markets.filter((market) => !market.disabled).map((market) => market.id),
+    );
+
+    setSelectedMarkets((current) =>
+      current.filter((marketId) => enabledMarketIds.has(marketId)),
+    );
+  }, [markets]);
+
+  const handleApplyChangesToChange = (value) => {
+    setApplyChangesTo(value);
+
+    if (value === "products") {
+      setSelectedMarkets([]);
+      setApplyToFixedPrices(false);
+    }
+  };
 
   const submitTaskForm = () => {
     if (typeof document === "undefined") return;
@@ -1375,14 +1476,14 @@ export default function NewTaskPage() {
                   <ButtonGroup segmented>
                     <Button
                       pressed={applyChangesTo === "products"}
-                      onClick={() => setApplyChangesTo("products")}
+                      onClick={() => handleApplyChangesToChange("products")}
                     >
                       Product prices
                     </Button>
 
                     <Button
                       pressed={applyChangesTo === "markets"}
-                      onClick={() => setApplyChangesTo("markets")}
+                      onClick={() => handleApplyChangesToChange("markets")}
                     >
                       Market prices
                     </Button>
@@ -1408,24 +1509,40 @@ export default function NewTaskPage() {
                         onChange={setApplyToFixedPrices}
                       />
 
-                      <ChoiceList
-                        title="Markets"
-                        allowMultiple
-                        name="selected_market_ids"
-                        selected={selectedMarkets}
-                        onChange={setSelectedMarkets}
-                        choices={[
-                          {
-                            label: "India (INR) - no dedicated catalog",
-                            value: "india",
-                            disabled: true,
-                          },
-                          {
-                            label: "International (INR)",
-                            value: "international",
-                          },
-                        ]}
-                      />
+                      {marketsError ? (
+                        <Banner tone="warning">{marketsError}</Banner>
+                      ) : null}
+
+                      {marketChoices.length > 0 ? (
+                        <>
+                          <ChoiceList
+                            title="Markets"
+                            allowMultiple
+                            selected={selectedMarkets}
+                            onChange={setSelectedMarkets}
+                            choices={marketChoices}
+                          />
+
+                          {selectedMarketDetails.map((market) => (
+                            <div key={market.id}>
+                              <input
+                                type="hidden"
+                                name="selected_market_ids[]"
+                                value={market.id}
+                              />
+                              <input
+                                type="hidden"
+                                name="selected_market_price_list_ids[]"
+                                value={market.priceListId}
+                              />
+                            </div>
+                          ))}
+                        </>
+                      ) : (
+                        <Text as="p" tone="subdued">
+                          No Shopify Markets price lists found.
+                        </Text>
+                      )}
                     </BlockStack>
                   )}
                 </SectionCard>
