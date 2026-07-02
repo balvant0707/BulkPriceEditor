@@ -97,7 +97,7 @@ const roundingOptions = [
 ];
 
 const applyToChoices = [
-  { label: "All products in the store", value: "whole_store" },
+  { label: "Whole store", value: "whole_store" },
   { label: "Selected collections", value: "selected_collections" },
   { label: "Selected products", value: "selected_products" },
   {
@@ -140,7 +140,7 @@ function SectionCard({ title, children }) {
   );
 }
 
-function ResourceAvatar({ title }) {
+function ResourceAvatar({ title, imageUrl, imageAlt }) {
   const first = String(title || "?").charAt(0).toUpperCase();
 
   return (
@@ -156,9 +156,23 @@ function ResourceAvatar({ title }) {
         color: "#4B5563",
         fontWeight: 600,
         flexShrink: 0,
+        overflow: "hidden",
       }}
     >
-      {first}
+      {imageUrl ? (
+        <img
+          src={imageUrl}
+          alt={imageAlt || title || ""}
+          style={{
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+            display: "block",
+          }}
+        />
+      ) : (
+        first
+      )}
     </div>
   );
 }
@@ -297,22 +311,16 @@ function ResourcePickerModal({
           : "products";
 
   const leftHeader =
-    resourceType === "collection"
-      ? "Collection"
-      : resourceType === "variant"
-        ? "Product variant"
-        : resourceType === "tag"
-          ? "Product tag"
-          : "Product";
+    resourceType === "tag" ? "Product tag" : "Item";
 
   const rightHeader =
     resourceType === "collection"
       ? "Products"
       : resourceType === "variant"
-        ? "Product"
+        ? "Price"
         : resourceType === "tag"
           ? ""
-        : "Variants";
+        : "Price";
 
   const addButtonLabel =
     resourceType === "collection"
@@ -504,7 +512,11 @@ function ResourcePickerModal({
                             />
                           </div>
 
-                          <ResourceAvatar title={item.productTitle || item.title} />
+                          <ResourceAvatar
+                            title={item.productTitle || item.title}
+                            imageUrl={item.imageUrl}
+                            imageAlt={item.imageAlt}
+                          />
 
                           <BlockStack gap="050">
                             <Text as="span" variant="bodyMd">
@@ -536,9 +548,7 @@ function ResourcePickerModal({
                             <Text as="span" variant="bodySm">
                               {resourceType === "collection"
                                 ? item.productsCount
-                                : resourceType === "variant"
-                                  ? item.productTitle
-                                  : item.variantsCount}
+                                : item.displayPrice || "-"}
                             </Text>
                           </div>
                         )}
