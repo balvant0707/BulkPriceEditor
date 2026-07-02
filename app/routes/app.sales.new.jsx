@@ -1,7 +1,7 @@
 // app/routes/app.sales.new.jsx
 import { json } from "@remix-run/node";
-import { useLoaderData } from "@remix-run/react";
-import { useMemo, useState } from "react";
+import { useFetcher, useLoaderData } from "@remix-run/react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Page,
   Layout,
@@ -19,22 +19,43 @@ import {
   Divider,
   Box,
   Modal,
-  ResourceList,
-  ResourceItem,
-  Thumbnail,
   Tag,
   PageActions,
   Banner,
+  Badge,
+  Spinner,
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 
 const BACK_URL = "/app/sales";
 
-const SHOP_CURRENCY_QUERY = `#graphql
-  query ShopCurrency {
+const MARKETS_QUERY = `#graphql
+  query GetMarkets {
     shop {
       currencyCode
+    }
+    markets(first: 50) {
+      nodes {
+        id
+        name
+        handle
+        enabled
+        primary
+        currencySettings {
+          baseCurrency {
+            currencyCode
+          }
+        }
+        regions(first: 20) {
+          nodes {
+            name
+            ... on MarketRegionCountry {
+              code
+            }
+          }
+        }
+      }
     }
   }
 `;
@@ -43,82 +64,51 @@ export async function loader({ request }) {
   const { admin } = await authenticate.admin(request);
 
   try {
-    const response = await admin.graphql(SHOP_CURRENCY_QUERY);
+    const response = await admin.graphql(MARKETS_QUERY);
     const payload = await response.json();
 
+    if (payload.errors) {
+      return json({
+        markets: [],
+        marketsError: "Unable to load Shopify Markets.",
+        shopCurrency: "USD",
+      });
+    }
+
     return json({
+      markets: normalizeMarkets(payload.data?.markets?.nodes),
+      marketsError: "",
       shopCurrency: payload.data?.shop?.currencyCode || "USD",
     });
   } catch {
-    return json({ shopCurrency: "USD" });
+    return json({
+      markets: [],
+      marketsError: "Unable to load Shopify Markets.",
+      shopCurrency: "USD",
+    });
   }
 }
 
-function buildMarketOptions(currency) {
-  return [
-    {
-      label: `India (${currency}) - no dedicated catalog`,
-      value: "india",
-      disabled: true,
-    },
-    { label: `International (${currency})`, value: "international" },
-  ];
+function normalizeMarkets(markets = []) {
+  return markets.map((market) => {
+    const currencyCode =
+      market.currencySettings?.baseCurrency?.currencyCode || "";
+    const regions = market.regions?.nodes || [];
+    const currencyLabel = currencyCode ? ` (${currencyCode})` : "";
+    const primaryLabel = market.primary ? " - primary" : "";
+
+    return {
+      id: market.id,
+      name: market.name,
+      handle: market.handle || "",
+      currencyCode,
+      enabled: Boolean(market.enabled),
+      primary: Boolean(market.primary),
+      regions,
+      label: `${market.name}${currencyLabel}${primaryLabel}`,
+    };
+  });
 }
-
-const sampleProducts = [
-  {
-    id: "p1",
-    title: "Classic Cotton T-Shirt",
-    subtitle: "12 variants",
-    image:
-      "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-product-1_large.png",
-  },
-  {
-    id: "p2",
-    title: "Premium Hoodie",
-    subtitle: "8 variants",
-    image:
-      "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-product-2_large.png",
-  },
-  {
-    id: "p3",
-    title: "Canvas Tote Bag",
-    subtitle: "4 variants",
-    image:
-      "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-product-3_large.png",
-  },
-];
-
-const sampleCollections = [
-  {
-    id: "c1",
-    title: "Summer Collection",
-    subtitle: "48 products",
-    image:
-      "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-collection-1_large.png",
-  },
-  {
-    id: "c2",
-    title: "New Arrivals",
-    subtitle: "32 products",
-    image:
-      "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-collection-2_large.png",
-  },
-  {
-    id: "c3",
-    title: "Best Sellers",
-    subtitle: "24 products",
-    image:
-      "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-collection-3_large.png",
-  },
-];
-
-const sampleTags = [
-  { id: "t1", title: "sale-active", subtitle: "Product tag" },
-  { id: "t2", title: "summer-sale", subtitle: "Product tag" },
-  { id: "t3", title: "clearance", subtitle: "Product tag" },
-  { id: "t4", title: "best-seller", subtitle: "Product tag" },
-];
 
 const applyOptions = [
   { label: "Whole store", value: "whole_store" },
@@ -138,8 +128,38 @@ const excludeOptions = [
 
 const excludeDiscountedOptions = [
   { label: "Nothing", value: "nothing" },
-  { label: "Products on sale", value: "products_on_sale" },
-  { label: "Product variants on sale", value: "product_variants_on_sale" },
+  { label: "All products on sale", value: "products_on_sale" },
+  { label: "All product types on sale", value: "product_types_on_sale" },
+];
+
+const priceActionOptions = [
+  { label: "Do not change price", value: "" },
+  { label: "Increase price", value: "increase" },
+  { label: "Decrease price", value: "decrease" },
+  { label: "Set new price", value: "set_new_value" },
+  { label: "Set to compare at price", value: "set_to_compare_at_price" },
+  { label: "Set margin", value: "set_margin" },
+];
+
+const compareAtActionOptions = [
+  { label: "Do not change compare at price", value: "" },
+  { label: "Increase compare at price", value: "increase" },
+  { label: "Decrease compare at price", value: "decrease" },
+  { label: "Set new compare on price", value: "set_new_value" },
+  { label: "Set to price", value: "set_to_price" },
+  { label: "Reset compare at price", value: "reset_compare_at_price" },
+];
+
+const changeTypeOptions = [
+  { label: "By percent", value: "by_percent" },
+  { label: "By amount", value: "by_amount" },
+];
+
+const roundingOptions = [
+  { label: "No rounding", value: "none" },
+  { label: "Round to whole number", value: "round_to_whole" },
+  { label: "Override cents", value: "override_cents" },
+  { label: "Set price ending", value: "set_ending" },
 ];
 
 function SectionCard({ title, children }) {
@@ -152,6 +172,43 @@ function SectionCard({ title, children }) {
         {children}
       </BlockStack>
     </Card>
+  );
+}
+
+function ResourceAvatar({ title, imageUrl, imageAlt }) {
+  const first = String(title || "?").charAt(0).toUpperCase();
+
+  return (
+    <div
+      style={{
+        width: 40,
+        height: 40,
+        borderRadius: 8,
+        background: "#F3F4F6",
+        border: "1px solid #E5E7EB",
+        display: "grid",
+        placeItems: "center",
+        color: "#4B5563",
+        fontWeight: 600,
+        flexShrink: 0,
+        overflow: "hidden",
+      }}
+    >
+      {imageUrl ? (
+        <img
+          src={imageUrl}
+          alt={imageAlt || title || ""}
+          style={{
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+            display: "block",
+          }}
+        />
+      ) : (
+        first
+      )}
+    </div>
   );
 }
 
@@ -184,16 +241,18 @@ function SelectedList({ items, onRemove, emptyText }) {
         >
           <InlineStack align="space-between" blockAlign="center" gap="300">
             <InlineStack gap="300" blockAlign="center">
-              {item.image ? (
-                <Thumbnail source={item.image} alt={item.title} size="small" />
-              ) : null}
+              <ResourceAvatar
+                title={item.productTitle || item.title}
+                imageUrl={item.imageUrl}
+                imageAlt={item.imageAlt}
+              />
               <BlockStack gap="050">
                 <Text as="p" variant="bodyMd" fontWeight="semibold">
                   {item.title}
                 </Text>
-                {item.subtitle ? (
+                {item.productTitle || item.subtitle ? (
                   <Text as="p" tone="subdued" variant="bodySm">
-                    {item.subtitle}
+                    {item.productTitle || item.subtitle}
                   </Text>
                 ) : null}
               </BlockStack>
@@ -211,86 +270,397 @@ function SelectedList({ items, onRemove, emptyText }) {
 
 function PickerModal({
   active,
-  type,
+  resourceType,
   title,
   items,
+  pageInfo,
+  loading,
+  loadingMore,
+  error,
   selectedItems,
   onClose,
-  onSelect,
+  onAdd,
+  onSearch,
+  onLoadNext,
+  limit = 100,
 }) {
   const [query, setQuery] = useState("");
+  const [tempSelectedIds, setTempSelectedIds] = useState([]);
+  const autoLoadLockRef = useRef(false);
 
-  const filteredItems = useMemo(() => {
-    return items.filter((item) =>
-      item.title.toLowerCase().includes(query.toLowerCase())
-    );
-  }, [items, query]);
+  useEffect(() => {
+    if (!active) return;
+    setQuery("");
+    setTempSelectedIds(selectedItems.map((item) => item.id));
+    autoLoadLockRef.current = false;
+  }, [active, resourceType, selectedItems]);
 
-  const selectedIds = selectedItems.map((item) => item.id);
+  useEffect(() => {
+    if (!loadingMore) autoLoadLockRef.current = false;
+  }, [loadingMore, pageInfo?.endCursor]);
+
+  const selectedIdSet = useMemo(
+    () => new Set(tempSelectedIds),
+    [tempSelectedIds],
+  );
+  const loadedItemIds = useMemo(() => items.map((item) => item.id), [items]);
+  const selectedLoadedCount = loadedItemIds.filter((id) =>
+    selectedIdSet.has(id),
+  ).length;
+  const allLoadedSelected =
+    loadedItemIds.length > 0 && selectedLoadedCount === loadedItemIds.length;
+  const someLoadedSelected =
+    selectedLoadedCount > 0 && selectedLoadedCount < loadedItemIds.length;
+
+  const resourceLabel =
+    resourceType === "collection"
+      ? "collections"
+      : resourceType === "variant"
+        ? "variants"
+        : resourceType === "tag"
+          ? "tags"
+          : "products";
+  const rightHeader =
+    resourceType === "collection"
+      ? "Products"
+      : resourceType === "tag"
+        ? ""
+        : "Price";
+  const addButtonLabel =
+    resourceType === "collection"
+      ? "Add collections"
+      : resourceType === "variant"
+        ? "Add variants"
+        : resourceType === "tag"
+          ? "Add tags"
+          : "Add products";
+  const listGridColumns =
+    resourceType === "tag"
+      ? "40px minmax(0, 1fr)"
+      : "40px minmax(0, 1fr) 120px";
+
+  const handleToggle = (id) => {
+    setTempSelectedIds((current) => {
+      if (current.includes(id)) {
+        return current.filter((itemId) => itemId !== id);
+      }
+      if (current.length >= limit) return current;
+      return [...current, id];
+    });
+  };
+
+  const handleToggleLoadedItems = () => {
+    setTempSelectedIds((current) => {
+      const loadedIds = new Set(loadedItemIds);
+      if (allLoadedSelected) {
+        return current.filter((id) => !loadedIds.has(id));
+      }
+
+      const nextIds = [...current];
+      const nextIdSet = new Set(nextIds);
+      for (const id of loadedItemIds) {
+        if (nextIds.length >= limit) break;
+        if (!nextIdSet.has(id)) {
+          nextIds.push(id);
+          nextIdSet.add(id);
+        }
+      }
+      return nextIds;
+    });
+  };
+
+  const handleQueryChange = (value) => {
+    setQuery(value);
+    onSearch(value);
+  };
+
+  const handleAdd = () => {
+    onAdd(items.filter((item) => tempSelectedIds.includes(item.id)));
+    setQuery("");
+    setTempSelectedIds([]);
+  };
+
+  const handleClose = () => {
+    setQuery("");
+    setTempSelectedIds([]);
+    onClose();
+  };
+
+  const handleListScroll = (event) => {
+    if (!pageInfo?.hasNextPage || loadingMore || autoLoadLockRef.current) return;
+
+    const list = event.currentTarget;
+    const distanceFromBottom =
+      list.scrollHeight - list.scrollTop - list.clientHeight;
+
+    if (distanceFromBottom <= 80) {
+      autoLoadLockRef.current = true;
+      onLoadNext();
+    }
+  };
 
   return (
-    <Modal
-      open={active}
-      onClose={onClose}
-      title={title}
-      primaryAction={{
-        content: "Done",
-        onAction: onClose,
-      }}
-      secondaryActions={[
-        {
-          content: "Cancel",
-          onAction: onClose,
-        },
-      ]}
-    >
+    <Modal open={active} onClose={handleClose} title={title} large>
       <Modal.Section>
-        <BlockStack gap="400">
-          <TextField
-            label={`Search ${type}`}
-            labelHidden
-            placeholder={`Search ${type}`}
-            value={query}
-            onChange={setQuery}
-            autoComplete="off"
-          />
+        {loading ? (
+          <div
+            style={{
+              minHeight: 420,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <BlockStack gap="300" inlineAlign="center">
+              <Spinner accessibilityLabel={`Loading ${resourceLabel}`} size="large" />
+              <Text as="p" tone="subdued">
+                Loading {resourceLabel}...
+              </Text>
+            </BlockStack>
+          </div>
+        ) : (
+          <div
+            style={{
+              height: "min(700px, calc(100vh - 180px))",
+              minHeight: "min(520px, calc(100vh - 180px))",
+              display: "flex",
+              flexDirection: "column",
+            }}
+          >
+            <div style={{ flexShrink: 0 }}>
+              <Box paddingBlockEnd="300">
+                <TextField
+                  label={`Search ${resourceLabel}`}
+                  labelHidden
+                  placeholder={`Search ${resourceLabel}`}
+                  value={query}
+                  onChange={handleQueryChange}
+                  autoComplete="off"
+                />
+              </Box>
+            </div>
 
-          <ResourceList
-            resourceName={{ singular: type, plural: `${type}s` }}
-            items={filteredItems}
-            renderItem={(item) => {
-              const selected = selectedIds.includes(item.id);
+            {error ? (
+              <div style={{ flexShrink: 0 }}>
+                <Box paddingBlockEnd="300">
+                  <Banner tone="critical">{error}</Banner>
+                </Box>
+              </div>
+            ) : null}
 
-              return (
-                <ResourceItem
-                  id={item.id}
-                  media={
-                    item.image ? (
-                      <Thumbnail source={item.image} alt={item.title} size="small" />
-                    ) : undefined
-                  }
-                  onClick={() => onSelect(item)}
-                  accessibilityLabel={`Select ${item.title}`}
-                >
-                  <InlineStack align="space-between" blockAlign="center">
-                    <BlockStack gap="050">
-                      <Text as="p" fontWeight="semibold">
-                        {item.title}
-                      </Text>
+            <div
+              style={{
+                border: "1px solid #E5E7EB",
+                borderRadius: 8,
+                overflow: "hidden",
+                background: "#FFFFFF",
+                display: "flex",
+                flex: "1 1 auto",
+                flexDirection: "column",
+                minHeight: 0,
+              }}
+            >
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: listGridColumns,
+                  alignItems: "center",
+                  borderBottom: "1px solid #E5E7EB",
+                  padding: "12px 16px",
+                  background: "#FAFBFB",
+                  columnGap: 12,
+                  flexShrink: 0,
+                }}
+              >
+                <div onClick={(event) => event.stopPropagation()}>
+                  <Checkbox
+                    label={`Select all loaded ${resourceLabel}`}
+                    labelHidden
+                    checked={
+                      allLoadedSelected
+                        ? true
+                        : someLoadedSelected
+                          ? "indeterminate"
+                          : false
+                    }
+                    disabled={items.length === 0}
+                    onChange={handleToggleLoadedItems}
+                  />
+                </div>
+
+                <Text as="span" tone="subdued" variant="bodySm">
+                  {resourceType === "tag" ? "Product tag" : "Item"}
+                </Text>
+
+                {rightHeader ? (
+                  <div style={{ textAlign: "right" }}>
+                    <Text as="span" tone="subdued" variant="bodySm">
+                      {rightHeader}
+                    </Text>
+                  </div>
+                ) : null}
+              </div>
+
+              <div
+                onScroll={handleListScroll}
+                style={{
+                  flex: "1 1 auto",
+                  minHeight: 0,
+                  overflowY: "auto",
+                  overflowX: "hidden",
+                  overscrollBehavior: "contain",
+                  scrollbarGutter: "stable",
+                }}
+              >
+                {items.length === 0 ? (
+                  <Box padding="500">
+                    <Text as="p" tone="subdued">
+                      No {resourceLabel} found.
+                    </Text>
+                  </Box>
+                ) : (
+                  items.map((item) => {
+                    const checked = selectedIdSet.has(item.id);
+
+                    return (
+                      <div
+                        key={item.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => handleToggle(item.id)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            handleToggle(item.id);
+                          }
+                        }}
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: listGridColumns,
+                          alignItems: "center",
+                          gap: 12,
+                          minHeight: 80,
+                          padding: "10px 16px",
+                          borderBottom: "1px solid #F1F1F1",
+                          cursor: "pointer",
+                          background: checked ? "#F6F6F7" : "#FFFFFF",
+                        }}
+                      >
+                        <div onClick={(event) => event.stopPropagation()}>
+                          <Checkbox
+                            label={item.title}
+                            labelHidden
+                            checked={checked}
+                            onChange={() => handleToggle(item.id)}
+                          />
+                        </div>
+
+                        {resourceType === "tag" ? (
+                          <Text as="span" variant="bodyMd">
+                            {item.title}
+                          </Text>
+                        ) : (
+                          <InlineStack gap="300" blockAlign="center" wrap={false}>
+                            <ResourceAvatar
+                              title={item.productTitle || item.title}
+                              imageUrl={item.imageUrl}
+                              imageAlt={item.imageAlt}
+                            />
+
+                            <BlockStack gap="050">
+                              <Text as="span" variant="bodyMd">
+                                {item.title}
+                              </Text>
+
+                              {item.productTitle ? (
+                                <Text as="span" tone="subdued" variant="bodySm">
+                                  {item.productTitle}
+                                </Text>
+                              ) : null}
+
+                              {item.status ? (
+                                <Box paddingBlockStart="050">
+                                  <Badge
+                                    tone={
+                                      item.status === "Active"
+                                        ? "success"
+                                        : "attention"
+                                    }
+                                  >
+                                    {item.status}
+                                  </Badge>
+                                </Box>
+                              ) : null}
+                            </BlockStack>
+                          </InlineStack>
+                        )}
+
+                        {resourceType === "tag" ? null : (
+                          <div style={{ textAlign: "right" }}>
+                            <Text as="span" variant="bodySm">
+                              {resourceType === "collection"
+                                ? item.productsCount
+                                : item.displayPrice || "-"}
+                            </Text>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+
+                {loadingMore ? (
+                  <Box padding="400">
+                    <BlockStack gap="200" inlineAlign="center">
+                      <Spinner
+                        accessibilityLabel={`Loading more ${resourceLabel}`}
+                        size="small"
+                      />
                       <Text as="p" tone="subdued" variant="bodySm">
-                        {item.subtitle}
+                        Loading more {resourceLabel}...
                       </Text>
                     </BlockStack>
+                  </Box>
+                ) : null}
+              </div>
+            </div>
 
-                    <Button size="slim" pressed={selected}>
-                      {selected ? "Selected" : "Select"}
+            <div
+              style={{
+                position: "sticky",
+                bottom: 0,
+                zIndex: 2,
+                flexShrink: 0,
+                marginTop: 12,
+                background: "#FFFFFF",
+                borderTop: "1px solid #E5E7EB",
+              }}
+            >
+              <Box
+                paddingBlockStart="300"
+                paddingInlineStart="050"
+                paddingInlineEnd="050"
+              >
+                <InlineStack align="space-between" blockAlign="center" gap="300">
+                  <Text as="p" tone="subdued" variant="bodyMd">
+                    {tempSelectedIds.length}/{limit} {resourceLabel} selected
+                  </Text>
+
+                  <ButtonGroup>
+                    <Button onClick={handleClose}>Cancel</Button>
+                    <Button
+                      variant="primary"
+                      onClick={handleAdd}
+                      disabled={tempSelectedIds.length === 0 || loading}
+                    >
+                      {addButtonLabel}
                     </Button>
-                  </InlineStack>
-                </ResourceItem>
-              );
-            }}
-          />
-        </BlockStack>
+                  </ButtonGroup>
+                </InlineStack>
+              </Box>
+            </div>
+          </div>
+        )}
       </Modal.Section>
     </Modal>
   );
@@ -300,10 +670,12 @@ function ConditionPicker({
   value,
   selectedCollections,
   selectedProducts,
+  selectedVariants,
   selectedTags,
   onOpenPicker,
   onRemoveCollection,
   onRemoveProduct,
+  onRemoveVariant,
   onRemoveTag,
 }) {
   if (value === "selected_collections") {
@@ -324,7 +696,7 @@ function ConditionPicker({
     );
   }
 
-  if (value === "selected_products" || value === "selected_products_with_variants") {
+  if (value === "selected_products") {
     return (
       <BlockStack gap="300">
         <InlineStack align="space-between" blockAlign="center">
@@ -337,6 +709,24 @@ function ConditionPicker({
           items={selectedProducts}
           onRemove={onRemoveProduct}
           emptyText="No products selected yet."
+        />
+      </BlockStack>
+    );
+  }
+
+  if (value === "selected_products_with_variants") {
+    return (
+      <BlockStack gap="300">
+        <InlineStack align="space-between" blockAlign="center">
+          <Text as="p" fontWeight="semibold">
+            Product variants
+          </Text>
+          <Button onClick={() => onOpenPicker("variant")}>Browse</Button>
+        </InlineStack>
+        <SelectedList
+          items={selectedVariants}
+          onRemove={onRemoveVariant}
+          emptyText="No product variants selected yet."
         />
       </BlockStack>
     );
@@ -372,12 +762,147 @@ function ConditionPicker({
   return null;
 }
 
+function RoundingFields({ prefix }) {
+  const [rounding, setRounding] = useState("none");
+  const [nearest, setNearest] = useState(false);
+  const [cents, setCents] = useState("99");
+
+  return (
+    <BlockStack gap="300">
+      <Select
+        label="Rounding"
+        name={`${prefix}_rounding_mode`}
+        options={roundingOptions}
+        value={rounding}
+        onChange={setRounding}
+      />
+
+      {(rounding === "override_cents" || rounding === "set_ending") && (
+        <Checkbox
+          label="To nearest value"
+          name={`${prefix}_override_to_nearest`}
+          checked={nearest}
+          onChange={setNearest}
+        />
+      )}
+
+      {rounding === "override_cents" ? (
+        <Box width="160px">
+          <TextField
+            label="Cents value"
+            name={`${prefix}_override_cents_value`}
+            type="number"
+            min={0}
+            max={99}
+            prefix="0."
+            value={cents}
+            onChange={setCents}
+            autoComplete="off"
+          />
+        </Box>
+      ) : null}
+    </BlockStack>
+  );
+}
+
+function PriceChangeFields({
+  fieldPrefix,
+  actionOptions,
+  defaultAction = "",
+  currency = "USD",
+}) {
+  const [action, setAction] = useState(defaultAction);
+  const [changeType, setChangeType] = useState("by_percent");
+  const [percent, setPercent] = useState("");
+  const [amount, setAmount] = useState("");
+
+  const isPriceField = fieldPrefix === "price";
+  const isCompareAtPriceField = fieldPrefix === "compare_at_price";
+  const isIncreaseOrDecrease = action === "increase" || action === "decrease";
+  const isCompareNoFieldsAction =
+    isCompareAtPriceField &&
+    (action === "set_to_price" || action === "reset_compare_at_price");
+
+  const shouldShowChangeType = isIncreaseOrDecrease;
+  const shouldShowPercent =
+    (isPriceField && action === "set_margin") ||
+    (isIncreaseOrDecrease && changeType === "by_percent");
+  const shouldShowAmount =
+    action === "set_new_value" ||
+    (isIncreaseOrDecrease && changeType === "by_amount");
+  const shouldShowRounding =
+    (isPriceField || isCompareAtPriceField) &&
+    (action === "" || (isIncreaseOrDecrease && !isCompareNoFieldsAction));
+
+  return (
+    <BlockStack gap="200">
+      <FormLayout>
+        <FormLayout.Group>
+          <Select
+            label="Action"
+            name={`${fieldPrefix}_change_action`}
+            options={actionOptions}
+            value={action}
+            onChange={setAction}
+          />
+
+          {shouldShowChangeType ? (
+            <Select
+              label="Change type"
+              name={`${fieldPrefix}_change_type`}
+              options={changeTypeOptions}
+              value={changeType}
+              onChange={setChangeType}
+            />
+          ) : null}
+        </FormLayout.Group>
+
+        {shouldShowPercent ? (
+          <TextField
+            label="Percent"
+            name={`${fieldPrefix}_change_percent`}
+            placeholder="0"
+            suffix="%"
+            value={percent}
+            onChange={setPercent}
+            autoComplete="off"
+          />
+        ) : null}
+
+        {shouldShowAmount ? (
+          <TextField
+            label="Amount"
+            name={`${fieldPrefix}_change_amount`}
+            placeholder="0.00"
+            suffix={currency}
+            value={amount}
+            onChange={setAmount}
+            autoComplete="off"
+          />
+        ) : null}
+      </FormLayout>
+
+      {shouldShowRounding ? (
+        <>
+          <Divider />
+          <RoundingFields prefix={fieldPrefix} />
+        </>
+      ) : null}
+    </BlockStack>
+  );
+}
+
 export default function NewSalePage() {
-  const { shopCurrency = "USD" } = useLoaderData();
+  const {
+    markets = [],
+    marketsError = "",
+    shopCurrency = "USD",
+  } = useLoaderData();
+  const resourceFetcher = useFetcher();
   const today = new Date().toISOString().slice(0, 10);
   const marketOptions = useMemo(
-    () => buildMarketOptions(shopCurrency),
-    [shopCurrency],
+    () => markets.map((market) => ({ label: market.label, value: market.id })),
+    [markets],
   );
 
   const [form, setForm] = useState({
@@ -415,13 +940,19 @@ export default function NewSalePage() {
     trackConditionChanges: false,
     autoReapplyChanges: false,
   });
+  const selectedMarketDetails = useMemo(
+    () => markets.filter((market) => form.markets.includes(market.id)),
+    [markets, form.markets],
+  );
 
   const [applyCollections, setApplyCollections] = useState([]);
   const [applyProducts, setApplyProducts] = useState([]);
+  const [applyVariants, setApplyVariants] = useState([]);
   const [applyTags, setApplyTags] = useState([]);
 
   const [excludeCollections, setExcludeCollections] = useState([]);
   const [excludeProducts, setExcludeProducts] = useState([]);
+  const [excludeVariants, setExcludeVariants] = useState([]);
   const [excludeTags, setExcludeTags] = useState([]);
 
   const [tagsToAdd, setTagsToAdd] = useState([{ id: "t1", title: "sale-active" }]);
@@ -432,38 +963,118 @@ export default function NewSalePage() {
     mode: null,
     type: null,
   });
+  const [resourceItems, setResourceItems] = useState([]);
+  const [pageInfo, setPageInfo] = useState({
+    hasNextPage: false,
+    endCursor: null,
+  });
+  const [resourceError, setResourceError] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const requestIdRef = useRef(0);
+  const latestRequestIdRef = useRef("");
+
+  useEffect(() => {
+    const marketIds = new Set(markets.map((market) => market.id));
+    setForm((current) => ({
+      ...current,
+      markets: current.markets.filter((marketId) => marketIds.has(marketId)),
+    }));
+  }, [markets]);
 
   const setField = (field) => (value) => {
     setForm((current) => ({ ...current, [field]: value }));
   };
 
-  const openPicker = (mode, type) => {
+  const addUniqueItems = (currentItems, newItems) => {
+    const ids = new Set(currentItems.map((item) => item.id));
+    return [
+      ...currentItems,
+      ...newItems.filter((item) => {
+        if (ids.has(item.id)) return false;
+        ids.add(item.id);
+        return true;
+      }),
+    ];
+  };
+
+  const buildResourceUrl = (type, query = "", after = "") => {
+    requestIdRef.current += 1;
+    latestRequestIdRef.current = String(requestIdRef.current);
+
+    const params = new URLSearchParams({
+      type,
+      requestId: latestRequestIdRef.current,
+    });
+
+    if (query) params.set("query", query);
+    if (after) params.set("after", after);
+
+    return `/app/resource-picker?${params.toString()}`;
+  };
+
+  const openPicker = (mode, type, query = "") => {
     setPicker({ active: true, mode, type });
+    setSearchQuery(query);
+    setResourceItems([]);
+    setPageInfo({ hasNextPage: false, endCursor: null });
+    setResourceError("");
+    setIsLoadingMore(false);
+    resourceFetcher.load(buildResourceUrl(type, query));
   };
 
   const closePicker = () => {
     setPicker({ active: false, mode: null, type: null });
+    setSearchQuery("");
+    setResourceItems([]);
+    setPageInfo({ hasNextPage: false, endCursor: null });
+    setResourceError("");
+    setIsLoadingMore(false);
   };
 
-  const getPickerItems = () => {
-    if (picker.type === "collection") return sampleCollections;
-    if (picker.type === "product") return sampleProducts;
-    return sampleTags;
+  const searchResources = (query) => {
+    if (!picker.type) return;
+    setSearchQuery(query);
+    setResourceItems([]);
+    setPageInfo({ hasNextPage: false, endCursor: null });
+    setResourceError("");
+    setIsLoadingMore(false);
+    resourceFetcher.load(buildResourceUrl(picker.type, query));
+  };
+
+  const loadNextPage = () => {
+    if (
+      !picker.type ||
+      !pageInfo.hasNextPage ||
+      !pageInfo.endCursor ||
+      isLoadingMore ||
+      resourceFetcher.state !== "idle"
+    ) {
+      return;
+    }
+
+    setIsLoadingMore(true);
+    resourceFetcher.load(
+      buildResourceUrl(picker.type, searchQuery, pageInfo.endCursor),
+    );
   };
 
   const getPickerTitle = () => {
-    if (picker.type === "collection") return "Browse collections";
-    if (picker.type === "product") return "Browse products";
-    return "Browse tags";
+    if (picker.type === "collection") return "Store Select Collection";
+    if (picker.type === "product") return "Store Select Product";
+    if (picker.type === "variant") return "Store Product Variant";
+    return "Store Product Tags";
   };
 
   const getSelectedItems = () => {
     if (picker.mode === "apply" && picker.type === "collection") return applyCollections;
     if (picker.mode === "apply" && picker.type === "product") return applyProducts;
+    if (picker.mode === "apply" && picker.type === "variant") return applyVariants;
     if (picker.mode === "apply" && picker.type === "tag") return applyTags;
 
     if (picker.mode === "exclude" && picker.type === "collection") return excludeCollections;
     if (picker.mode === "exclude" && picker.type === "product") return excludeProducts;
+    if (picker.mode === "exclude" && picker.type === "variant") return excludeVariants;
     if (picker.mode === "exclude" && picker.type === "tag") return excludeTags;
 
     if (picker.mode === "add-tags") return tagsToAdd;
@@ -472,29 +1083,74 @@ export default function NewSalePage() {
     return [];
   };
 
-  const toggleItem = (item) => {
-    const toggle = (setter) => {
-      setter((current) => {
-        const exists = current.some((selected) => selected.id === item.id);
-        return exists
-          ? current.filter((selected) => selected.id !== item.id)
-          : [...current, item];
-      });
-    };
+  const addPickerItems = (items) => {
+    if (picker.mode === "apply" && picker.type === "collection") {
+      setApplyCollections((current) => addUniqueItems(current, items));
+    }
+    if (picker.mode === "apply" && picker.type === "product") {
+      setApplyProducts((current) => addUniqueItems(current, items));
+    }
+    if (picker.mode === "apply" && picker.type === "variant") {
+      setApplyVariants((current) => addUniqueItems(current, items));
+    }
+    if (picker.mode === "apply" && picker.type === "tag") {
+      setApplyTags((current) => addUniqueItems(current, items));
+    }
 
-    if (picker.mode === "apply" && picker.type === "collection") toggle(setApplyCollections);
-    if (picker.mode === "apply" && picker.type === "product") toggle(setApplyProducts);
-    if (picker.mode === "apply" && picker.type === "tag") toggle(setApplyTags);
+    if (picker.mode === "exclude" && picker.type === "collection") {
+      setExcludeCollections((current) => addUniqueItems(current, items));
+    }
+    if (picker.mode === "exclude" && picker.type === "product") {
+      setExcludeProducts((current) => addUniqueItems(current, items));
+    }
+    if (picker.mode === "exclude" && picker.type === "variant") {
+      setExcludeVariants((current) => addUniqueItems(current, items));
+    }
+    if (picker.mode === "exclude" && picker.type === "tag") {
+      setExcludeTags((current) => addUniqueItems(current, items));
+    }
 
-    if (picker.mode === "exclude" && picker.type === "collection") toggle(setExcludeCollections);
-    if (picker.mode === "exclude" && picker.type === "product") toggle(setExcludeProducts);
-    if (picker.mode === "exclude" && picker.type === "tag") toggle(setExcludeTags);
+    if (picker.mode === "add-tags") {
+      setTagsToAdd((current) => addUniqueItems(current, items));
+    }
+    if (picker.mode === "remove-tags") {
+      setTagsToRemove((current) => addUniqueItems(current, items));
+    }
 
-    if (picker.mode === "add-tags") toggle(setTagsToAdd);
-    if (picker.mode === "remove-tags") toggle(setTagsToRemove);
+    closePicker();
   };
 
-  const canCreate = form.title.trim() && form.pricePercent.trim();
+  useEffect(() => {
+    if (!resourceFetcher.data) return;
+
+    const responseType = resourceFetcher.data.type;
+    const responseQuery = resourceFetcher.data.query || "";
+    const responseAfter = resourceFetcher.data.after || "";
+    const responseRequestId = resourceFetcher.data.requestId || "";
+
+    if (
+      responseRequestId !== latestRequestIdRef.current ||
+      responseType !== picker.type ||
+      responseQuery !== searchQuery
+    ) {
+      return;
+    }
+
+    const nextItems = resourceFetcher.data.items || [];
+    setResourceItems((currentItems) =>
+      responseAfter ? addUniqueItems(currentItems, nextItems) : nextItems,
+    );
+    setPageInfo(
+      resourceFetcher.data.pageInfo || { hasNextPage: false, endCursor: null },
+    );
+    setResourceError(resourceFetcher.data.error || "");
+    setIsLoadingMore(false);
+  }, [resourceFetcher.data, picker.type, searchQuery]);
+
+  const isInitialResourceLoading =
+    resourceFetcher.state !== "idle" && !isLoadingMore && resourceItems.length === 0;
+
+  const canCreate = form.title.trim();
 
   return (
     <>
@@ -553,6 +1209,10 @@ export default function NewSalePage() {
                       onChange={setField("applyToFixedPrices")}
                     />
 
+                    {marketsError ? (
+                      <Banner tone="critical">{marketsError}</Banner>
+                    ) : null}
+
                     <ChoiceList
                       title="Markets"
                       allowMultiple
@@ -560,137 +1220,34 @@ export default function NewSalePage() {
                       selected={form.markets}
                       onChange={setField("markets")}
                     />
+
+                    {selectedMarketDetails.map((market) => (
+                      <input
+                        key={market.id}
+                        type="hidden"
+                        name="market_ids[]"
+                        value={market.id}
+                      />
+                    ))}
                   </BlockStack>
                 ) : null}
               </SectionCard>
 
               <SectionCard title="Price">
-                <FormLayout>
-                  <FormLayout.Group>
-                    <Select
-                      label="Action"
-                      options={[
-                        { label: "Decrease", value: "decrease" },
-                        { label: "Set new price", value: "set_new_value" },
-                      ]}
-                      value={form.priceAction}
-                      onChange={setField("priceAction")}
-                    />
-
-                    <Select
-                      label="Change type"
-                      options={[
-                        { label: "By percent", value: "by_percent" },
-                        { label: "By amount", value: "by_amount" },
-                      ]}
-                      value={form.priceChangeType}
-                      onChange={setField("priceChangeType")}
-                    />
-                  </FormLayout.Group>
-
-                  {form.priceChangeType === "by_percent" ? (
-                    <TextField
-                      label="Percent"
-                      placeholder="0"
-                      suffix="%"
-                      value={form.pricePercent}
-                      onChange={setField("pricePercent")}
-                      autoComplete="off"
-                    />
-                  ) : (
-                    <TextField
-                      label="Amount"
-                      placeholder="0.00"
-                      suffix={shopCurrency}
-                      value={form.priceAmount}
-                      onChange={setField("priceAmount")}
-                      autoComplete="off"
-                    />
-                  )}
-
-                  <Select
-                    label="Rounding"
-                    options={[
-                      { label: "No rounding", value: "none" },
-                      { label: "Round to whole number", value: "round_to_whole" },
-                      { label: "Override cents", value: "override_cents" },
-                      { label: "Set price ending", value: "set_ending" },
-                    ]}
-                    value={form.priceRounding}
-                    onChange={setField("priceRounding")}
-                  />
-
-                  {form.priceRounding === "override_cents" ? (
-                    <TextField
-                      label="Override cents"
-                      prefix="0."
-                      type="number"
-                      min={0}
-                      max={99}
-                      value={form.priceCents}
-                      onChange={setField("priceCents")}
-                      autoComplete="off"
-                    />
-                  ) : null}
-                </FormLayout>
+                <PriceChangeFields
+                  fieldPrefix="price"
+                  actionOptions={priceActionOptions}
+                  defaultAction="decrease"
+                  currency={shopCurrency}
+                />
               </SectionCard>
 
               <SectionCard title="Compare at price">
-                <FormLayout>
-                  <Select
-                    label="Action"
-                    options={[
-                      {
-                        label: "Don’t change compare at price",
-                        value: "",
-                      },
-                      {
-                        label: "Set new compare at price",
-                        value: "set_new_value",
-                      },
-                      {
-                        label: "Set to old price (discount)",
-                        value: "set_to_price",
-                      },
-                    ]}
-                    value={form.compareAction}
-                    onChange={setField("compareAction")}
-                  />
-
-                  {form.compareAction === "set_new_value" ? (
-                    <>
-                      <Select
-                        label="Change type"
-                        options={[
-                          { label: "By percent", value: "by_percent" },
-                          { label: "By amount", value: "by_amount" },
-                        ]}
-                        value={form.compareChangeType}
-                        onChange={setField("compareChangeType")}
-                      />
-
-                      {form.compareChangeType === "by_percent" ? (
-                        <TextField
-                          label="Percent"
-                          placeholder="0"
-                          suffix="%"
-                          value={form.comparePercent}
-                          onChange={setField("comparePercent")}
-                          autoComplete="off"
-                        />
-                      ) : (
-                        <TextField
-                          label="Amount"
-                          placeholder="0.00"
-                          suffix={shopCurrency}
-                          value={form.compareAmount}
-                          onChange={setField("compareAmount")}
-                          autoComplete="off"
-                        />
-                      )}
-                    </>
-                  ) : null}
-                </FormLayout>
+                <PriceChangeFields
+                  fieldPrefix="compare_at_price"
+                  actionOptions={compareAtActionOptions}
+                  currency={shopCurrency}
+                />
               </SectionCard>
 
               <SectionCard title="Apply to">
@@ -706,6 +1263,7 @@ export default function NewSalePage() {
                   value={form.applyCondition}
                   selectedCollections={applyCollections}
                   selectedProducts={applyProducts}
+                  selectedVariants={applyVariants}
                   selectedTags={applyTags}
                   onOpenPicker={(type) => openPicker("apply", type)}
                   onRemoveCollection={(id) =>
@@ -713,6 +1271,9 @@ export default function NewSalePage() {
                   }
                   onRemoveProduct={(id) =>
                     setApplyProducts((items) => items.filter((item) => item.id !== id))
+                  }
+                  onRemoveVariant={(id) =>
+                    setApplyVariants((items) => items.filter((item) => item.id !== id))
                   }
                   onRemoveTag={(id) =>
                     setApplyTags((items) => items.filter((item) => item.id !== id))
@@ -733,6 +1294,7 @@ export default function NewSalePage() {
                   value={form.excludeCondition}
                   selectedCollections={excludeCollections}
                   selectedProducts={excludeProducts}
+                  selectedVariants={excludeVariants}
                   selectedTags={excludeTags}
                   onOpenPicker={(type) => openPicker("exclude", type)}
                   onRemoveCollection={(id) =>
@@ -742,6 +1304,9 @@ export default function NewSalePage() {
                   }
                   onRemoveProduct={(id) =>
                     setExcludeProducts((items) => items.filter((item) => item.id !== id))
+                  }
+                  onRemoveVariant={(id) =>
+                    setExcludeVariants((items) => items.filter((item) => item.id !== id))
                   }
                   onRemoveTag={(id) =>
                     setExcludeTags((items) => items.filter((item) => item.id !== id))
@@ -925,11 +1490,14 @@ export default function NewSalePage() {
                   onAction: () => {
                     console.log("Sale payload:", {
                       form,
+                      selectedMarketDetails,
                       applyCollections,
                       applyProducts,
+                      applyVariants,
                       applyTags,
                       excludeCollections,
                       excludeProducts,
+                      excludeVariants,
                       excludeTags,
                       tagsToAdd,
                       tagsToRemove,
@@ -949,12 +1517,18 @@ export default function NewSalePage() {
 
         <PickerModal
           active={picker.active}
-          type={picker.type || "item"}
+          resourceType={picker.type || "product"}
           title={getPickerTitle()}
-          items={getPickerItems()}
+          items={resourceItems}
+          pageInfo={pageInfo}
+          loading={isInitialResourceLoading}
+          loadingMore={isLoadingMore}
+          error={resourceError}
           selectedItems={getSelectedItems()}
           onClose={closePicker}
-          onSelect={toggleItem}
+          onAdd={addPickerItems}
+          onSearch={searchResources}
+          onLoadNext={loadNextPage}
         />
       </Page>
     </>

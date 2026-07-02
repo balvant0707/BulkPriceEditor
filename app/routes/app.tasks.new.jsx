@@ -196,7 +196,7 @@ function normalizeMarkets(markets = []) {
       primary: Boolean(market.primary),
       regions,
       label: `${market.name}${currencyLabel}${primaryLabel}`,
-      disabled: false,
+      disabled: true,
     };
   });
 }
@@ -1401,7 +1401,6 @@ export default function NewTaskPage() {
       markets.map((market) => ({
         label: market.label,
         value: market.id,
-        disabled: market.disabled,
       })),
     [markets],
   );
@@ -1426,12 +1425,10 @@ export default function NewTaskPage() {
   const [excludeTags, setExcludeTags] = useState([]);
 
   useEffect(() => {
-    const enabledMarketIds = new Set(
-      markets.filter((market) => !market.disabled).map((market) => market.id),
-    );
+    const marketIds = new Set(markets.map((market) => market.id));
 
     setSelectedMarkets((current) =>
-      current.filter((marketId) => enabledMarketIds.has(marketId)),
+      current.filter((marketId) => marketIds.has(marketId)),
     );
   }, [markets]);
 
@@ -1502,7 +1499,7 @@ export default function NewTaskPage() {
                   </ButtonGroup>
 
                   {applyChangesTo === "markets" && (
-                    <BlockStack gap="300">
+                    <BlockStack>
                       <Text as="p">
                         Bulk edit Shopify Markets price lists.{" "}
                         <a
