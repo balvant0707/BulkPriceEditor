@@ -132,36 +132,6 @@ const excludeDiscountedOptions = [
   { label: "All product types on sale", value: "product_types_on_sale" },
 ];
 
-const priceActionOptions = [
-  { label: "Do not change price", value: "" },
-  { label: "Increase price", value: "increase" },
-  { label: "Decrease price", value: "decrease" },
-  { label: "Set new price", value: "set_new_value" },
-  { label: "Set to compare at price", value: "set_to_compare_at_price" },
-  { label: "Set margin", value: "set_margin" },
-];
-
-const compareAtActionOptions = [
-  { label: "Do not change compare at price", value: "" },
-  { label: "Increase compare at price", value: "increase" },
-  { label: "Decrease compare at price", value: "decrease" },
-  { label: "Set new compare on price", value: "set_new_value" },
-  { label: "Set to price", value: "set_to_price" },
-  { label: "Reset compare at price", value: "reset_compare_at_price" },
-];
-
-const changeTypeOptions = [
-  { label: "By percent", value: "by_percent" },
-  { label: "By amount", value: "by_amount" },
-];
-
-const roundingOptions = [
-  { label: "No rounding", value: "none" },
-  { label: "Round to whole number", value: "round_to_whole" },
-  { label: "Override cents", value: "override_cents" },
-  { label: "Set price ending", value: "set_ending" },
-];
-
 function SectionCard({ title, children }) {
   return (
     <Card>
@@ -762,136 +732,6 @@ function ConditionPicker({
   return null;
 }
 
-function RoundingFields({ prefix }) {
-  const [rounding, setRounding] = useState("none");
-  const [nearest, setNearest] = useState(false);
-  const [cents, setCents] = useState("99");
-
-  return (
-    <BlockStack gap="300">
-      <Select
-        label="Rounding"
-        name={`${prefix}_rounding_mode`}
-        options={roundingOptions}
-        value={rounding}
-        onChange={setRounding}
-      />
-
-      {(rounding === "override_cents" || rounding === "set_ending") && (
-        <Checkbox
-          label="To nearest value"
-          name={`${prefix}_override_to_nearest`}
-          checked={nearest}
-          onChange={setNearest}
-        />
-      )}
-
-      {rounding === "override_cents" ? (
-        <Box width="160px">
-          <TextField
-            label="Cents value"
-            name={`${prefix}_override_cents_value`}
-            type="number"
-            min={0}
-            max={99}
-            prefix="0."
-            value={cents}
-            onChange={setCents}
-            autoComplete="off"
-          />
-        </Box>
-      ) : null}
-    </BlockStack>
-  );
-}
-
-function PriceChangeFields({
-  fieldPrefix,
-  actionOptions,
-  defaultAction = "",
-  currency = "USD",
-}) {
-  const [action, setAction] = useState(defaultAction);
-  const [changeType, setChangeType] = useState("by_percent");
-  const [percent, setPercent] = useState("");
-  const [amount, setAmount] = useState("");
-
-  const isPriceField = fieldPrefix === "price";
-  const isCompareAtPriceField = fieldPrefix === "compare_at_price";
-  const isIncreaseOrDecrease = action === "increase" || action === "decrease";
-  const isCompareNoFieldsAction =
-    isCompareAtPriceField &&
-    (action === "set_to_price" || action === "reset_compare_at_price");
-
-  const shouldShowChangeType = isIncreaseOrDecrease;
-  const shouldShowPercent =
-    (isPriceField && action === "set_margin") ||
-    (isIncreaseOrDecrease && changeType === "by_percent");
-  const shouldShowAmount =
-    action === "set_new_value" ||
-    (isIncreaseOrDecrease && changeType === "by_amount");
-  const shouldShowRounding =
-    (isPriceField || isCompareAtPriceField) &&
-    (action === "" || (isIncreaseOrDecrease && !isCompareNoFieldsAction));
-
-  return (
-    <BlockStack gap="200">
-      <FormLayout>
-        <FormLayout.Group>
-          <Select
-            label="Action"
-            name={`${fieldPrefix}_change_action`}
-            options={actionOptions}
-            value={action}
-            onChange={setAction}
-          />
-
-          {shouldShowChangeType ? (
-            <Select
-              label="Change type"
-              name={`${fieldPrefix}_change_type`}
-              options={changeTypeOptions}
-              value={changeType}
-              onChange={setChangeType}
-            />
-          ) : null}
-        </FormLayout.Group>
-
-        {shouldShowPercent ? (
-          <TextField
-            label="Percent"
-            name={`${fieldPrefix}_change_percent`}
-            placeholder="0"
-            suffix="%"
-            value={percent}
-            onChange={setPercent}
-            autoComplete="off"
-          />
-        ) : null}
-
-        {shouldShowAmount ? (
-          <TextField
-            label="Amount"
-            name={`${fieldPrefix}_change_amount`}
-            placeholder="0.00"
-            suffix={currency}
-            value={amount}
-            onChange={setAmount}
-            autoComplete="off"
-          />
-        ) : null}
-      </FormLayout>
-
-      {shouldShowRounding ? (
-        <>
-          <Divider />
-          <RoundingFields prefix={fieldPrefix} />
-        </>
-      ) : null}
-    </BlockStack>
-  );
-}
-
 export default function NewSalePage() {
   const {
     markets = [],
@@ -1234,20 +1074,132 @@ export default function NewSalePage() {
               </SectionCard>
 
               <SectionCard title="Price">
-                <PriceChangeFields
-                  fieldPrefix="price"
-                  actionOptions={priceActionOptions}
-                  defaultAction="decrease"
-                  currency={shopCurrency}
-                />
+                <FormLayout>
+                  <FormLayout.Group>
+                    <Select
+                      label="Action"
+                      options={[
+                        { label: "Decrease", value: "decrease" },
+                        { label: "Set new price", value: "set_new_value" },
+                      ]}
+                      value={form.priceAction}
+                      onChange={setField("priceAction")}
+                    />
+
+                    <Select
+                      label="Change type"
+                      options={[
+                        { label: "By percent", value: "by_percent" },
+                        { label: "By amount", value: "by_amount" },
+                      ]}
+                      value={form.priceChangeType}
+                      onChange={setField("priceChangeType")}
+                    />
+                  </FormLayout.Group>
+
+                  {form.priceChangeType === "by_percent" ? (
+                    <TextField
+                      label="Percent"
+                      placeholder="0"
+                      suffix="%"
+                      value={form.pricePercent}
+                      onChange={setField("pricePercent")}
+                      autoComplete="off"
+                    />
+                  ) : (
+                    <TextField
+                      label="Amount"
+                      placeholder="0.00"
+                      suffix={shopCurrency}
+                      value={form.priceAmount}
+                      onChange={setField("priceAmount")}
+                      autoComplete="off"
+                    />
+                  )}
+
+                  <Select
+                    label="Rounding"
+                    options={[
+                      { label: "No rounding", value: "none" },
+                      { label: "Round to whole number", value: "round_to_whole" },
+                      { label: "Override cents", value: "override_cents" },
+                      { label: "Set price ending", value: "set_ending" },
+                    ]}
+                    value={form.priceRounding}
+                    onChange={setField("priceRounding")}
+                  />
+
+                  {form.priceRounding === "override_cents" ? (
+                    <TextField
+                      label="Override cents"
+                      prefix="0."
+                      type="number"
+                      min={0}
+                      max={99}
+                      value={form.priceCents}
+                      onChange={setField("priceCents")}
+                      autoComplete="off"
+                    />
+                  ) : null}
+                </FormLayout>
               </SectionCard>
 
               <SectionCard title="Compare at price">
-                <PriceChangeFields
-                  fieldPrefix="compare_at_price"
-                  actionOptions={compareAtActionOptions}
-                  currency={shopCurrency}
-                />
+                <FormLayout>
+                  <Select
+                    label="Action"
+                    options={[
+                      {
+                        label: "Don't change compare at price",
+                        value: "",
+                      },
+                      {
+                        label: "Set new compare at price",
+                        value: "set_new_value",
+                      },
+                      {
+                        label: "Set to old price (discount)",
+                        value: "set_to_price",
+                      },
+                    ]}
+                    value={form.compareAction}
+                    onChange={setField("compareAction")}
+                  />
+
+                  {form.compareAction === "set_new_value" ? (
+                    <>
+                      <Select
+                        label="Change type"
+                        options={[
+                          { label: "By percent", value: "by_percent" },
+                          { label: "By amount", value: "by_amount" },
+                        ]}
+                        value={form.compareChangeType}
+                        onChange={setField("compareChangeType")}
+                      />
+
+                      {form.compareChangeType === "by_percent" ? (
+                        <TextField
+                          label="Percent"
+                          placeholder="0"
+                          suffix="%"
+                          value={form.comparePercent}
+                          onChange={setField("comparePercent")}
+                          autoComplete="off"
+                        />
+                      ) : (
+                        <TextField
+                          label="Amount"
+                          placeholder="0.00"
+                          suffix={shopCurrency}
+                          value={form.compareAmount}
+                          onChange={setField("compareAmount")}
+                          autoComplete="off"
+                        />
+                      )}
+                    </>
+                  ) : null}
+                </FormLayout>
               </SectionCard>
 
               <SectionCard title="Apply to">
