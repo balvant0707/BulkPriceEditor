@@ -66,11 +66,11 @@ const compareAtActionOptions = [
 ];
 
 const costActionOptions = [
-  { label: "Do not change price per item", value: "" },
-  { label: "Increase price per item", value: "increase" },
-  { label: "Decrease price per item", value: "decrease" },
-  { label: "Set new price per item", value: "set_new_value" },
-  { label: "Reset price per item", value: "reset_cost_per_item" },
+  { label: "Do not change cost per item", value: "" },
+  { label: "Increase cost per item", value: "increase" },
+  { label: "Decrease cost per item", value: "decrease" },
+  { label: "Set new cost per item", value: "set_new_value" },
+  { label: "Reset cost per item", value: "reset_cost_per_item" },
 ];
 
 const changeTypeOptions = [
@@ -972,6 +972,27 @@ function RoundingFields({ prefix }) {
   const [rounding, setRounding] = useState("none");
   const [nearest, setNearest] = useState(false);
   const [cents, setCents] = useState("99");
+  const [endingDigits, setEndingDigits] = useState(["*", ".", "9", "9"]);
+
+  const updateEndingDigit = (index, value) => {
+    const nextValue = value.slice(-1);
+
+    setEndingDigits((current) =>
+      current.map((digit, digitIndex) =>
+        digitIndex === index ? nextValue : digit,
+      ),
+    );
+  };
+
+  const addEndingDigit = () => {
+    setEndingDigits((current) => [...current, "9"]);
+  };
+
+  const removeEndingDigit = () => {
+    setEndingDigits((current) =>
+      current.length > 1 ? current.slice(0, current.length - 1) : current,
+    );
+  };
 
   return (
     <BlockStack gap="300">
@@ -983,7 +1004,7 @@ function RoundingFields({ prefix }) {
         onChange={setRounding}
       />
 
-      {rounding === "round_to_whole" && (
+      {(rounding === "override_cents" || rounding === "set_ending") && (
         <Checkbox
           label="To nearest value"
           name={`${prefix}_override_to_nearest`}
@@ -993,7 +1014,7 @@ function RoundingFields({ prefix }) {
       )}
 
       {rounding === "override_cents" && (
-        <InlineStack gap="300" blockAlign="center">
+        <BlockStack gap="200">
           <Box width="160px">
             <TextField
               label="Cents value"
@@ -1009,15 +1030,51 @@ function RoundingFields({ prefix }) {
           </Box>
 
           <Text as="p" tone="subdued">
-            Preview: {cents}
+            E.g. 10.25 &gt; 10.{String(cents || "00").padStart(2, "0").slice(0, 2)}
           </Text>
-        </InlineStack>
+        </BlockStack>
       )}
 
       {rounding === "set_ending" && (
-        <Banner tone="info">
-          Custom price ending UI can be added here. Example: *.99, *.95, *.00.
-        </Banner>
+        <BlockStack gap="200">
+          <InlineStack gap="150" blockAlign="center" wrap={false}>
+            {endingDigits.map((digit, index) => (
+              <Box key={`${prefix}-ending-${index}`} width="44px">
+                <TextField
+                  label={`Ending digit ${index + 1}`}
+                  labelHidden
+                  name={`${prefix}_price_ending_digits[]`}
+                  value={digit}
+                  maxLength={1}
+                  onChange={(value) => updateEndingDigit(index, value)}
+                  autoComplete="off"
+                />
+              </Box>
+            ))}
+          </InlineStack>
+
+          <InlineStack gap="200">
+            <Button variant="plain" onClick={addEndingDigit}>
+              Add digit
+            </Button>
+            <Text as="span" tone="subdued">
+              |
+            </Text>
+            <Button variant="plain" onClick={removeEndingDigit}>
+              Remove digit
+            </Button>
+          </InlineStack>
+
+          <input
+            type="hidden"
+            name={`${prefix}_price_ending_pattern`}
+            value={endingDigits.join("")}
+          />
+
+          <Text as="p" tone="subdued">
+            E.g. 10.25 &gt; 10.99
+          </Text>
+        </BlockStack>
       )}
     </BlockStack>
   );
@@ -1284,7 +1341,7 @@ export default function NewTaskPage() {
                   />
                 </SectionCard>
 
-                <SectionCard title="Price per item">
+                <SectionCard title="Cost per item">
                   <PriceChangeFields
                     fieldPrefix="cost_per_item"
                     actionOptions={costActionOptions}
