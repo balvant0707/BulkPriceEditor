@@ -28,22 +28,19 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { authenticate } from "../shopify.server";
 
 const MARKETS_QUERY = `#graphql
-  query TaskMarkets {
+  query GetMarkets {
     markets(first: 50) {
       nodes {
         id
         name
-        currencySettings {
-          baseCurrency {
-            currencyCode
-          }
-        }
-        catalogs(first: 1) {
+        handle
+        enabled
+        primary
+        regions(first: 20) {
           nodes {
-            id
-            title
-            priceList {
-              id
+            name
+            ... on MarketRegionCountry {
+              code
             }
           }
         }
@@ -173,22 +170,24 @@ const excludeDiscountedChoices = [
 
 function normalizeMarkets(markets = []) {
   return markets.map((market) => {
-    const currencyCode =
-      market.currencySettings?.baseCurrency?.currencyCode || "";
-    const catalog = market.catalogs?.nodes?.[0];
-    const hasPriceList = Boolean(catalog?.priceList?.id);
-    const currencyLabel = currencyCode ? ` (${currencyCode})` : "";
+    const regions = market.regions?.nodes || [];
+    const regionCodes = regions
+      .map((region) => region.code)
+      .filter(Boolean)
+      .join(", ");
+    const regionLabel = regionCodes ? ` (${regionCodes})` : "";
+    const primaryLabel = market.primary ? " - primary" : "";
+    const disabledLabel = market.enabled ? "" : " - disabled";
 
     return {
       id: market.id,
       name: market.name,
-      currencyCode,
-      catalogId: catalog?.id || "",
-      priceListId: catalog?.priceList?.id || "",
-      label: hasPriceList
-        ? `${market.name}${currencyLabel}`
-        : `${market.name}${currencyLabel} - no dedicated catalog`,
-      disabled: !hasPriceList,
+      handle: market.handle || "",
+      enabled: Boolean(market.enabled),
+      primary: Boolean(market.primary),
+      regions,
+      label: `${market.name}${regionLabel}${primaryLabel}${disabledLabel}`,
+      disabled: !market.enabled,
     };
   });
 }
@@ -1532,8 +1531,8 @@ export default function NewTaskPage() {
                               />
                               <input
                                 type="hidden"
-                                name="selected_market_price_list_ids[]"
-                                value={market.priceListId}
+                                name="selected_market_handles[]"
+                                value={market.handle}
                               />
                             </div>
                           ))}
