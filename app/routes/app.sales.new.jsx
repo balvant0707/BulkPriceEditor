@@ -740,32 +740,124 @@ function ConditionPicker({
 }
 
 function SaleRoundingFields({
+  prefix,
   rounding,
   cents,
   onRoundingChange,
   onCentsChange,
 }) {
+  const [nearest, setNearest] = useState(false);
+  const [endingDigits, setEndingDigits] = useState(["*", ".", "9", "9"]);
+
+  const updateEndingDigit = (index, value) => {
+    const nextValue = value.slice(-1);
+
+    setEndingDigits((current) =>
+      current.map((digit, digitIndex) =>
+        digitIndex === index ? nextValue : digit,
+      ),
+    );
+  };
+
+  const addEndingDigit = () => {
+    setEndingDigits((current) => [...current, "9"]);
+  };
+
+  const removeEndingDigit = () => {
+    setEndingDigits((current) =>
+      current.length > 1 ? current.slice(0, current.length - 1) : current,
+    );
+  };
+
   return (
     <BlockStack gap="300">
       <Select
         label="Rounding"
+        name={`${prefix}_rounding_mode`}
         options={roundingOptions}
         value={rounding}
         onChange={onRoundingChange}
       />
 
-      {rounding === "override_cents" ? (
-        <TextField
-          label="Override cents"
-          prefix="0."
-          type="number"
-          min={0}
-          max={99}
-          value={cents}
-          onChange={onCentsChange}
-          autoComplete="off"
+      {(rounding === "override_cents" || rounding === "set_ending") && (
+        <Checkbox
+          label="To nearest value"
+          name={`${prefix}_override_to_nearest`}
+          checked={nearest}
+          onChange={setNearest}
         />
-      ) : null}
+      )}
+
+      {rounding === "override_cents" && (
+        <InlineStack gap="600" blockAlign="center" wrap>
+          <Box width="160px">
+            <TextField
+              label="Cents value"
+              labelHidden
+              name={`${prefix}_override_cents_value`}
+              prefix="0."
+              type="number"
+              min={0}
+              max={99}
+              value={cents}
+              onChange={onCentsChange}
+              autoComplete="off"
+            />
+          </Box>
+
+          <Text as="p" tone="subdued">
+            E.g. 10.25 &gt; 10.{String(cents || "00").padStart(2, "0").slice(0, 2)}
+          </Text>
+        </InlineStack>
+      )}
+
+      {rounding === "set_ending" && (
+        <BlockStack gap="250">
+          <InlineStack gap="150" blockAlign="center" wrap={false}>
+            {endingDigits.map((digit, index) =>
+              digit === "." ? (
+                <Text key={`${prefix}-ending-${index}`} as="span">
+                  .
+                </Text>
+              ) : (
+                <Box key={`${prefix}-ending-${index}`} width="44px">
+                  <TextField
+                    label={`Ending digit ${index + 1}`}
+                    labelHidden
+                    name={`${prefix}_price_ending_digits[]`}
+                    value={digit}
+                    maxLength={1}
+                    onChange={(value) => updateEndingDigit(index, value)}
+                    autoComplete="off"
+                  />
+                </Box>
+              ),
+            )}
+          </InlineStack>
+
+          <InlineStack gap="200">
+            <Button variant="plain" onClick={addEndingDigit}>
+              Add digit
+            </Button>
+            <Text as="span" tone="subdued">
+              |
+            </Text>
+            <Button variant="plain" onClick={removeEndingDigit}>
+              Remove digit
+            </Button>
+          </InlineStack>
+
+          <input
+            type="hidden"
+            name={`${prefix}_price_ending_pattern`}
+            value={endingDigits.join("")}
+          />
+
+          <Text as="p" tone="subdued">
+            E.g. 10.25 &gt; 10.99
+          </Text>
+        </BlockStack>
+      )}
     </BlockStack>
   );
 }
@@ -1167,6 +1259,7 @@ export default function NewSalePage() {
                       )}
 
                       <SaleRoundingFields
+                        prefix="price"
                         rounding={form.priceRounding}
                         cents={form.priceCents}
                         onRoundingChange={setField("priceRounding")}
@@ -1201,6 +1294,7 @@ export default function NewSalePage() {
 
                   {form.compareAction === "" ? (
                     <SaleRoundingFields
+                      prefix="compare_at_price"
                       rounding={form.compareRounding}
                       cents={form.compareCents}
                       onRoundingChange={setField("compareRounding")}
