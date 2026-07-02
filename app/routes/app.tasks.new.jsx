@@ -60,7 +60,7 @@ const compareAtActionOptions = [
   { label: "Do not change compare at price", value: "" },
   { label: "Increase compare at price", value: "increase" },
   { label: "Decrease compare at price", value: "decrease" },
-  { label: "Set new comparison on price", value: "set_new_value" },
+  { label: "Set new compare on price", value: "set_new_value" },
   { label: "Set to price", value: "set_to_price" },
   { label: "Reset compare at price", value: "reset_compare_at_price" },
 ];
