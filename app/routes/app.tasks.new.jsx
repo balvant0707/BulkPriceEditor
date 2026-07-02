@@ -848,7 +848,7 @@ function ResourcePickerField({
               />
             </Box>
 
-            <Button onClick={() => openPicker("collection")}>Browse</Button>
+            <Button variant="primary" onClick={() => openPicker("collection")}>Browse</Button>
           </InlineStack>
 
           <SelectedResourceTags
@@ -908,7 +908,7 @@ function ResourcePickerField({
               />
             </Box>
 
-            <Button onClick={() => openPicker("product")}>Browse</Button>
+            <Button variant="primary" onClick={() => openPicker("product")}>Browse</Button>
           </InlineStack>
 
           <SelectedResourceTags
@@ -968,7 +968,7 @@ function ResourcePickerField({
               />
             </Box>
 
-            <Button onClick={() => openPicker("variant")}>Browse</Button>
+            <Button variant="primary" onClick={() => openPicker("variant")}>Browse</Button>
           </InlineStack>
 
           <SelectedResourceTags
@@ -1028,7 +1028,7 @@ function ResourcePickerField({
               />
             </Box>
 
-            <Button onClick={() => openPicker("tag", fieldQueries.tag || "")}>
+            <Button variant="primary" onClick={() => openPicker("tag", fieldQueries.tag || "")}>
               Browse
             </Button>
           </InlineStack>
