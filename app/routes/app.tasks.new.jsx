@@ -436,8 +436,8 @@ function ResourcePickerModal({
         ) : (
           <div
             style={{
-              height: "min(680px, calc(100vh - 170px))",
-              minHeight: 520,
+              height: "min(700px, calc(100vh - 180px))",
+              minHeight: "min(520px, calc(100vh - 180px))",
               display: "flex",
               flexDirection: "column",
             }}
@@ -640,9 +640,19 @@ function ResourcePickerModal({
               </div>
             </div>
 
-            <div style={{ flexShrink: 0 }}>
+            <div
+              style={{
+                position: "sticky",
+                bottom: 0,
+                zIndex: 2,
+                flexShrink: 0,
+                marginTop: 12,
+                background: "#FFFFFF",
+                borderTop: "1px solid #E5E7EB",
+              }}
+            >
               <Box
-                paddingBlockStart="400"
+                paddingBlockStart="300"
                 paddingInlineStart="050"
                 paddingInlineEnd="050"
               >
