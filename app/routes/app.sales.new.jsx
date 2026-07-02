@@ -1,4 +1,6 @@
 // app/routes/app.sales.new.jsx
+import { json } from "@remix-run/node";
+import { useLoaderData } from "@remix-run/react";
 import { useMemo, useState } from "react";
 import {
   Page,
@@ -25,13 +27,43 @@ import {
   Banner,
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
+import { authenticate } from "../shopify.server";
 
 const BACK_URL = "/app/sales";
 
-const marketOptions = [
-  { label: "India (INR) - no dedicated catalog", value: "india", disabled: true },
-  { label: "International (INR)", value: "international" },
-];
+const SHOP_CURRENCY_QUERY = `#graphql
+  query ShopCurrency {
+    shop {
+      currencyCode
+    }
+  }
+`;
+
+export async function loader({ request }) {
+  const { admin } = await authenticate.admin(request);
+
+  try {
+    const response = await admin.graphql(SHOP_CURRENCY_QUERY);
+    const payload = await response.json();
+
+    return json({
+      shopCurrency: payload.data?.shop?.currencyCode || "USD",
+    });
+  } catch {
+    return json({ shopCurrency: "USD" });
+  }
+}
+
+function buildMarketOptions(currency) {
+  return [
+    {
+      label: `India (${currency}) - no dedicated catalog`,
+      value: "india",
+      disabled: true,
+    },
+    { label: `International (${currency})`, value: "international" },
+  ];
+}
 
 const sampleProducts = [
   {
@@ -341,7 +373,12 @@ function ConditionPicker({
 }
 
 export default function NewSalePage() {
+  const { shopCurrency = "USD" } = useLoaderData();
   const today = new Date().toISOString().slice(0, 10);
+  const marketOptions = useMemo(
+    () => buildMarketOptions(shopCurrency),
+    [shopCurrency],
+  );
 
   const [form, setForm] = useState({
     title: "",
@@ -564,7 +601,7 @@ export default function NewSalePage() {
                     <TextField
                       label="Amount"
                       placeholder="0.00"
-                      suffix="INR"
+                      suffix={shopCurrency}
                       value={form.priceAmount}
                       onChange={setField("priceAmount")}
                       autoComplete="off"
@@ -645,7 +682,7 @@ export default function NewSalePage() {
                         <TextField
                           label="Amount"
                           placeholder="0.00"
-                          suffix="INR"
+                          suffix={shopCurrency}
                           value={form.compareAmount}
                           onChange={setField("compareAmount")}
                           autoComplete="off"

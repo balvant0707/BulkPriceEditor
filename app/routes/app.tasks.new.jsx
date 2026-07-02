@@ -29,6 +29,9 @@ import { authenticate } from "../shopify.server";
 
 const MARKETS_QUERY = `#graphql
   query GetMarkets {
+    shop {
+      currencyCode
+    }
     markets(first: 50) {
       nodes {
         id
@@ -65,17 +68,20 @@ export async function loader({ request }) {
       return json({
         markets: [],
         marketsError: "Unable to load Shopify Markets.",
+        shopCurrency: "USD",
       });
     }
 
     return json({
       markets: normalizeMarkets(payload.data?.markets?.nodes),
       marketsError: "",
+      shopCurrency: payload.data?.shop?.currencyCode || "USD",
     });
   } catch {
     return json({
       markets: [],
       marketsError: "Unable to load Shopify Markets.",
+      shopCurrency: "USD",
     });
   }
 }
@@ -180,7 +186,6 @@ function normalizeMarkets(markets = []) {
     const regions = market.regions?.nodes || [];
     const currencyLabel = currencyCode ? ` (${currencyCode})` : "";
     const primaryLabel = market.primary ? " - primary" : "";
-    const disabledLabel = market.enabled ? "" : " - disabled";
 
     return {
       id: market.id,
@@ -190,8 +195,8 @@ function normalizeMarkets(markets = []) {
       enabled: Boolean(market.enabled),
       primary: Boolean(market.primary),
       regions,
-      label: `${market.name}${currencyLabel}${primaryLabel}${disabledLabel}`,
-      disabled: !market.enabled,
+      label: `${market.name}${currencyLabel}${primaryLabel}`,
+      disabled: false,
     };
   });
 }
@@ -1273,7 +1278,7 @@ function PriceChangeFields({
   defaultAction = "",
   showRelative = false,
   relativeOptions = priceRelativeOptions,
-  currency = "INR",
+  currency = "USD",
 }) {
   const [action, setAction] = useState(defaultAction);
   const [relativeTo, setRelativeTo] = useState("");
@@ -1380,7 +1385,11 @@ function PriceChangeFields({
 /* -------------------- Main page -------------------- */
 
 export default function NewTaskPage() {
-  const { markets = [], marketsError = "" } = useLoaderData();
+  const {
+    markets = [],
+    marketsError = "",
+    shopCurrency = "USD",
+  } = useLoaderData();
   const navigation = useNavigation();
   const isSubmitting = navigation.state !== "idle";
 
@@ -1562,7 +1571,7 @@ export default function NewTaskPage() {
                     defaultAction="decrease"
                     showRelative
                     relativeOptions={priceRelativeOptions}
-                    currency="INR"
+                    currency={shopCurrency}
                   />
                 </SectionCard>
 
@@ -1573,7 +1582,7 @@ export default function NewTaskPage() {
                     defaultAction=""
                     showRelative
                     relativeOptions={compareRelativeOptions}
-                    currency="INR"
+                    currency={shopCurrency}
                   />
                 </SectionCard>
 
@@ -1583,7 +1592,7 @@ export default function NewTaskPage() {
                     actionOptions={costActionOptions}
                     defaultAction=""
                     showRelative={false}
-                    currency="INR"
+                    currency={shopCurrency}
                   />
                 </SectionCard>
 
