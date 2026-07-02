@@ -22,7 +22,6 @@ const statsRowStyle = {
   justifyContent: "space-between",
   alignItems: "center",
   padding: "10px 0",
-  borderBottom: "1px solid #EBEBEB",
 };
 
 const statsValueStyle = {
@@ -48,17 +47,17 @@ const changelogItems = [
   {
     text: "You can now choose which minute of the hour auto-reapply runs for sales and tasks.",
     month: "Jun'26",
-    url: "https://platmart.io/changelog/2026-06-19-reapply-minute",
+    url: "",
   },
   {
     text: "You can now edit markets that share a catalog with other markets.",
     month: "Jun'26",
-    url: "https://platmart.io/changelog/2026-06-05-shared-catalog-editing",
+    url: "",
   },
   {
     text: "You can now exclude discounted products alongside other exclusions.",
     month: "May'26",
-    url: "https://platmart.io/changelog/2026-05-21-exclude-discounted",
+    url: "",
   },
 ];
 

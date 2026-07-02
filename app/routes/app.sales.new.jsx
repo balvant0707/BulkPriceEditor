@@ -20,7 +20,6 @@ import {
   Box,
   Modal,
   Tag,
-  PageActions,
   Banner,
   Badge,
   Spinner,
@@ -1121,20 +1120,41 @@ export default function NewSalePage() {
     resourceFetcher.state !== "idle" && !isLoadingMore && resourceItems.length === 0;
 
   const canCreate = form.title.trim();
+  const handleCreateSale = () => {
+    console.log("Sale payload:", {
+      form,
+      selectedMarketDetails,
+      applyCollections,
+      applyProducts,
+      applyVariants,
+      applyTags,
+      excludeCollections,
+      excludeProducts,
+      excludeVariants,
+      excludeTags,
+      tagsToAdd,
+      tagsToRemove,
+    });
+  };
 
   return (
     <>
-      <TitleBar
-        title="New sale"
-        primaryAction={{
-          content: "Create",
-          disabled: !canCreate,
-        }}
-      />
+      <TitleBar title="New sale" />
 
       <Page
         title="New sale"
         backAction={{ content: "Sales", url: BACK_URL }}
+        primaryAction={{
+          content: "Create",
+          disabled: !canCreate,
+          onAction: handleCreateSale,
+        }}
+        secondaryActions={[
+          {
+            content: "Cancel",
+            url: BACK_URL,
+          },
+        ]}
         narrowWidth
       >
         <Layout>
@@ -1548,34 +1568,6 @@ export default function NewSalePage() {
                 </Banner>
               ) : null}
 
-              <PageActions
-                primaryAction={{
-                  content: "Create",
-                  disabled: !canCreate,
-                  onAction: () => {
-                    console.log("Sale payload:", {
-                      form,
-                      selectedMarketDetails,
-                      applyCollections,
-                      applyProducts,
-                      applyVariants,
-                      applyTags,
-                      excludeCollections,
-                      excludeProducts,
-                      excludeVariants,
-                      excludeTags,
-                      tagsToAdd,
-                      tagsToRemove,
-                    });
-                  },
-                }}
-                secondaryActions={[
-                  {
-                    content: "Cancel",
-                    url: BACK_URL,
-                  },
-                ]}
-              />
             </BlockStack>
           </Layout.Section>
         </Layout>
