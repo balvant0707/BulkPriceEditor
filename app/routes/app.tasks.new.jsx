@@ -61,8 +61,8 @@ const compareAtActionOptions = [
   { label: "Increase compare at price", value: "increase" },
   { label: "Decrease compare at price", value: "decrease" },
   { label: "Set new comparison on price", value: "set_new_value" },
-  { label: "Set on price", value: "set_to_price" },
-  { label: "Reset comparison on price", value: "reset_compare_at_price" },
+  { label: "Set to price", value: "set_to_price" },
+  { label: "Reset compare at price", value: "reset_compare_at_price" },
 ];
 
 const costActionOptions = [
@@ -1104,34 +1104,29 @@ function PriceChangeFields({
   const isCompareAtPriceField = fieldPrefix === "compare_at_price";
   const isCostPerItemField = fieldPrefix === "cost_per_item";
   const isIncreaseOrDecrease = action === "increase" || action === "decrease";
-  const isCompareAllFieldsAction =
+  const isCompareNoFieldsAction =
     isCompareAtPriceField &&
     (action === "set_to_price" || action === "reset_compare_at_price");
 
   const shouldShowRelative =
-    showRelative &&
-    (isIncreaseOrDecrease || (isCompareAtPriceField && isCompareAllFieldsAction));
+    showRelative && isIncreaseOrDecrease;
 
-  const shouldShowChangeType =
-    isIncreaseOrDecrease || isCompareAllFieldsAction;
+  const shouldShowChangeType = isIncreaseOrDecrease;
 
   const shouldShowPercent =
     (isPriceField && action === "set_margin") ||
-    isCompareAllFieldsAction ||
     (isIncreaseOrDecrease && changeType === "by_percent");
 
   const shouldShowAmount =
     (action === "set_new_value" && !isCompareAtPriceField && !isCostPerItemField) ||
     (isCompareAtPriceField && action === "set_new_value") ||
     (isCostPerItemField && action === "set_new_value") ||
-    isCompareAllFieldsAction ||
     (isIncreaseOrDecrease && changeType === "by_amount");
 
   const shouldShowRounding =
     ((isPriceField || isCompareAtPriceField) && action === "") ||
     (isCostPerItemField && action === "") ||
-    isIncreaseOrDecrease ||
-    isCompareAllFieldsAction;
+    (isIncreaseOrDecrease && !isCompareNoFieldsAction);
 
   return (
     <BlockStack gap="200">
