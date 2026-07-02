@@ -290,6 +290,14 @@ function ResourcePickerModal({
     () => new Set(tempSelectedIds),
     [tempSelectedIds],
   );
+  const loadedItemIds = useMemo(() => items.map((item) => item.id), [items]);
+  const selectedLoadedCount = loadedItemIds.filter((id) =>
+    selectedIdSet.has(id),
+  ).length;
+  const allLoadedSelected =
+    loadedItemIds.length > 0 && selectedLoadedCount === loadedItemIds.length;
+  const someLoadedSelected =
+    selectedLoadedCount > 0 && selectedLoadedCount < loadedItemIds.length;
 
   const modalTitle =
     title ||
@@ -331,7 +339,9 @@ function ResourcePickerModal({
           ? "Add tags"
           : "Add products";
   const listGridColumns =
-    resourceType === "tag" ? "minmax(0, 1fr)" : "minmax(0, 1fr) 120px";
+    resourceType === "tag"
+      ? "40px minmax(0, 1fr)"
+      : "40px minmax(0, 1fr) 120px";
 
   const handleToggle = (id) => {
     setTempSelectedIds((current) => {
@@ -342,6 +352,29 @@ function ResourcePickerModal({
       if (current.length >= limit) return current;
 
       return [...current, id];
+    });
+  };
+
+  const handleToggleLoadedItems = () => {
+    setTempSelectedIds((current) => {
+      const loadedIds = new Set(loadedItemIds);
+
+      if (allLoadedSelected) {
+        return current.filter((id) => !loadedIds.has(id));
+      }
+
+      const nextIds = [...current];
+      const nextIdSet = new Set(nextIds);
+
+      for (const id of loadedItemIds) {
+        if (nextIds.length >= limit) break;
+        if (!nextIdSet.has(id)) {
+          nextIds.push(id);
+          nextIdSet.add(id);
+        }
+      }
+
+      return nextIds;
     });
   };
 
@@ -382,17 +415,6 @@ function ResourcePickerModal({
       onClose={handleClose}
       title={modalTitle}
       large
-      primaryAction={{
-        content: addButtonLabel,
-        onAction: handleAdd,
-        disabled: tempSelectedIds.length === 0 || loading,
-      }}
-      secondaryActions={[
-        {
-          content: "Cancel",
-          onAction: handleClose,
-        },
-      ]}
     >
       <Modal.Section>
         {loading ? (
@@ -432,8 +454,10 @@ function ResourcePickerModal({
 
             <div
               style={{
-                borderTop: "1px solid #E5E7EB",
-                borderBottom: "1px solid #E5E7EB",
+                border: "1px solid #E5E7EB",
+                borderRadius: 8,
+                overflow: "hidden",
+                background: "#FFFFFF",
               }}
             >
               <div
@@ -442,9 +466,27 @@ function ResourcePickerModal({
                   gridTemplateColumns: listGridColumns,
                   alignItems: "center",
                   borderBottom: "1px solid #E5E7EB",
-                  padding: "12px 0",
+                  padding: "12px 16px",
+                  background: "#FAFBFB",
+                  columnGap: 12,
                 }}
               >
+                <div onClick={(event) => event.stopPropagation()}>
+                  <Checkbox
+                    label={`Select all loaded ${resourceLabel}`}
+                    labelHidden
+                    checked={
+                      allLoadedSelected
+                        ? true
+                        : someLoadedSelected
+                          ? "indeterminate"
+                          : false
+                    }
+                    disabled={items.length === 0}
+                    onChange={handleToggleLoadedItems}
+                  />
+                </div>
+
                 <Text as="span" tone="subdued" variant="bodySm">
                   {leftHeader}
                 </Text>
@@ -495,53 +537,61 @@ function ResourcePickerModal({
                           gridTemplateColumns: listGridColumns,
                           alignItems: "center",
                           gap: 12,
-                          minHeight: 72,
-                          padding: "10px 0",
+                          minHeight: 80,
+                          padding: "10px 16px",
                           borderBottom: "1px solid #F1F1F1",
                           cursor: "pointer",
                           background: checked ? "#F6F6F7" : "#FFFFFF",
                         }}
                       >
-                        <InlineStack gap="300" blockAlign="center" wrap={false}>
-                          <div onClick={(event) => event.stopPropagation()}>
-                            <Checkbox
-                              label={item.title}
-                              labelHidden
-                              checked={checked}
-                              onChange={() => handleToggle(item.id)}
-                            />
-                          </div>
-
-                          <ResourceAvatar
-                            title={item.productTitle || item.title}
-                            imageUrl={item.imageUrl}
-                            imageAlt={item.imageAlt}
+                        <div onClick={(event) => event.stopPropagation()}>
+                          <Checkbox
+                            label={item.title}
+                            labelHidden
+                            checked={checked}
+                            onChange={() => handleToggle(item.id)}
                           />
+                        </div>
 
-                          <BlockStack gap="050">
-                            <Text as="span" variant="bodyMd">
-                              {item.title}
-                            </Text>
+                        {resourceType === "tag" ? (
+                          <Text as="span" variant="bodyMd">
+                            {item.title}
+                          </Text>
+                        ) : (
+                          <InlineStack gap="300" blockAlign="center" wrap={false}>
+                            <ResourceAvatar
+                              title={item.productTitle || item.title}
+                              imageUrl={item.imageUrl}
+                              imageAlt={item.imageAlt}
+                            />
 
-                            {item.productTitle ? (
-                              <Text as="span" tone="subdued" variant="bodySm">
-                                {item.productTitle}
+                            <BlockStack gap="050">
+                              <Text as="span" variant="bodyMd">
+                                {item.title}
                               </Text>
-                            ) : null}
 
-                            {item.status ? (
-                              <Box paddingBlockStart="050">
-                                <Badge
-                                  tone={
-                                    item.status === "Active" ? "success" : "attention"
-                                  }
-                                >
-                                  {item.status}
-                                </Badge>
-                              </Box>
-                            ) : null}
-                          </BlockStack>
-                        </InlineStack>
+                              {item.productTitle ? (
+                                <Text as="span" tone="subdued" variant="bodySm">
+                                  {item.productTitle}
+                                </Text>
+                              ) : null}
+
+                              {item.status ? (
+                                <Box paddingBlockStart="050">
+                                  <Badge
+                                    tone={
+                                      item.status === "Active"
+                                        ? "success"
+                                        : "attention"
+                                    }
+                                  >
+                                    {item.status}
+                                  </Badge>
+                                </Box>
+                              ) : null}
+                            </BlockStack>
+                          </InlineStack>
+                        )}
 
                         {resourceType === "tag" ? null : (
                           <div style={{ textAlign: "right" }}>
@@ -573,17 +623,26 @@ function ResourcePickerModal({
               </div>
             </div>
 
-            <Box paddingBlockStart="300">
-              <InlineStack align="space-between" blockAlign="center">
-                <Text as="p" tone="subdued">
+            <Box
+              paddingBlockStart="400"
+              paddingInlineStart="050"
+              paddingInlineEnd="050"
+            >
+              <InlineStack align="space-between" blockAlign="center" gap="300">
+                <Text as="p" tone="subdued" variant="bodyMd">
                   {tempSelectedIds.length}/{limit} {resourceLabel} selected
                 </Text>
 
-                {selectedItems.length > 0 ? (
-                <Text as="p" tone="subdued">
-                  Already added: {selectedItems.length}
-                </Text>
-                ) : null}
+                <ButtonGroup>
+                  <Button onClick={handleClose}>Cancel</Button>
+                  <Button
+                    variant="primary"
+                    onClick={handleAdd}
+                    disabled={tempSelectedIds.length === 0 || loading}
+                  >
+                    {addButtonLabel}
+                  </Button>
+                </ButtonGroup>
               </InlineStack>
             </Box>
           </BlockStack>
