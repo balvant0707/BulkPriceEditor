@@ -48,7 +48,7 @@ export async function action({ request }) {
 /* -------------------- Form options -------------------- */
 
 const priceActionOptions = [
-  { label: "Don't change price", value: "" },
+  { label: "Do not change price", value: "" },
   { label: "Increase price", value: "increase" },
   { label: "Decrease price", value: "decrease" },
   { label: "Set new price", value: "set_new_value" },
@@ -57,20 +57,20 @@ const priceActionOptions = [
 ];
 
 const compareAtActionOptions = [
-  { label: "Don't change compare at price", value: "" },
+  { label: "Do not change compare at price", value: "" },
   { label: "Increase compare at price", value: "increase" },
   { label: "Decrease compare at price", value: "decrease" },
-  { label: "Set new compare at price", value: "set_new_value" },
-  { label: "Set to price", value: "set_to_price" },
-  { label: "Reset compare at price", value: "reset_compare_at_price" },
+  { label: "Set new comparison on price", value: "set_new_value" },
+  { label: "Set on price", value: "set_to_price" },
+  { label: "Reset comparison on price", value: "reset_compare_at_price" },
 ];
 
 const costActionOptions = [
-  { label: "Don't change cost per item", value: "" },
-  { label: "Increase cost per item", value: "increase" },
-  { label: "Decrease cost per item", value: "decrease" },
-  { label: "Set new cost per item", value: "set_new_value" },
-  { label: "Reset cost per item", value: "reset_cost_per_item" },
+  { label: "Do not change price per item", value: "" },
+  { label: "Increase price per item", value: "increase" },
+  { label: "Decrease price per item", value: "decrease" },
+  { label: "Set new price per item", value: "set_new_value" },
+  { label: "Reset price per item", value: "reset_cost_per_item" },
 ];
 
 const changeTypeOptions = [
@@ -97,14 +97,14 @@ const roundingOptions = [
 ];
 
 const applyToChoices = [
-  { label: "Whole store", value: "whole_store" },
+  { label: "All products in the store", value: "whole_store" },
   { label: "Selected collections", value: "selected_collections" },
   { label: "Selected products", value: "selected_products" },
   {
     label: "Selected products with variants",
     value: "selected_products_with_variants",
   },
-  { label: "Products on sale", value: "products_on_sale" },
+  { label: "All store products not on sale", value: "products_on_sale" },
   { label: "Selected tags", value: "selected_tags" },
 ];
 
@@ -122,7 +122,7 @@ const excludeChoices = [
 const excludeDiscountedChoices = [
   { label: "Nothing", value: "nothing" },
   { label: "Products on sale", value: "products_on_sale" },
-  { label: "Product variants on sale", value: "product_variants_on_sale" },
+  { label: "Product types on sale", value: "product_types_on_sale" },
 ];
 
 /* -------------------- Small UI helpers -------------------- */
@@ -230,27 +230,35 @@ function ResourcePickerModal({
       ? "Add collections"
       : resourceType === "variant"
         ? "Add product variants"
-        : "Add products");
+        : resourceType === "tag"
+          ? "Add product tags"
+          : "Add products");
 
   const resourceLabel =
     resourceType === "collection"
       ? "collections"
       : resourceType === "variant"
         ? "variants"
-        : "products";
+        : resourceType === "tag"
+          ? "tags"
+          : "products";
 
   const leftHeader =
     resourceType === "collection"
       ? "Collection"
       : resourceType === "variant"
         ? "Product variant"
-        : "Product";
+        : resourceType === "tag"
+          ? "Product tag"
+          : "Product";
 
   const rightHeader =
     resourceType === "collection"
       ? "Products"
       : resourceType === "variant"
         ? "Product"
+        : resourceType === "tag"
+          ? ""
         : "Variants";
 
   const addButtonLabel =
@@ -258,7 +266,11 @@ function ResourcePickerModal({
       ? "Add collections"
       : resourceType === "variant"
         ? "Add variants"
-        : "Add products";
+        : resourceType === "tag"
+          ? "Add tags"
+          : "Add products";
+  const listGridColumns =
+    resourceType === "tag" ? "minmax(0, 1fr)" : "minmax(0, 1fr) 120px";
 
   const handleToggle = (id) => {
     setTempSelectedIds((current) => {
@@ -366,7 +378,7 @@ function ResourcePickerModal({
               <div
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "minmax(0, 1fr) 120px",
+                  gridTemplateColumns: listGridColumns,
                   alignItems: "center",
                   borderBottom: "1px solid #E5E7EB",
                   padding: "12px 0",
@@ -376,11 +388,13 @@ function ResourcePickerModal({
                   {leftHeader}
                 </Text>
 
-                <div style={{ textAlign: "right" }}>
-                  <Text as="span" tone="subdued" variant="bodySm">
-                    {rightHeader}
-                  </Text>
-                </div>
+                {rightHeader ? (
+                  <div style={{ textAlign: "right" }}>
+                    <Text as="span" tone="subdued" variant="bodySm">
+                      {rightHeader}
+                    </Text>
+                  </div>
+                ) : null}
               </div>
 
               <div
@@ -417,7 +431,7 @@ function ResourcePickerModal({
                         }}
                         style={{
                           display: "grid",
-                          gridTemplateColumns: "minmax(0, 1fr) 120px",
+                          gridTemplateColumns: listGridColumns,
                           alignItems: "center",
                           gap: 12,
                           minHeight: 72,
@@ -464,15 +478,17 @@ function ResourcePickerModal({
                           </BlockStack>
                         </InlineStack>
 
-                        <div style={{ textAlign: "right" }}>
-                          <Text as="span" variant="bodySm">
-                            {resourceType === "collection"
-                              ? item.productsCount
-                              : resourceType === "variant"
-                                ? item.productTitle
-                                : item.variantsCount}
-                          </Text>
-                        </div>
+                        {resourceType === "tag" ? null : (
+                          <div style={{ textAlign: "right" }}>
+                            <Text as="span" variant="bodySm">
+                              {resourceType === "collection"
+                                ? item.productsCount
+                                : resourceType === "variant"
+                                  ? item.productTitle
+                                  : item.variantsCount}
+                            </Text>
+                          </div>
+                        )}
                       </div>
                     );
                   })
@@ -525,6 +541,8 @@ function ResourcePickerField({
   setSelectedProducts,
   selectedVariants,
   setSelectedVariants,
+  selectedTags,
+  setSelectedTags,
 }) {
   const [activePicker, setActivePicker] = useState(null);
   const [resourceItems, setResourceItems] = useState([]);
@@ -534,6 +552,7 @@ function ResourcePickerField({
   });
   const [resourceError, setResourceError] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [fieldQueries, setFieldQueries] = useState({});
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const appendNextPageRef = useRef(false);
   const fetcher = useFetcher();
@@ -555,6 +574,10 @@ function ResourcePickerField({
     setSelectedVariants((items) => items.filter((item) => item.id !== id));
   };
 
+  const removeTag = (id) => {
+    setSelectedTags((items) => items.filter((item) => item.id !== id));
+  };
+
   const addUniqueItems = (currentItems, newItems) => {
     const existingIds = new Set(currentItems.map((item) => item.id));
     return [
@@ -572,15 +595,20 @@ function ResourcePickerField({
     return `/app/resource-picker?${params.toString()}`;
   };
 
-  const openPicker = (type) => {
+  const openPicker = (type, query = "") => {
     setActivePicker(type);
     setResourceItems([]);
     setPageInfo({ hasNextPage: false, endCursor: null });
     setResourceError("");
-    setSearchQuery("");
+    setSearchQuery(query);
     setIsLoadingMore(false);
     appendNextPageRef.current = false;
-    fetcher.load(buildResourceUrl(type));
+    fetcher.load(buildResourceUrl(type, query));
+  };
+
+  const openPickerFromSearch = (type, query) => {
+    setFieldQueries((current) => ({ ...current, [type]: query }));
+    openPicker(type, query);
   };
 
   const searchResources = (query) => {
@@ -643,6 +671,8 @@ function ResourcePickerField({
                 label=""
                 labelHidden
                 placeholder="Search collections"
+                value={fieldQueries.collection || ""}
+                onChange={(value) => openPickerFromSearch("collection", value)}
                 autoComplete="off"
               />
             </Box>
@@ -699,6 +729,8 @@ function ResourcePickerField({
                 label=""
                 labelHidden
                 placeholder="Search products"
+                value={fieldQueries.product || ""}
+                onChange={(value) => openPickerFromSearch("product", value)}
                 autoComplete="off"
               />
             </Box>
@@ -755,6 +787,8 @@ function ResourcePickerField({
                 label=""
                 labelHidden
                 placeholder="Search product variants"
+                value={fieldQueries.variant || ""}
+                onChange={(value) => openPickerFromSearch("variant", value)}
                 autoComplete="off"
               />
             </Box>
@@ -804,18 +838,60 @@ function ResourcePickerField({
   if (tagMode) {
     return (
       <Box paddingBlockStart="300">
-        <InlineStack gap="200" blockAlign="end" wrap={false}>
-          <Box width="100%">
-            <TextField
-              label=""
-              labelHidden
-              placeholder="Search tags"
-              autoComplete="off"
-            />
-          </Box>
+        <BlockStack gap="300">
+          <InlineStack gap="200" blockAlign="end" wrap={false}>
+            <Box width="100%">
+              <TextField
+                label=""
+                labelHidden
+                placeholder="Search product tags"
+                value={fieldQueries.tag || ""}
+                onFocus={() => openPicker("tag", fieldQueries.tag || "")}
+                onChange={(value) => openPickerFromSearch("tag", value)}
+                autoComplete="off"
+              />
+            </Box>
 
-          <Button>Reload tags</Button>
-        </InlineStack>
+            <Button onClick={() => openPicker("tag", fieldQueries.tag || "")}>
+              Browse
+            </Button>
+          </InlineStack>
+
+          <SelectedResourceTags
+            items={selectedTags}
+            onRemove={removeTag}
+            emptyText="No product tags selected."
+          />
+
+          {selectedTags.map((item) => (
+            <input
+              key={item.id}
+              type="hidden"
+              name={`${sectionPrefix}_tag_names[]`}
+              value={item.title}
+            />
+          ))}
+
+          <ResourcePickerModal
+            active={activePicker === "tag"}
+            resourceType="tag"
+            title="Add product tags"
+            searchPlaceholder="Search product tags"
+            items={resourceItems}
+            pageInfo={pageInfo}
+            loading={isInitialLoading}
+            loadingMore={isLoadingMore}
+            error={resourceError}
+            selectedItems={selectedTags}
+            onClose={() => setActivePicker(null)}
+            onSearch={searchResources}
+            onLoadNext={loadNextPage}
+            onAdd={(items) => {
+              setSelectedTags((current) => addUniqueItems(current, items));
+              setActivePicker(null);
+            }}
+          />
+        </BlockStack>
       </Box>
     );
   }
@@ -894,21 +970,39 @@ function PriceChangeFields({
   const [percent, setPercent] = useState("");
   const [amount, setAmount] = useState("");
 
-  const shouldShowChangeType = action === "increase" || action === "decrease";
+  const isPriceField = fieldPrefix === "price";
+  const isCompareAtPriceField = fieldPrefix === "compare_at_price";
+  const isCostPerItemField = fieldPrefix === "cost_per_item";
+  const isIncreaseOrDecrease = action === "increase" || action === "decrease";
+  const isCompareAllFieldsAction =
+    isCompareAtPriceField &&
+    (action === "set_to_price" || action === "reset_compare_at_price");
+
+  const shouldShowRelative =
+    showRelative &&
+    (action === "" ||
+      isIncreaseOrDecrease ||
+      (isCompareAtPriceField && isCompareAllFieldsAction));
+
+  const shouldShowChangeType =
+    isIncreaseOrDecrease || isCompareAllFieldsAction;
 
   const shouldShowPercent =
-    (action === "increase" || action === "decrease" || action === "set_margin") &&
-    changeType === "by_percent";
+    (isPriceField && action === "set_margin") ||
+    ((isIncreaseOrDecrease || isCompareAllFieldsAction) &&
+      changeType === "by_percent");
 
   const shouldShowAmount =
-    action === "set_new_value" ||
-    ((action === "increase" || action === "decrease") &&
+    (action === "set_new_value" && !isCompareAtPriceField && !isCostPerItemField) ||
+    (isCompareAtPriceField && action === "set_new_value") ||
+    (isCostPerItemField && action === "set_new_value") ||
+    ((isIncreaseOrDecrease || isCompareAllFieldsAction) &&
       changeType === "by_amount");
 
   const shouldShowRounding =
-    action !== "" &&
-    action !== "reset_compare_at_price" &&
-    action !== "reset_cost_per_item";
+    (isCostPerItemField && action === "") ||
+    isIncreaseOrDecrease ||
+    isCompareAllFieldsAction;
 
   return (
     <BlockStack gap="200">
@@ -922,7 +1016,7 @@ function PriceChangeFields({
             onChange={setAction}
           />
 
-          {showRelative && (
+          {shouldShowRelative && (
             <Select
               label="Relative to"
               name={`${fieldPrefix}_change_relative_to`}
@@ -996,10 +1090,12 @@ export default function NewTaskPage() {
   const [applyCollections, setApplyCollections] = useState([]);
   const [applyProducts, setApplyProducts] = useState([]);
   const [applyVariants, setApplyVariants] = useState([]);
+  const [applyTags, setApplyTags] = useState([]);
 
   const [excludeCollections, setExcludeCollections] = useState([]);
   const [excludeProducts, setExcludeProducts] = useState([]);
   const [excludeVariants, setExcludeVariants] = useState([]);
+  const [excludeTags, setExcludeTags] = useState([]);
 
   const submitTaskForm = () => {
     if (typeof document === "undefined") return;
@@ -1122,7 +1218,7 @@ export default function NewTaskPage() {
                   />
                 </SectionCard>
 
-                <SectionCard title="Cost per item">
+                <SectionCard title="Price per item">
                   <PriceChangeFields
                     fieldPrefix="cost_per_item"
                     actionOptions={costActionOptions}
@@ -1151,6 +1247,8 @@ export default function NewTaskPage() {
                     setSelectedProducts={setApplyProducts}
                     selectedVariants={applyVariants}
                     setSelectedVariants={setApplyVariants}
+                    selectedTags={applyTags}
+                    setSelectedTags={setApplyTags}
                   />
                 </SectionCard>
 
@@ -1173,6 +1271,8 @@ export default function NewTaskPage() {
                     setSelectedProducts={setExcludeProducts}
                     selectedVariants={excludeVariants}
                     setSelectedVariants={setExcludeVariants}
+                    selectedTags={excludeTags}
+                    setSelectedTags={setExcludeTags}
                   />
                 </SectionCard>
 

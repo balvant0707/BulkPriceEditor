@@ -2,6 +2,7 @@ import { json } from "@remix-run/node";
 import { authenticate } from "../shopify.server";
 
 const PAGE_SIZE = 10;
+const TAG_PAGE_SIZE = 5000;
 
 const RESOURCE_QUERIES = {
   collection: `#graphql
@@ -57,15 +58,27 @@ const RESOURCE_QUERIES = {
       }
     }
   `,
+  tag: `#graphql
+    query ResourcePickerProductTags($first: Int!, $after: String) {
+      productTags(first: $first, after: $after) {
+        nodes
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+      }
+    }
+  `,
 };
 
 const CONNECTION_BY_TYPE = {
   collection: "collections",
   product: "products",
   variant: "productVariants",
+  tag: "productTags",
 };
 
-function normalizeItems(type, nodes = []) {
+function normalizeItems(type, nodes = [], searchQuery = "") {
   if (type === "collection") {
     return nodes.map((collection) => ({
       id: collection.id,
@@ -81,6 +94,19 @@ function normalizeItems(type, nodes = []) {
       productId: variant.product?.id,
       productTitle: variant.product?.title || "Product",
     }));
+  }
+
+  if (type === "tag") {
+    const normalizedQuery = searchQuery.trim().toLowerCase();
+
+    return nodes
+      .filter((tag) =>
+        normalizedQuery ? tag.toLowerCase().includes(normalizedQuery) : true,
+      )
+      .map((tag) => ({
+        id: tag,
+        title: tag,
+      }));
   }
 
   return nodes.map((product) => ({
@@ -105,11 +131,17 @@ export async function loader({ request }) {
   }
 
   const response = await admin.graphql(RESOURCE_QUERIES[type], {
-    variables: {
-      first: PAGE_SIZE,
-      after,
-      query: searchQuery,
-    },
+    variables:
+      type === "tag"
+        ? {
+            first: TAG_PAGE_SIZE,
+            after,
+          }
+        : {
+            first: PAGE_SIZE,
+            after,
+            query: searchQuery,
+          },
   });
   const payload = await response.json();
 
@@ -127,7 +159,10 @@ export async function loader({ request }) {
   const connection = payload.data?.[CONNECTION_BY_TYPE[type]];
 
   return json({
-    items: normalizeItems(type, connection?.nodes),
-    pageInfo: connection?.pageInfo || { hasNextPage: false, endCursor: null },
+    items: normalizeItems(type, connection?.nodes, searchQuery || ""),
+    pageInfo:
+      type === "tag"
+        ? { hasNextPage: false, endCursor: null }
+        : connection?.pageInfo || { hasNextPage: false, endCursor: null },
   });
 }
