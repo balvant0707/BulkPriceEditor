@@ -503,6 +503,7 @@ function ResourcePickerModal({
               <div
                 onScroll={handleListScroll}
                 style={{
+                  maxHeight: "min(360px, calc(130vh - 360px))",
                   overflowY: "auto",
                   overflowX: "hidden",
                   overscrollBehavior: "contain",
