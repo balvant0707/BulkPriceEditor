@@ -183,6 +183,58 @@ function SelectedResourceTags({ items, onRemove, emptyText }) {
   );
 }
 
+function ConditionScopeInputs({ sectionPrefix, selectedCondition }) {
+  if (sectionPrefix === "apply" && selectedCondition === "whole_store") {
+    return <input type="hidden" name="apply_scope" value="all_products_in_store" />;
+  }
+
+  if (sectionPrefix === "apply" && selectedCondition === "products_on_sale") {
+    return (
+      <input
+        type="hidden"
+        name="apply_sale_filter"
+        value="all_store_products_not_on_sale"
+      />
+    );
+  }
+
+  if (sectionPrefix === "exclude" && selectedCondition === "nothing") {
+    return <input type="hidden" name="exclude_scope" value="none" />;
+  }
+
+  return null;
+}
+
+function DiscountedExclusionInputs({ selected }) {
+  const selectedValue = selected?.[0] || "nothing";
+
+  if (selectedValue === "nothing") {
+    return <input type="hidden" name="discounted_exclusion_scope" value="none" />;
+  }
+
+  if (selectedValue === "products_on_sale") {
+    return (
+      <input
+        type="hidden"
+        name="discounted_exclusion_scope"
+        value="all_products_on_sale"
+      />
+    );
+  }
+
+  if (selectedValue === "product_types_on_sale") {
+    return (
+      <input
+        type="hidden"
+        name="discounted_exclusion_scope"
+        value="all_product_types_on_sale"
+      />
+    );
+  }
+
+  return null;
+}
+
 /* -------------------- Polaris popup modal -------------------- */
 
 function ResourcePickerModal({
@@ -995,9 +1047,7 @@ function PriceChangeFields({
 
   const shouldShowRelative =
     showRelative &&
-    (action === "" ||
-      isIncreaseOrDecrease ||
-      (isCompareAtPriceField && isCompareAllFieldsAction));
+    (isIncreaseOrDecrease || (isCompareAtPriceField && isCompareAllFieldsAction));
 
   const shouldShowChangeType =
     isIncreaseOrDecrease || isCompareAllFieldsAction;
@@ -1015,6 +1065,7 @@ function PriceChangeFields({
     (isIncreaseOrDecrease && changeType === "by_amount");
 
   const shouldShowRounding =
+    ((isPriceField || isCompareAtPriceField) && action === "") ||
     (isCostPerItemField && action === "") ||
     isIncreaseOrDecrease ||
     isCompareAllFieldsAction;
@@ -1252,6 +1303,10 @@ export default function NewTaskPage() {
                     onChange={setApplyTo}
                     choices={applyToChoices}
                   />
+                  <ConditionScopeInputs
+                    sectionPrefix="apply"
+                    selectedCondition={applyTo[0]}
+                  />
 
                   <ResourcePickerField
                     sectionPrefix="apply"
@@ -1275,6 +1330,10 @@ export default function NewTaskPage() {
                     selected={exclude}
                     onChange={setExclude}
                     choices={excludeChoices}
+                  />
+                  <ConditionScopeInputs
+                    sectionPrefix="exclude"
+                    selectedCondition={exclude[0]}
                   />
 
                   <ResourcePickerField
@@ -1300,9 +1359,15 @@ export default function NewTaskPage() {
                     onChange={setExcludeDiscounted}
                     choices={excludeDiscountedChoices}
                   />
+                  <DiscountedExclusionInputs selected={excludeDiscounted} />
                 </SectionCard>
 
                 <SectionCard title="Advanced">
+                  <input
+                    type="hidden"
+                    name="auto_reapply_changes_enabled"
+                    value={autoReapply ? "enabled" : "disabled"}
+                  />
                   <Checkbox
                     label="Automatically re-apply price changes (every hour)"
                     name="auto_reapply_changes"
