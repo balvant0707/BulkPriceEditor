@@ -1039,17 +1039,23 @@ function RoundingFields({ prefix }) {
         <BlockStack gap="200">
           <InlineStack gap="150" blockAlign="center" wrap={false}>
             {endingDigits.map((digit, index) => (
-              <Box key={`${prefix}-ending-${index}`} width="44px">
-                <TextField
-                  label={`Ending digit ${index + 1}`}
-                  labelHidden
-                  name={`${prefix}_price_ending_digits[]`}
-                  value={digit}
-                  maxLength={1}
-                  onChange={(value) => updateEndingDigit(index, value)}
-                  autoComplete="off"
-                />
-              </Box>
+              digit === "." ? (
+                <Text key={`${prefix}-ending-${index}`} as="span">
+                  .
+                </Text>
+              ) : (
+                <Box key={`${prefix}-ending-${index}`} width="44px">
+                  <TextField
+                    label={`Ending digit ${index + 1}`}
+                    labelHidden
+                    name={`${prefix}_price_ending_digits[]`}
+                    value={digit}
+                    maxLength={1}
+                    onChange={(value) => updateEndingDigit(index, value)}
+                    autoComplete="off"
+                  />
+                </Box>
+              )
             ))}
           </InlineStack>
 
