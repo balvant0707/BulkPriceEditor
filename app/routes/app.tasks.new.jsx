@@ -121,8 +121,8 @@ const excludeChoices = [
 
 const excludeDiscountedChoices = [
   { label: "Nothing", value: "nothing" },
-  { label: "Products on sale", value: "products_on_sale" },
-  { label: "Product types on sale", value: "product_types_on_sale" },
+  { label: "All products on sale", value: "products_on_sale" },
+  { label: "All product types on sale", value: "product_types_on_sale" },
 ];
 
 /* -------------------- Small UI helpers -------------------- */
@@ -190,6 +190,7 @@ function ResourcePickerModal({
   resourceType,
   title,
   searchPlaceholder,
+  initialQuery = "",
   items,
   pageInfo,
   loading,
@@ -208,10 +209,10 @@ function ResourcePickerModal({
 
   useEffect(() => {
     if (!active) return;
-    setQuery("");
+    setQuery(initialQuery);
     setTempSelectedIds([]);
     autoLoadLockRef.current = false;
-  }, [active, resourceType]);
+  }, [active, resourceType, initialQuery]);
 
   useEffect(() => {
     if (!loadingMore) {
@@ -611,6 +612,13 @@ function ResourcePickerField({
     openPicker(type, query);
   };
 
+  const getPickerTitle = (type) => {
+    if (type === "collection") return "Store Select Collection";
+    if (type === "variant") return "Store Product Variant";
+    if (type === "tag") return "Store Product Tags";
+    return "Store Select Product";
+  };
+
   const searchResources = (query) => {
     if (!activePicker) return;
 
@@ -672,6 +680,7 @@ function ResourcePickerField({
                 labelHidden
                 placeholder="Search collections"
                 value={fieldQueries.collection || ""}
+                onFocus={() => openPicker("collection", fieldQueries.collection || "")}
                 onChange={(value) => openPickerFromSearch("collection", value)}
                 autoComplete="off"
               />
@@ -698,8 +707,9 @@ function ResourcePickerField({
           <ResourcePickerModal
             active={activePicker === "collection"}
             resourceType="collection"
-            title="Add collections"
+            title={getPickerTitle("collection")}
             searchPlaceholder="Search collections"
+            initialQuery={searchQuery}
             items={resourceItems}
             pageInfo={pageInfo}
             loading={isInitialLoading}
@@ -730,6 +740,7 @@ function ResourcePickerField({
                 labelHidden
                 placeholder="Search products"
                 value={fieldQueries.product || ""}
+                onFocus={() => openPicker("product", fieldQueries.product || "")}
                 onChange={(value) => openPickerFromSearch("product", value)}
                 autoComplete="off"
               />
@@ -756,8 +767,9 @@ function ResourcePickerField({
           <ResourcePickerModal
             active={activePicker === "product"}
             resourceType="product"
-            title="Add products"
+            title={getPickerTitle("product")}
             searchPlaceholder="Search products"
+            initialQuery={searchQuery}
             items={resourceItems}
             pageInfo={pageInfo}
             loading={isInitialLoading}
@@ -788,6 +800,7 @@ function ResourcePickerField({
                 labelHidden
                 placeholder="Search product variants"
                 value={fieldQueries.variant || ""}
+                onFocus={() => openPicker("variant", fieldQueries.variant || "")}
                 onChange={(value) => openPickerFromSearch("variant", value)}
                 autoComplete="off"
               />
@@ -814,8 +827,9 @@ function ResourcePickerField({
           <ResourcePickerModal
             active={activePicker === "variant"}
             resourceType="variant"
-            title="Add product variants"
+            title={getPickerTitle("variant")}
             searchPlaceholder="Search product variants"
+            initialQuery={searchQuery}
             items={resourceItems}
             pageInfo={pageInfo}
             loading={isInitialLoading}
@@ -875,8 +889,9 @@ function ResourcePickerField({
           <ResourcePickerModal
             active={activePicker === "tag"}
             resourceType="tag"
-            title="Add product tags"
+            title={getPickerTitle("tag")}
             searchPlaceholder="Search product tags"
+            initialQuery={searchQuery}
             items={resourceItems}
             pageInfo={pageInfo}
             loading={isInitialLoading}
@@ -989,15 +1004,15 @@ function PriceChangeFields({
 
   const shouldShowPercent =
     (isPriceField && action === "set_margin") ||
-    ((isIncreaseOrDecrease || isCompareAllFieldsAction) &&
-      changeType === "by_percent");
+    isCompareAllFieldsAction ||
+    (isIncreaseOrDecrease && changeType === "by_percent");
 
   const shouldShowAmount =
     (action === "set_new_value" && !isCompareAtPriceField && !isCostPerItemField) ||
     (isCompareAtPriceField && action === "set_new_value") ||
     (isCostPerItemField && action === "set_new_value") ||
-    ((isIncreaseOrDecrease || isCompareAllFieldsAction) &&
-      changeType === "by_amount");
+    isCompareAllFieldsAction ||
+    (isIncreaseOrDecrease && changeType === "by_amount");
 
   const shouldShowRounding =
     (isCostPerItemField && action === "") ||
