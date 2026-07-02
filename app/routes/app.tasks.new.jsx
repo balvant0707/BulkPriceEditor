@@ -434,22 +434,33 @@ function ResourcePickerModal({
             </BlockStack>
           </div>
         ) : (
-          <BlockStack gap="0">
-            <Box paddingBlockEnd="300">
-              <TextField
-                label={searchPlaceholder}
-                labelHidden
-                placeholder={searchPlaceholder}
-                value={query}
-                onChange={handleQueryChange}
-                autoComplete="off"
-              />
-            </Box>
+          <div
+            style={{
+              height: "min(680px, calc(100vh - 170px))",
+              minHeight: 520,
+              display: "flex",
+              flexDirection: "column",
+            }}
+          >
+            <div style={{ flexShrink: 0 }}>
+              <Box paddingBlockEnd="300">
+                <TextField
+                  label={searchPlaceholder}
+                  labelHidden
+                  placeholder={searchPlaceholder}
+                  value={query}
+                  onChange={handleQueryChange}
+                  autoComplete="off"
+                />
+              </Box>
+            </div>
 
             {error ? (
-              <Box paddingBlockEnd="300">
-                <Banner tone="critical">{error}</Banner>
-              </Box>
+              <div style={{ flexShrink: 0 }}>
+                <Box paddingBlockEnd="300">
+                  <Banner tone="critical">{error}</Banner>
+                </Box>
+              </div>
             ) : null}
 
             <div
@@ -458,6 +469,10 @@ function ResourcePickerModal({
                 borderRadius: 8,
                 overflow: "hidden",
                 background: "#FFFFFF",
+                display: "flex",
+                flex: "1 1 auto",
+                flexDirection: "column",
+                minHeight: 0,
               }}
             >
               <div
@@ -469,6 +484,7 @@ function ResourcePickerModal({
                   padding: "12px 16px",
                   background: "#FAFBFB",
                   columnGap: 12,
+                  flexShrink: 0,
                 }}
               >
                 <div onClick={(event) => event.stopPropagation()}>
@@ -503,7 +519,8 @@ function ResourcePickerModal({
               <div
                 onScroll={handleListScroll}
                 style={{
-                  maxHeight: "min(360px, calc(130vh - 360px))",
+                  flex: "1 1 auto",
+                  minHeight: 0,
                   overflowY: "auto",
                   overflowX: "hidden",
                   overscrollBehavior: "contain",
@@ -623,29 +640,31 @@ function ResourcePickerModal({
               </div>
             </div>
 
-            <Box
-              paddingBlockStart="400"
-              paddingInlineStart="050"
-              paddingInlineEnd="050"
-            >
-              <InlineStack align="space-between" blockAlign="center" gap="300">
-                <Text as="p" tone="subdued" variant="bodyMd">
-                  {tempSelectedIds.length}/{limit} {resourceLabel} selected
-                </Text>
+            <div style={{ flexShrink: 0 }}>
+              <Box
+                paddingBlockStart="400"
+                paddingInlineStart="050"
+                paddingInlineEnd="050"
+              >
+                <InlineStack align="space-between" blockAlign="center" gap="300">
+                  <Text as="p" tone="subdued" variant="bodyMd">
+                    {tempSelectedIds.length}/{limit} {resourceLabel} selected
+                  </Text>
 
-                <ButtonGroup>
-                  <Button onClick={handleClose}>Cancel</Button>
-                  <Button
-                    variant="primary"
-                    onClick={handleAdd}
-                    disabled={tempSelectedIds.length === 0 || loading}
-                  >
-                    {addButtonLabel}
-                  </Button>
-                </ButtonGroup>
-              </InlineStack>
-            </Box>
-          </BlockStack>
+                  <ButtonGroup>
+                    <Button onClick={handleClose}>Cancel</Button>
+                    <Button
+                      variant="primary"
+                      onClick={handleAdd}
+                      disabled={tempSelectedIds.length === 0 || loading}
+                    >
+                      {addButtonLabel}
+                    </Button>
+                  </ButtonGroup>
+                </InlineStack>
+              </Box>
+            </div>
+          </div>
         )}
       </Modal.Section>
     </Modal>
