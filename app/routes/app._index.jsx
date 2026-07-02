@@ -21,7 +21,7 @@ const statsRowStyle = {
   display: "flex",
   justifyContent: "space-between",
   alignItems: "center",
-  padding: "10px 0",
+  padding: "5px 0",
 };
 
 const statsValueStyle = {
@@ -72,7 +72,7 @@ function StatsCard({
 }) {
   return (
     <Card>
-      <BlockStack gap="400">
+      <BlockStack gap="200">
         <InlineStack align="space-between" blockAlign="center">
           <Text as="h2" variant="headingMd">
             {title}
@@ -117,7 +117,7 @@ function StatsCard({
 function WhatsNewCard() {
   return (
     <Card>
-      <BlockStack gap="400">
+      <BlockStack gap="200">
         <Text as="h2" variant="headingMd">
           What&apos;s new
         </Text>
@@ -149,7 +149,7 @@ function HelpCard() {
     <Card>
       <InlineStack gap="500" align="space-between" blockAlign="center" wrap>
         <Box width="calc(100% - 180px)">
-          <BlockStack gap="400">
+          <BlockStack gap="200">
             <BlockStack gap="100">
               <Text as="h2" variant="headingMd">
                 Need help?
@@ -195,10 +195,10 @@ function HelpCard() {
 
 function FooterLinks() {
   return (
-    <Box paddingBlockStart="400" paddingBlockEnd="400">
+    <Box paddingBlockStart="200" paddingBlockEnd="200">
       <Divider />
 
-      <Box paddingBlockStart="400">
+      <Box paddingBlockStart="200">
         <InlineStack align="center" gap="200">
           <Link url="https://platmart.io/terms/" external>
             Terms of Service
@@ -243,7 +243,7 @@ export default function AppIndex() {
               onAction={() => openPage("/app/tasks/new")}
               actionLoading={openingPath === "/app/tasks/new"}
               stats={taskStats}
-              learnMoreUrl="https://help.platmart.io/article/28-how-to-use-tasks"
+              learnMoreUrl="#"
             />
           </Layout.Section>
 
@@ -255,7 +255,7 @@ export default function AppIndex() {
               onAction={() => openPage("/app/sales/new")}
               actionLoading={openingPath === "/app/sales/new"}
               stats={saleStats}
-              learnMoreUrl="https://help.platmart.io/article/29-how-to-use-sales"
+              learnMoreUrl="#"
             />
           </Layout.Section>
 
