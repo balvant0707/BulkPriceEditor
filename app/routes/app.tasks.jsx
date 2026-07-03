@@ -118,6 +118,47 @@ function formatDate(value) {
   return `${monthDay} at ${time}`;
 }
 
+function formatChangePayload(change, label) {
+  const action = String(change?.action || "").toLowerCase();
+  if (!action) return "";
+
+  if (action === "reset_compare_at_price") return "Reset compare at price";
+  if (action === "reset_cost_per_item") return "Reset cost per item";
+  if (action === "set_to_price") return "Set compare at price to price";
+  if (action === "set_to_compare_at_price") {
+    return "Set price to compare at price";
+  }
+  if (action === "set_margin") {
+    return change.percent
+      ? `Set ${label} margin to ${change.percent}%`
+      : `Set ${label} margin`;
+  }
+
+  const actionLabel =
+    action === "increase"
+      ? "Increase"
+      : action === "decrease"
+        ? "Decrease"
+        : action === "set_new_value"
+          ? "Set"
+          : humanize(action);
+
+  const value =
+    change.type === "by_amount"
+      ? change.amount
+      : change.percent
+        ? `${change.percent}%`
+        : change.amount;
+
+  if (action === "set_new_value") {
+    return value ? `Set ${label} to ${value}` : `Set ${label}`;
+  }
+
+  const valueText = value ? ` by ${value}` : "";
+
+  return `${actionLabel} ${label}${valueText}`;
+}
+
 function formatTaskChange(task) {
   const customTitle = getFirstValue([
     task.title,
@@ -128,6 +169,16 @@ function formatTaskChange(task) {
 
   if (customTitle) {
     return customTitle;
+  }
+
+  const changes = [
+    formatChangePayload(task.priceChange, "price"),
+    formatChangePayload(task.compareAtPriceChange, "compare at price"),
+    formatChangePayload(task.costPerItemChange, "cost per item"),
+  ].filter(Boolean);
+
+  if (changes.length) {
+    return changes.join(", ");
   }
 
   const changeType = String(
@@ -543,19 +594,19 @@ function TasksListPage({ tasks }) {
     return (
       <IndexTable.Row id={String(task.id)} key={task.id} position={index}>
         <IndexTable.Cell>
-          <Text as="span" variant="bodyMd" fontWeight="semibold">
+          <Text as="span" variant="bodyMd">
             {formatTaskChange(task)}
           </Text>
         </IndexTable.Cell>
 
         <IndexTable.Cell>
-          <Text as="span" variant="bodyMd" fontWeight="semibold">
+          <Text as="span" variant="bodyMd">
             {formatTaskType(task)}
           </Text>
         </IndexTable.Cell>
 
         <IndexTable.Cell>
-          <Text as="span" variant="bodyMd" fontWeight="semibold">
+          <Text as="span" variant="bodyMd">
             {formatApplyTo(task)}
           </Text>
         </IndexTable.Cell>
