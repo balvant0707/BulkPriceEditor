@@ -1,5 +1,6 @@
 import { json } from "@remix-run/node";
 import {
+  useFetcher,
   useLoaderData,
   useNavigate,
   useRevalidator,
@@ -60,6 +61,30 @@ export const loader = async ({ request, params }) => {
   });
 };
 
+export const action = async ({ request, params }) => {
+  const { session } = await authenticate.admin(request);
+  const taskId = Number(params.id);
+  const formData = await request.formData();
+  const intent = formData.get("intent");
+
+  if (!Number.isInteger(taskId) || taskId <= 0) {
+    throw new Response("Task not found", { status: 404 });
+  }
+
+  if (intent !== "delete") {
+    return json({ ok: false, message: "Invalid action" }, { status: 400 });
+  }
+
+  await db.task.deleteMany({
+    where: {
+      id: taskId,
+      shop: session.shop,
+    },
+  });
+
+  return json({ ok: true, deleted: true });
+};
+
 function humanize(value) {
   if (!value) return "-";
 
@@ -116,7 +141,7 @@ function getStatusDisplay(status) {
 
   if (normalized === "processing" || normalized === "applying") {
     return {
-      label: "Applying",
+      label: "Processing",
       tone: "attention",
       background: "#FEDF89",
       showProgress: true,
@@ -157,10 +182,96 @@ function getTaskProgress(task) {
     return Math.max(0, Math.min(100, Math.round(progress)));
   }
 
-  if (normalizeStatus(task.status) === "processing") return 10;
+  if (normalizeStatus(task.status) === "processing") return 1;
   if (normalizeStatus(task.status) === "complete") return 100;
 
   return 0;
+}
+
+function getRollbackStatusValue(task) {
+  return (
+    task.rollbackStatus ||
+    task.rollback?.status ||
+    task.rollbackSummary?.status ||
+    task.executionSummary?.rollbackStatus ||
+    task.executionSummary?.rollback?.status ||
+    task.executionSummary?.rollbackSummary?.status ||
+    ""
+  );
+}
+
+function getRollbackProgress(task) {
+  const possibleValues = [
+    task.rollbackProgress,
+    task.rollbackPercent,
+    task.rollbackPercentage,
+    task.rollback?.progress,
+    task.rollback?.percent,
+    task.rollbackSummary?.progress,
+    task.rollbackSummary?.percent,
+    task.rollbackSummary?.percentage,
+    task.executionSummary?.rollbackProgress,
+    task.executionSummary?.rollbackPercent,
+    task.executionSummary?.rollbackPercentage,
+    task.executionSummary?.rollback?.progress,
+    task.executionSummary?.rollback?.percent,
+    task.executionSummary?.rollbackSummary?.progress,
+    task.executionSummary?.rollbackSummary?.percent,
+    task.executionSummary?.rollbackSummary?.percentage,
+  ];
+
+  const progress = possibleValues
+    .map((value) => Number(value))
+    .find((value) => Number.isFinite(value));
+
+  if (Number.isFinite(progress)) {
+    return Math.max(0, Math.min(100, Math.round(progress)));
+  }
+
+  return 0;
+}
+
+function getRollbackState(task) {
+  const taskStatus = normalizeStatus(task.status);
+  const rollbackStatus = normalizeStatus(getRollbackStatusValue(task));
+  const combinedStatus = `${taskStatus} ${rollbackStatus}`;
+
+  const isCompleted =
+    rollbackStatus === "complete" ||
+    rollbackStatus === "completed" ||
+    rollbackStatus === "rolled_back" ||
+    rollbackStatus === "rolledback" ||
+    rollbackStatus === "rollback_complete" ||
+    rollbackStatus === "rollback_completed" ||
+    taskStatus === "rolled_back" ||
+    taskStatus === "rolledback" ||
+    taskStatus === "rollback_complete" ||
+    taskStatus === "rollback_completed" ||
+    (combinedStatus.includes("rollback") &&
+      (combinedStatus.includes("complete") ||
+        combinedStatus.includes("completed") ||
+        combinedStatus.includes("rolled")));
+
+  const isProcessing =
+    !isCompleted &&
+    (rollbackStatus === "processing" ||
+      rollbackStatus === "applying" ||
+      rollbackStatus === "pending" ||
+      rollbackStatus === "started" ||
+      taskStatus === "rollback_processing" ||
+      taskStatus === "rollback_pending" ||
+      taskStatus === "rollback_started" ||
+      (combinedStatus.includes("rollback") &&
+        (combinedStatus.includes("processing") ||
+          combinedStatus.includes("pending") ||
+          combinedStatus.includes("started") ||
+          combinedStatus.includes("applying"))));
+
+  return {
+    isCompleted,
+    isProcessing,
+    progress: getRollbackProgress(task),
+  };
 }
 
 function getStatusTone(status) {
@@ -632,15 +743,20 @@ function ProductDetailsView({ task, productDetails, navigate }) {
 }
 
 export default function TaskDetailsPage() {
-  const {
-    task,
-    shopifyStoreHandle,
-    selectedProductId,
-    productDetails,
-  } = useLoaderData();
+  const { task, shopifyStoreHandle, selectedProductId, productDetails } =
+    useLoaderData();
 
   const navigate = useNavigate();
   const revalidator = useRevalidator();
+  const deleteFetcher = useFetcher();
+
+  const rollbackState = getRollbackState(task);
+  const normalizedStatus = normalizeStatus(task.status);
+  const [clientRollbackStarted, setClientRollbackStarted] = useState(false);
+
+  const rollbackCompleted = rollbackState.isCompleted;
+  const rollbackProcessing =
+    !rollbackCompleted && (rollbackState.isProcessing || clientRollbackStarted);
 
   const logs = useMemo(
     () => createProductGroups(task, shopifyStoreHandle),
@@ -668,12 +784,73 @@ export default function TaskDetailsPage() {
   );
 
   const status = task.status || "Pending";
-  const statusDisplay = getStatusDisplay(status);
+  const defaultStatusDisplay = getStatusDisplay(status);
+  const statusDisplay = rollbackProcessing
+    ? {
+        label: "Processing",
+        tone: "attention",
+        background: "#FEDF89",
+        showProgress: true,
+      }
+    : defaultStatusDisplay;
+
   const statusTone = statusDisplay.tone;
-  const serverProgress = getTaskProgress(task);
+  const serverProgress = rollbackProcessing
+    ? Math.max(rollbackState.progress || 1, 1)
+    : getTaskProgress(task);
+
   const [visibleProgress, setVisibleProgress] = useState(serverProgress);
-  const normalizedStatus = normalizeStatus(status);
-  const shouldPoll = ["pending", "processing"].includes(normalizedStatus);
+
+  const shouldPoll =
+    ["pending", "processing"].includes(normalizedStatus) || rollbackProcessing;
+
+  const handleRollback = () => {
+    setClientRollbackStarted(true);
+    setVisibleProgress(1);
+    navigate(`/app/tasks/${task.id}/rollback`);
+  };
+
+  const handleDelete = () => {
+    deleteFetcher.submit(
+      { intent: "delete" },
+      {
+        method: "post",
+        action: `/app/tasks/${task.id}`,
+      },
+    );
+  };
+
+  const pageSecondaryActions = rollbackCompleted
+    ? [
+        {
+          content:
+            deleteFetcher.state === "idle" ? "Delete" : "Deleting...",
+          destructive: true,
+          disabled: deleteFetcher.state !== "idle",
+          onAction: handleDelete,
+        },
+      ]
+    : [
+        {
+          content: rollbackProcessing ? "Rollback processing..." : "Rollback",
+          disabled:
+            rollbackProcessing ||
+            !["complete", "completed"].includes(normalizedStatus),
+          onAction: handleRollback,
+        },
+      ];
+
+  useEffect(() => {
+    if (deleteFetcher.data?.deleted) {
+      navigate("/app/tasks");
+    }
+  }, [deleteFetcher.data, navigate]);
+
+  useEffect(() => {
+    if (rollbackCompleted) {
+      setClientRollbackStarted(false);
+    }
+  }, [rollbackCompleted]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -685,16 +862,30 @@ export default function TaskDetailsPage() {
 
   useEffect(() => {
     setVisibleProgress((currentProgress) => {
+      if (rollbackProcessing) {
+        if (currentProgress >= 100 || currentProgress <= 0) {
+          return serverProgress;
+        }
+
+        return Math.max(currentProgress, serverProgress, 1);
+      }
+
       if (normalizedStatus === "processing") {
-        return Math.max(currentProgress, serverProgress, 10);
+        if (currentProgress >= 100 || currentProgress <= 0) {
+          return Math.max(serverProgress, 1);
+        }
+
+        return Math.max(currentProgress, serverProgress, 1);
       }
 
       return serverProgress;
     });
-  }, [normalizedStatus, serverProgress]);
+  }, [normalizedStatus, rollbackProcessing, serverProgress]);
 
   useEffect(() => {
-    if (normalizedStatus !== "processing") return undefined;
+    if (!rollbackProcessing && normalizedStatus !== "processing") {
+      return undefined;
+    }
 
     const timer = setInterval(() => {
       setVisibleProgress((currentProgress) =>
@@ -703,7 +894,7 @@ export default function TaskDetailsPage() {
     }, 800);
 
     return () => clearInterval(timer);
-  }, [normalizedStatus]);
+  }, [normalizedStatus, rollbackProcessing]);
 
   useEffect(() => {
     if (!shouldPoll || selectedProductId) return undefined;
@@ -729,13 +920,7 @@ export default function TaskDetailsPage() {
     <Page
       title="Task details"
       backAction={{ content: "Tasks", onAction: () => navigate("/app/tasks") }}
-      secondaryActions={[
-        {
-          content: "Rollback",
-          url: `/app/tasks/${task.id}/rollback`,
-          disabled: !["complete", "completed"].includes(normalizedStatus),
-        },
-      ]}
+      secondaryActions={pageSecondaryActions}
     >
       <TitleBar title="Task details" />
 
@@ -838,7 +1023,7 @@ export default function TaskDetailsPage() {
                       </IndexTable.Cell>
 
                       <IndexTable.Cell>
-                        <Badge tone={statusTone}>{log.status}</Badge>
+                        <Badge tone={statusTone}>{statusDisplay.label}</Badge>
                       </IndexTable.Cell>
 
                       <IndexTable.Cell>
