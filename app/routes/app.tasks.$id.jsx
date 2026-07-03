@@ -18,6 +18,7 @@ import {
   Page,
   Pagination,
   Text,
+  TextField,
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import db from "../db.server";
@@ -293,9 +294,11 @@ function createProductGroups(task, shopifyStoreHandle) {
     const changes = buildVariantChanges(record);
 
     if (record?.price !== record?.nextPrice) group.priceChangeCount += 1;
+
     if (record?.compareAtPrice !== record?.nextCompareAtPrice) {
       group.compareAtChangeCount += 1;
     }
+
     if (record?.cost !== record?.nextCost) group.costChangeCount += 1;
 
     group.variants.push({
@@ -343,6 +346,33 @@ function createProductGroups(task, shopifyStoreHandle) {
   });
 }
 
+function filterLogs(logs, searchQuery) {
+  const query = searchQuery.trim().toLowerCase();
+
+  if (!query) return logs;
+
+  return logs.filter((log) => {
+    const searchableText = [
+      log.productTitle,
+      log.productId,
+      log.variantCount,
+      log.status,
+      ...(log.changes || []),
+      ...(log.variants || []).flatMap((variant) => [
+        variant.title,
+        variant.sku,
+        variant.variantId,
+        ...(variant.changes || []),
+      ]),
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+
+    return searchableText.includes(query);
+  });
+}
+
 function StatusBadge({ display }) {
   return (
     <span
@@ -351,7 +381,7 @@ function StatusBadge({ display }) {
         background: display.background,
         borderRadius: 8,
         display: "inline-flex",
-        fontWeight: 700,
+        fontWeight: 600,
         gap: 4,
         lineHeight: 1,
         padding: "6px 10px",
@@ -385,7 +415,7 @@ function DetailRow({ label, value, children }) {
         </Box>
 
         {children || (
-          <Text as="p" fontWeight="semibold">
+          <Text as="p" fontWeight="regular">
             {value}
           </Text>
         )}
@@ -404,12 +434,24 @@ export default function TaskDetailsPage() {
     [task, shopifyStoreHandle],
   );
 
+  const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
 
-  const totalPages = Math.max(1, Math.ceil(logs.length / LOGS_PER_PAGE));
+  const filteredLogs = useMemo(
+    () => filterLogs(logs, searchQuery),
+    [logs, searchQuery],
+  );
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredLogs.length / LOGS_PER_PAGE),
+  );
   const safeCurrentPage = Math.min(currentPage, totalPages);
   const pageStart = (safeCurrentPage - 1) * LOGS_PER_PAGE;
-  const paginatedLogs = logs.slice(pageStart, pageStart + LOGS_PER_PAGE);
+  const paginatedLogs = filteredLogs.slice(
+    pageStart,
+    pageStart + LOGS_PER_PAGE,
+  );
 
   const status = task.status || "Pending";
   const statusDisplay = getStatusDisplay(status);
@@ -418,6 +460,10 @@ export default function TaskDetailsPage() {
   const [visibleProgress, setVisibleProgress] = useState(serverProgress);
   const normalizedStatus = normalizeStatus(status);
   const shouldPoll = ["pending", "processing"].includes(normalizedStatus);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery]);
 
   useEffect(() => {
     setCurrentPage((page) => Math.min(page, totalPages));
@@ -480,17 +526,19 @@ export default function TaskDetailsPage() {
               />
               <DetailRow label="Apply to" value={humanize(task.applyScope)} />
               <DetailRow label="Exclude" value={humanize(task.excludeScope)} />
+
               <DetailRow label="Status">
                 <BlockStack gap="100">
                   <StatusBadge display={statusDisplay} />
 
                   {statusDisplay.showProgress ? (
-                    <Text as="p" tone="subdued" fontWeight="semibold">
+                    <Text as="p" tone="subdued">
                       Progress: {visibleProgress}%
                     </Text>
                   ) : null}
                 </BlockStack>
               </DetailRow>
+
               <DetailRow label="Created at" value={formatDate(task.createdAt)} />
             </Card>
 
@@ -501,14 +549,28 @@ export default function TaskDetailsPage() {
                     Logs
                   </Text>
 
-                  {logs.length ? (
+                  {filteredLogs.length ? (
                     <Text as="p" tone="subdued">
                       Showing {pageStart + 1}-
-                      {Math.min(pageStart + LOGS_PER_PAGE, logs.length)} of{" "}
-                      {logs.length}
+                      {Math.min(
+                        pageStart + LOGS_PER_PAGE,
+                        filteredLogs.length,
+                      )}{" "}
+                      of {filteredLogs.length}
                     </Text>
                   ) : null}
                 </InlineStack>
+
+                <TextField
+                  label="Search logs"
+                  labelHidden
+                  value={searchQuery}
+                  onChange={setSearchQuery}
+                  placeholder="Search by product, variant, SKU, status, or changes"
+                  clearButton
+                  onClearButtonClick={() => setSearchQuery("")}
+                  autoComplete="off"
+                />
 
                 <IndexTable
                   resourceName={{ singular: "log", plural: "logs" }}
@@ -529,23 +591,15 @@ export default function TaskDetailsPage() {
                       position={index}
                     >
                       <IndexTable.Cell>
-                        <BlockStack gap="050">
-                          <Text as="span" fontWeight="semibold">
-                            {log.adminUrl ? (
-                              <Link url={log.adminUrl} external>
-                                {log.productTitle}
-                              </Link>
-                            ) : (
-                              log.productTitle
-                            )}
-                          </Text>
-
-                          {log.productId ? (
-                            <Text as="span" tone="subdued">
-                              Product ID: {log.productId}
-                            </Text>
-                          ) : null}
-                        </BlockStack>
+                        <Text as="span" fontWeight="regular">
+                          {log.adminUrl ? (
+                            <Link url={log.adminUrl} external>
+                              {log.productTitle}
+                            </Link>
+                          ) : (
+                            log.productTitle
+                          )}
+                        </Text>
                       </IndexTable.Cell>
 
                       <IndexTable.Cell>
@@ -570,22 +624,24 @@ export default function TaskDetailsPage() {
                               : undefined
                           }
                         >
-                          Product Details
+                          Details
                         </Button>
                       </IndexTable.Cell>
                     </IndexTable.Row>
                   ))}
                 </IndexTable>
 
-                {!logs.length ? (
+                {!filteredLogs.length ? (
                   <Box padding="400">
                     <Text as="p" tone="subdued">
-                      No product changes were recorded for this task.
+                      {searchQuery
+                        ? "No logs found for your search."
+                        : "No product changes were recorded for this task."}
                     </Text>
                   </Box>
                 ) : null}
 
-                {logs.length > LOGS_PER_PAGE ? (
+                {filteredLogs.length > LOGS_PER_PAGE ? (
                   <InlineStack align="center">
                     <Pagination
                       hasPrevious={safeCurrentPage > 1}
