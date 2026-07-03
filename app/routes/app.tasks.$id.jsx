@@ -4,7 +4,7 @@ import {
   useNavigate,
   useRevalidator,
 } from "@remix-run/react";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
   Badge,
   BlockStack,
@@ -232,8 +232,32 @@ export default function TaskDetailsPage() {
   const status = task.status || "Pending";
   const statusDisplay = getStatusDisplay(status);
   const statusTone = statusDisplay.tone;
-  const progress = getTaskProgress(task);
+  const serverProgress = getTaskProgress(task);
+  const [visibleProgress, setVisibleProgress] = useState(serverProgress);
+  const normalizedStatus = normalizeStatus(status);
   const shouldPoll = ["pending", "processing"].includes(normalizeStatus(status));
+
+  useEffect(() => {
+    setVisibleProgress((currentProgress) => {
+      if (normalizedStatus === "processing") {
+        return Math.max(currentProgress, serverProgress, 10);
+      }
+
+      return serverProgress;
+    });
+  }, [normalizedStatus, serverProgress]);
+
+  useEffect(() => {
+    if (normalizedStatus !== "processing") return undefined;
+
+    const timer = setInterval(() => {
+      setVisibleProgress((currentProgress) =>
+        currentProgress >= 99 ? currentProgress : currentProgress + 1,
+      );
+    }, 800);
+
+    return () => clearInterval(timer);
+  }, [normalizedStatus]);
 
   useEffect(() => {
     if (!shouldPoll) return undefined;
@@ -275,7 +299,7 @@ export default function TaskDetailsPage() {
                   <StatusBadge display={statusDisplay} />
                   {statusDisplay.showProgress ? (
                     <Text as="p" tone="subdued" fontWeight="semibold">
-                      Progress: {progress}%
+                      Progress: {visibleProgress}%
                     </Text>
                   ) : null}
                 </BlockStack>
