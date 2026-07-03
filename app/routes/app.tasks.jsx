@@ -2,6 +2,7 @@
 import { json } from "@remix-run/node";
 import {
   Outlet,
+  Form,
   useLoaderData,
   useLocation,
   useNavigate,
@@ -25,6 +26,7 @@ import {
   Tabs,
   TextField,
   Pagination,
+  Banner,
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import db from "../db.server";
@@ -267,7 +269,11 @@ function getStatusLabel(status) {
 function getStatusTone(status) {
   const normalized = String(status || "").toLowerCase();
 
-  if (normalized.includes("completed") || normalized.includes("success")) {
+  if (
+    normalized === "complete" ||
+    normalized.includes("completed") ||
+    normalized.includes("success")
+  ) {
     return "success";
   }
 
@@ -302,7 +308,11 @@ function taskMatchesTab(task, activeTab) {
   const status = String(task.status || "").toLowerCase();
 
   if (activeTab === "completed") {
-    return status.includes("completed") || status.includes("success");
+    return (
+      status === "complete" ||
+      status.includes("completed") ||
+      status.includes("success")
+    );
   }
 
   if (activeTab === "archived") {
@@ -407,6 +417,7 @@ function TasksListPage({ tasks }) {
 
   const activeTab = searchParams.get("view") || "all";
   const queryValue = searchParams.get("q") || "";
+  const message = searchParams.get("message") || "";
   const pageParam = Number(searchParams.get("page") || 1);
 
   const selectedTabIndex = Math.max(
@@ -495,10 +506,6 @@ function TasksListPage({ tasks }) {
   const rowMarkup = paginatedTasks.map((task, index) => {
     const taskStatus = getStatusLabel(task.status);
 
-    const canRollback = String(task.status || "")
-      .toLowerCase()
-      .includes("completed");
-
     return (
       <IndexTable.Row id={String(task.id)} key={task.id} position={index}>
         <IndexTable.Cell>
@@ -535,13 +542,11 @@ function TasksListPage({ tasks }) {
               Details
             </Button>
 
-            <Button
-              size="slim"
-              url={`/app/tasks/${task.id}/rollback`}
-              disabled={!canRollback}
-            >
-              Rollback
-            </Button>
+            <Form method="post" action={`/app/tasks/${task.id}/rollback`}>
+              <Button size="slim" submit>
+                Rollback
+              </Button>
+            </Form>
           </InlineStack>
         </IndexTable.Cell>
       </IndexTable.Row>
@@ -570,6 +575,12 @@ function TasksListPage({ tasks }) {
 
       <Layout>
         <Layout.Section>
+          {message ? (
+            <Box paddingBlockEnd="400">
+              <Banner tone="info">{message}</Banner>
+            </Box>
+          ) : null}
+
           <Card padding="0">
             <Tabs
               tabs={TASK_TABS}

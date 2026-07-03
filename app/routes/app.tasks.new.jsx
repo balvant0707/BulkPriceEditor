@@ -257,32 +257,76 @@ export async function action({ request, params }) {
     getFormValue(formData, "id") || params.id || new URL(request.url).searchParams.get("id"),
   );
   const data = buildTaskData(session.shop, formData);
-  const startedAt = new Date();
-  const execution = await executeTask(admin, data);
-  const completedAt = new Date();
-  const taskData = {
-    ...data,
-    status: execution.ok ? "completed" : "failed",
-    executionSummary: execution,
-    startedAt,
-    completedAt,
-  };
 
   if (taskId) {
-    const result = await db.task.updateMany({
+    const existingTask = await db.task.findFirst({
       where: {
         id: taskId,
         shop: session.shop,
       },
-      data: taskData,
     });
 
-    if (!result.count) {
+    if (!existingTask) {
       throw new Response("Task not found", { status: 404 });
     }
-  } else {
-    await db.task.create({ data: taskData });
+
+    if (existingTask.status !== "Complete") {
+      return json(
+        {
+          error:
+            "Task cannot be changed until the current status is Complete.",
+        },
+        { status: 400 },
+      );
+    }
+
+    await db.task.update({
+      where: { id: taskId },
+      data: {
+        ...data,
+        status: "Processing",
+        startedAt: new Date(),
+        completedAt: null,
+      },
+    });
+
+    const execution = await executeTask(admin, data);
+    await db.task.update({
+      where: { id: taskId },
+      data: {
+        status: execution.ok ? "Complete" : "Failed",
+        executionSummary: execution,
+        completedAt: new Date(),
+      },
+    });
+
+    return redirect("/app/tasks");
   }
+
+  const task = await db.task.create({
+    data: {
+      ...data,
+      status: "Pending",
+    },
+  });
+
+  await db.task.update({
+    where: { id: task.id },
+    data: {
+      status: "Processing",
+      startedAt: new Date(),
+    },
+  });
+
+  const execution = await executeTask(admin, data);
+  await db.task.update({
+    where: { id: task.id },
+    data: {
+      status: execution.ok ? "Complete" : "Failed",
+      executionSummary: execution,
+      completedAt: new Date(),
+    },
+  });
 
   return redirect("/app/tasks");
 }
@@ -408,13 +452,38 @@ async function executeTask(admin, taskData) {
 
     const productVariantUpdates = [];
     const inventoryUpdates = [];
+    const originalVariants = [];
+    const originalInventoryItems = [];
 
     for (const variant of variants) {
       const variantUpdate = buildVariantUpdate(variant, taskData);
-      if (variantUpdate) productVariantUpdates.push(variantUpdate);
+      if (variantUpdate) {
+        productVariantUpdates.push(variantUpdate);
+        originalVariants.push({
+          id: variant.id,
+          title: variant.title,
+          productId: variant.product?.id,
+          productTitle: variant.product?.title,
+          price: variant.price,
+          compareAtPrice: variant.compareAtPrice,
+          nextPrice: variantUpdate.variant.price ?? variant.price,
+          nextCompareAtPrice:
+            variantUpdate.variant.compareAtPrice ?? variant.compareAtPrice,
+        });
+      }
 
       const inventoryUpdate = buildInventoryUpdate(variant, taskData.costPerItemChange);
-      if (inventoryUpdate) inventoryUpdates.push(inventoryUpdate);
+      if (inventoryUpdate) {
+        inventoryUpdates.push(inventoryUpdate);
+        originalInventoryItems.push({
+          id: variant.inventoryItem.id,
+          variantId: variant.id,
+          productId: variant.product?.id,
+          productTitle: variant.product?.title,
+          cost: variant.inventoryItem.unitCost?.amount,
+          nextCost: inventoryUpdate.input.cost,
+        });
+      }
     }
 
     const variantResults = await applyVariantUpdates(admin, productVariantUpdates);
@@ -430,6 +499,8 @@ async function executeTask(admin, taskData) {
       updatedInventoryItems: inventoryResults.updatedCount,
       skippedVariants:
         targetVariants.length - variants.length + variants.length - productVariantUpdates.length,
+      originalVariants,
+      originalInventoryItems,
       errors,
       cappedAt: MAX_TASK_VARIANTS,
     };
