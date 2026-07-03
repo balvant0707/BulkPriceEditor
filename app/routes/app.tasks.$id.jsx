@@ -16,6 +16,7 @@ import {
   InlineStack,
   Layout,
   Link,
+  Modal,
   Page,
   Pagination,
   Text,
@@ -31,7 +32,9 @@ export const loader = async ({ request, params }) => {
   const { session } = await authenticate.admin(request);
   const taskId = Number(params.id);
   const url = new URL(request.url);
-  const selectedProductId = getShopifyNumericId(url.searchParams.get("productId"));
+  const selectedProductId = getShopifyNumericId(
+    url.searchParams.get("productId"),
+  );
 
   if (!Number.isInteger(taskId) || taskId <= 0) {
     throw new Response("Task not found", { status: 404 });
@@ -114,6 +117,7 @@ function formatDate(value) {
 function formatChange(task) {
   const priceChange = task.priceChange || {};
   const action = humanize(priceChange.action || "change");
+
   const value =
     priceChange.type === "by_amount"
       ? priceChange.amount
@@ -125,7 +129,7 @@ function formatChange(task) {
 }
 
 function normalizeStatus(status) {
-  return String(status || "Pending").toLowerCase();
+  return String(status || "").toLowerCase().trim();
 }
 
 function getStatusDisplay(status) {
@@ -148,7 +152,7 @@ function getStatusDisplay(status) {
     };
   }
 
-  if (normalized === "pending") {
+  if (!normalized || normalized === "pending") {
     return {
       label: "Pending",
       tone: "attention",
@@ -182,8 +186,10 @@ function getTaskProgress(task) {
     return Math.max(0, Math.min(100, Math.round(progress)));
   }
 
-  if (normalizeStatus(task.status) === "processing") return 1;
-  if (normalizeStatus(task.status) === "complete") return 100;
+  const status = normalizeStatus(task.status);
+
+  if (status === "processing" || status === "applying") return 1;
+  if (status === "complete" || status === "completed") return 100;
 
   return 0;
 }
@@ -196,6 +202,32 @@ function getRollbackStatusValue(task) {
     task.executionSummary?.rollbackStatus ||
     task.executionSummary?.rollback?.status ||
     task.executionSummary?.rollbackSummary?.status ||
+    ""
+  );
+}
+
+function getRollbackStartedValue(task) {
+  return (
+    task.rollbackStartedAt ||
+    task.rollback?.startedAt ||
+    task.rollbackSummary?.startedAt ||
+    task.executionSummary?.rollbackStartedAt ||
+    task.executionSummary?.rollback?.startedAt ||
+    task.executionSummary?.rollbackSummary?.startedAt ||
+    ""
+  );
+}
+
+function getRollbackCompletedValue(task) {
+  return (
+    task.rollbackCompletedAt ||
+    task.rolledBackAt ||
+    task.rollback?.completedAt ||
+    task.rollbackSummary?.completedAt ||
+    task.executionSummary?.rollbackCompletedAt ||
+    task.executionSummary?.rolledBackAt ||
+    task.executionSummary?.rollback?.completedAt ||
+    task.executionSummary?.rollbackSummary?.completedAt ||
     ""
   );
 }
@@ -234,43 +266,69 @@ function getRollbackProgress(task) {
 function getRollbackState(task) {
   const taskStatus = normalizeStatus(task.status);
   const rollbackStatus = normalizeStatus(getRollbackStatusValue(task));
-  const combinedStatus = `${taskStatus} ${rollbackStatus}`;
+  const rollbackProgress = getRollbackProgress(task);
+
+  const hasStartedAt = Boolean(getRollbackStartedValue(task));
+  const hasCompletedAt = Boolean(getRollbackCompletedValue(task));
+
+  const completedStatuses = [
+    "complete",
+    "completed",
+    "rolled_back",
+    "rolledback",
+    "rollback_complete",
+    "rollback_completed",
+  ];
+
+  const processingStatuses = [
+    "processing",
+    "applying",
+    "started",
+    "running",
+    "in_progress",
+    "rollback_processing",
+    "rollback_started",
+    "rollback_running",
+    "rollback_in_progress",
+  ];
+
+  const failedStatuses = ["failed", "error", "cancelled", "canceled"];
 
   const isCompleted =
-    rollbackStatus === "complete" ||
-    rollbackStatus === "completed" ||
-    rollbackStatus === "rolled_back" ||
-    rollbackStatus === "rolledback" ||
-    rollbackStatus === "rollback_complete" ||
-    rollbackStatus === "rollback_completed" ||
-    taskStatus === "rolled_back" ||
-    taskStatus === "rolledback" ||
-    taskStatus === "rollback_complete" ||
-    taskStatus === "rollback_completed" ||
-    (combinedStatus.includes("rollback") &&
-      (combinedStatus.includes("complete") ||
-        combinedStatus.includes("completed") ||
-        combinedStatus.includes("rolled")));
+    hasCompletedAt ||
+    completedStatuses.includes(rollbackStatus) ||
+    completedStatuses.includes(taskStatus) ||
+    (taskStatus.includes("rollback") &&
+      (taskStatus.includes("complete") ||
+        taskStatus.includes("completed") ||
+        taskStatus.includes("rolled")));
+
+  const isFailed =
+    failedStatuses.some((status) => rollbackStatus.includes(status)) ||
+    failedStatuses.some((status) => taskStatus.includes(`rollback_${status}`));
+
+  const hasRealRollbackStart =
+    hasStartedAt ||
+    rollbackProgress > 0 ||
+    processingStatuses.includes(rollbackStatus) ||
+    processingStatuses.includes(taskStatus) ||
+    taskStatus.includes("rollback_processing") ||
+    taskStatus.includes("rollback_started") ||
+    taskStatus.includes("rollback_running");
 
   const isProcessing =
     !isCompleted &&
-    (rollbackStatus === "processing" ||
-      rollbackStatus === "applying" ||
-      rollbackStatus === "pending" ||
-      rollbackStatus === "started" ||
-      taskStatus === "rollback_processing" ||
-      taskStatus === "rollback_pending" ||
-      taskStatus === "rollback_started" ||
-      (combinedStatus.includes("rollback") &&
-        (combinedStatus.includes("processing") ||
-          combinedStatus.includes("pending") ||
-          combinedStatus.includes("started") ||
-          combinedStatus.includes("applying"))));
+    !isFailed &&
+    hasRealRollbackStart &&
+    (processingStatuses.includes(rollbackStatus) ||
+      processingStatuses.includes(taskStatus) ||
+      rollbackStatus === "pending");
 
   return {
     isCompleted,
     isProcessing,
-    progress: getRollbackProgress(task),
+    isFailed,
+    progress: rollbackProgress,
   };
 }
 
@@ -445,7 +503,6 @@ function createProductGroups(task, shopifyStoreHandle) {
     }
 
     const group = groups.get(groupKey);
-    const changes = buildVariantChanges(record);
 
     if (record?.price !== record?.nextPrice) group.priceChangeCount += 1;
 
@@ -460,7 +517,7 @@ function createProductGroups(task, shopifyStoreHandle) {
       variantId,
       title: variantTitle,
       sku,
-      changes,
+      changes: buildVariantChanges(record),
       type,
     });
   }
@@ -752,11 +809,17 @@ export default function TaskDetailsPage() {
 
   const rollbackState = getRollbackState(task);
   const normalizedStatus = normalizeStatus(task.status);
+
+  const [rollbackModalOpen, setRollbackModalOpen] = useState(false);
   const [clientRollbackStarted, setClientRollbackStarted] = useState(false);
 
   const rollbackCompleted = rollbackState.isCompleted;
+  const rollbackFailed = rollbackState.isFailed;
+
   const rollbackProcessing =
-    !rollbackCompleted && (rollbackState.isProcessing || clientRollbackStarted);
+    !rollbackCompleted &&
+    !rollbackFailed &&
+    (rollbackState.isProcessing || clientRollbackStarted);
 
   const logs = useMemo(
     () => createProductGroups(task, shopifyStoreHandle),
@@ -785,6 +848,7 @@ export default function TaskDetailsPage() {
 
   const status = task.status || "Pending";
   const defaultStatusDisplay = getStatusDisplay(status);
+
   const statusDisplay = rollbackProcessing
     ? {
         label: "Processing",
@@ -795,6 +859,7 @@ export default function TaskDetailsPage() {
     : defaultStatusDisplay;
 
   const statusTone = statusDisplay.tone;
+
   const serverProgress = rollbackProcessing
     ? Math.max(rollbackState.progress || 1, 1)
     : getTaskProgress(task);
@@ -802,9 +867,20 @@ export default function TaskDetailsPage() {
   const [visibleProgress, setVisibleProgress] = useState(serverProgress);
 
   const shouldPoll =
-    ["pending", "processing"].includes(normalizedStatus) || rollbackProcessing;
+    ["pending", "processing", "applying"].includes(normalizedStatus) ||
+    rollbackProcessing;
 
-  const handleRollback = () => {
+  const openRollbackModal = () => {
+    setRollbackModalOpen(true);
+  };
+
+  const closeRollbackModal = () => {
+    if (rollbackProcessing) return;
+    setRollbackModalOpen(false);
+  };
+
+  const confirmRollback = () => {
+    setRollbackModalOpen(false);
     setClientRollbackStarted(true);
     setVisibleProgress(1);
     navigate(`/app/tasks/${task.id}/rollback`);
@@ -823,8 +899,7 @@ export default function TaskDetailsPage() {
   const pageSecondaryActions = rollbackCompleted
     ? [
         {
-          content:
-            deleteFetcher.state === "idle" ? "Delete" : "Deleting...",
+          content: deleteFetcher.state === "idle" ? "Delete" : "Deleting...",
           destructive: true,
           disabled: deleteFetcher.state !== "idle",
           onAction: handleDelete,
@@ -836,7 +911,7 @@ export default function TaskDetailsPage() {
           disabled:
             rollbackProcessing ||
             !["complete", "completed"].includes(normalizedStatus),
-          onAction: handleRollback,
+          onAction: openRollbackModal,
         },
       ];
 
@@ -847,10 +922,11 @@ export default function TaskDetailsPage() {
   }, [deleteFetcher.data, navigate]);
 
   useEffect(() => {
-    if (rollbackCompleted) {
+    if (rollbackCompleted || rollbackFailed) {
       setClientRollbackStarted(false);
+      setRollbackModalOpen(false);
     }
-  }, [rollbackCompleted]);
+  }, [rollbackCompleted, rollbackFailed]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -870,7 +946,7 @@ export default function TaskDetailsPage() {
         return Math.max(currentProgress, serverProgress, 1);
       }
 
-      if (normalizedStatus === "processing") {
+      if (normalizedStatus === "processing" || normalizedStatus === "applying") {
         if (currentProgress >= 100 || currentProgress <= 0) {
           return Math.max(serverProgress, 1);
         }
@@ -883,7 +959,11 @@ export default function TaskDetailsPage() {
   }, [normalizedStatus, rollbackProcessing, serverProgress]);
 
   useEffect(() => {
-    if (!rollbackProcessing && normalizedStatus !== "processing") {
+    if (
+      !rollbackProcessing &&
+      normalizedStatus !== "processing" &&
+      normalizedStatus !== "applying"
+    ) {
       return undefined;
     }
 
@@ -923,6 +1003,39 @@ export default function TaskDetailsPage() {
       secondaryActions={pageSecondaryActions}
     >
       <TitleBar title="Task details" />
+
+      <Modal
+        open={rollbackModalOpen}
+        onClose={closeRollbackModal}
+        title="Confirm rollback"
+        primaryAction={{
+          content: "Yes, rollback",
+          destructive: true,
+          onAction: confirmRollback,
+          disabled: rollbackProcessing,
+        }}
+        secondaryActions={[
+          {
+            content: "Cancel",
+            onAction: closeRollbackModal,
+            disabled: rollbackProcessing,
+          },
+        ]}
+      >
+        <Modal.Section>
+          <BlockStack gap="300">
+            <Text as="p">
+              Are you sure you want to rollback this task? This will revert the
+              product changes made by this task.
+            </Text>
+
+            <Text as="p" tone="subdued">
+              Click Yes only when you want to restore the previous product
+              values.
+            </Text>
+          </BlockStack>
+        </Modal.Section>
+      </Modal>
 
       <Layout>
         <Layout.Section>
