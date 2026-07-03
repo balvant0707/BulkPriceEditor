@@ -99,6 +99,10 @@ function humanize(value) {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+function normalizeStatus(status) {
+  return String(status || "").toLowerCase().trim();
+}
+
 function formatDate(value) {
   if (!value) return "-";
 
@@ -128,22 +132,110 @@ function formatChange(task) {
   return `${action}${value ? ` by ${value}` : ""}`;
 }
 
-function normalizeStatus(status) {
-  return String(status || "").toLowerCase().trim();
+function getNumberValue(...values) {
+  const foundValue = values
+    .map((value) => Number(value))
+    .find((value) => Number.isFinite(value));
+
+  return Number.isFinite(foundValue) ? foundValue : null;
 }
 
-function getStatusDisplay(status) {
+function getExecutionProgress(task) {
+  const progress = getNumberValue(
+    task.progress,
+    task.percent,
+    task.percentage,
+    task.executionProgress,
+    task.executionPercent,
+    task.executionSummary?.progress,
+    task.executionSummary?.percent,
+    task.executionSummary?.percentage,
+  );
+
+  if (Number.isFinite(progress)) {
+    return Math.max(0, Math.min(100, Math.round(progress)));
+  }
+
+  return 0;
+}
+
+function getTaskCompletedValue(task) {
+  return (
+    task.completedAt ||
+    task.appliedAt ||
+    task.executionSummary?.completedAt ||
+    task.executionSummary?.appliedAt ||
+    task.executionSummary?.finishedAt ||
+    task.executionSummary?.completed ||
+    ""
+  );
+}
+
+function getTaskStatusValue(task) {
+  return (
+    task.status ||
+    task.executionStatus ||
+    task.executionSummary?.status ||
+    task.executionSummary?.taskStatus ||
+    ""
+  );
+}
+
+function isTaskCompleted(task) {
+  const status = normalizeStatus(getTaskStatusValue(task));
+  const executionProgress = getExecutionProgress(task);
+  const completedValue = getTaskCompletedValue(task);
+
+  return (
+    Boolean(completedValue) ||
+    executionProgress >= 100 ||
+    status === "complete" ||
+    status === "completed" ||
+    status === "applied" ||
+    status === "done" ||
+    status === "success" ||
+    status === "successful"
+  );
+}
+
+function isTaskFailed(task) {
+  const status = normalizeStatus(getTaskStatusValue(task));
+
+  return (
+    status.includes("failed") ||
+    status.includes("error") ||
+    status.includes("cancel")
+  );
+}
+
+function isTaskProcessing(task) {
+  const status = normalizeStatus(getTaskStatusValue(task));
+
+  if (isTaskCompleted(task) || isTaskFailed(task)) return false;
+
+  return (
+    status === "processing" ||
+    status === "applying" ||
+    status === "running" ||
+    status === "in_progress" ||
+    status === "started"
+  );
+}
+
+function getBaseTaskDisplay(task) {
+  const status = getTaskStatusValue(task);
   const normalized = normalizeStatus(status);
 
-  if (normalized === "complete" || normalized === "completed") {
+  if (isTaskCompleted(task)) {
     return {
       label: "Completed",
       tone: "success",
       background: "#D1FADF",
+      showProgress: false,
     };
   }
 
-  if (normalized === "processing" || normalized === "applying") {
+  if (isTaskProcessing(task)) {
     return {
       label: "Processing",
       tone: "attention",
@@ -157,18 +249,16 @@ function getStatusDisplay(status) {
       label: "Pending",
       tone: "attention",
       background: "#FEDF89",
+      showProgress: false,
     };
   }
 
-  if (
-    normalized.includes("failed") ||
-    normalized.includes("cancel") ||
-    normalized.includes("error")
-  ) {
+  if (isTaskFailed(task)) {
     return {
       label: humanize(status),
       tone: "critical",
       background: "#FEE4E2",
+      showProgress: false,
     };
   }
 
@@ -176,22 +266,15 @@ function getStatusDisplay(status) {
     label: humanize(status),
     tone: "info",
     background: "#E0F2FE",
+    showProgress: false,
   };
 }
 
 function getTaskProgress(task) {
-  const progress = Number(task.executionSummary?.progress);
+  if (isTaskCompleted(task)) return 100;
+  if (isTaskProcessing(task)) return Math.max(getExecutionProgress(task), 1);
 
-  if (Number.isFinite(progress)) {
-    return Math.max(0, Math.min(100, Math.round(progress)));
-  }
-
-  const status = normalizeStatus(task.status);
-
-  if (status === "processing" || status === "applying") return 1;
-  if (status === "complete" || status === "completed") return 100;
-
-  return 0;
+  return getExecutionProgress(task);
 }
 
 function getRollbackStatusValue(task) {
@@ -233,7 +316,7 @@ function getRollbackCompletedValue(task) {
 }
 
 function getRollbackProgress(task) {
-  const possibleValues = [
+  const progress = getNumberValue(
     task.rollbackProgress,
     task.rollbackPercent,
     task.rollbackPercentage,
@@ -250,11 +333,7 @@ function getRollbackProgress(task) {
     task.executionSummary?.rollbackSummary?.progress,
     task.executionSummary?.rollbackSummary?.percent,
     task.executionSummary?.rollbackSummary?.percentage,
-  ];
-
-  const progress = possibleValues
-    .map((value) => Number(value))
-    .find((value) => Number.isFinite(value));
+  );
 
   if (Number.isFinite(progress)) {
     return Math.max(0, Math.min(100, Math.round(progress)));
@@ -264,7 +343,7 @@ function getRollbackProgress(task) {
 }
 
 function getRollbackState(task) {
-  const taskStatus = normalizeStatus(task.status);
+  const taskStatus = normalizeStatus(getTaskStatusValue(task));
   const rollbackStatus = normalizeStatus(getRollbackStatusValue(task));
   const rollbackProgress = getRollbackProgress(task);
 
@@ -297,11 +376,10 @@ function getRollbackState(task) {
   const isCompleted =
     hasCompletedAt ||
     completedStatuses.includes(rollbackStatus) ||
-    completedStatuses.includes(taskStatus) ||
-    (taskStatus.includes("rollback") &&
-      (taskStatus.includes("complete") ||
-        taskStatus.includes("completed") ||
-        taskStatus.includes("rolled")));
+    taskStatus === "rolled_back" ||
+    taskStatus === "rolledback" ||
+    taskStatus === "rollback_complete" ||
+    taskStatus === "rollback_completed";
 
   const isFailed =
     failedStatuses.some((status) => rollbackStatus.includes(status)) ||
@@ -311,18 +389,21 @@ function getRollbackState(task) {
     hasStartedAt ||
     rollbackProgress > 0 ||
     processingStatuses.includes(rollbackStatus) ||
-    processingStatuses.includes(taskStatus) ||
-    taskStatus.includes("rollback_processing") ||
-    taskStatus.includes("rollback_started") ||
-    taskStatus.includes("rollback_running");
+    taskStatus === "rollback_processing" ||
+    taskStatus === "rollback_started" ||
+    taskStatus === "rollback_running" ||
+    taskStatus === "rollback_in_progress";
 
   const isProcessing =
     !isCompleted &&
     !isFailed &&
     hasRealRollbackStart &&
     (processingStatuses.includes(rollbackStatus) ||
-      processingStatuses.includes(taskStatus) ||
-      rollbackStatus === "pending");
+      rollbackStatus === "pending" ||
+      taskStatus === "rollback_processing" ||
+      taskStatus === "rollback_started" ||
+      taskStatus === "rollback_running" ||
+      taskStatus === "rollback_in_progress");
 
   return {
     isCompleted,
@@ -332,33 +413,15 @@ function getRollbackState(task) {
   };
 }
 
-function getStatusTone(status) {
-  const normalized = normalizeStatus(status);
-
-  if (normalized === "complete" || normalized === "completed") return "success";
-
-  if (
-    normalized.includes("failed") ||
-    normalized.includes("error") ||
-    normalized.includes("cancel")
-  ) {
-    return "critical";
-  }
-
-  if (normalized === "processing" || normalized === "applying") {
-    return "attention";
-  }
-
-  return "info";
+function getStatusToneFromDisplay(display) {
+  return display?.tone || "info";
 }
 
-function getAppliedLabel(status) {
-  const normalized = normalizeStatus(status);
+function getAppliedLabel(task) {
+  if (isTaskCompleted(task)) return "Applied";
+  if (isTaskProcessing(task)) return "Applying";
 
-  if (normalized === "complete" || normalized === "completed") return "Applied";
-  if (normalized === "processing" || normalized === "applying") return "Applying";
-
-  return humanize(status || "Pending");
+  return humanize(getTaskStatusValue(task) || "Pending");
 }
 
 function getShopifyStoreHandle(shop) {
@@ -498,7 +561,7 @@ function createProductGroups(task, shopifyStoreHandle) {
         priceChangeCount: 0,
         compareAtChangeCount: 0,
         costChangeCount: 0,
-        status: task.status || "Pending",
+        status: getBaseTaskDisplay(task).label,
       });
     }
 
@@ -702,8 +765,8 @@ function DetailRow({ label, value, children }) {
 }
 
 function ProductDetailsView({ task, productDetails, navigate }) {
-  const statusLabel = getAppliedLabel(task.status);
-  const statusTone = getStatusTone(task.status);
+  const statusLabel = getAppliedLabel(task);
+  const statusTone = getStatusToneFromDisplay(getBaseTaskDisplay(task));
 
   return (
     <Page
@@ -808,7 +871,8 @@ export default function TaskDetailsPage() {
   const deleteFetcher = useFetcher();
 
   const rollbackState = getRollbackState(task);
-  const normalizedStatus = normalizeStatus(task.status);
+  const taskCompleted = isTaskCompleted(task);
+  const taskProcessing = isTaskProcessing(task);
 
   const [rollbackModalOpen, setRollbackModalOpen] = useState(false);
   const [clientRollbackStarted, setClientRollbackStarted] = useState(false);
@@ -820,6 +884,25 @@ export default function TaskDetailsPage() {
     !rollbackCompleted &&
     !rollbackFailed &&
     (rollbackState.isProcessing || clientRollbackStarted);
+
+  const baseStatusDisplay = getBaseTaskDisplay(task);
+
+  const statusDisplay = rollbackProcessing
+    ? {
+        label: "Processing",
+        tone: "attention",
+        background: "#FEDF89",
+        showProgress: true,
+      }
+    : baseStatusDisplay;
+
+  const statusTone = getStatusToneFromDisplay(statusDisplay);
+
+  const serverProgress = rollbackProcessing
+    ? Math.max(rollbackState.progress || 1, 1)
+    : getTaskProgress(task);
+
+  const [visibleProgress, setVisibleProgress] = useState(serverProgress);
 
   const logs = useMemo(
     () => createProductGroups(task, shopifyStoreHandle),
@@ -846,29 +929,8 @@ export default function TaskDetailsPage() {
     pageStart + LOGS_PER_PAGE,
   );
 
-  const status = task.status || "Pending";
-  const defaultStatusDisplay = getStatusDisplay(status);
-
-  const statusDisplay = rollbackProcessing
-    ? {
-        label: "Processing",
-        tone: "attention",
-        background: "#FEDF89",
-        showProgress: true,
-      }
-    : defaultStatusDisplay;
-
-  const statusTone = statusDisplay.tone;
-
-  const serverProgress = rollbackProcessing
-    ? Math.max(rollbackState.progress || 1, 1)
-    : getTaskProgress(task);
-
-  const [visibleProgress, setVisibleProgress] = useState(serverProgress);
-
   const shouldPoll =
-    ["pending", "processing", "applying"].includes(normalizedStatus) ||
-    rollbackProcessing;
+    !selectedProductId && (taskProcessing || rollbackProcessing);
 
   const openRollbackModal = () => {
     setRollbackModalOpen(true);
@@ -908,9 +970,7 @@ export default function TaskDetailsPage() {
     : [
         {
           content: rollbackProcessing ? "Rollback processing..." : "Rollback",
-          disabled:
-            rollbackProcessing ||
-            !["complete", "completed"].includes(normalizedStatus),
+          disabled: rollbackProcessing || !taskCompleted,
           onAction: openRollbackModal,
         },
       ];
@@ -946,7 +1006,7 @@ export default function TaskDetailsPage() {
         return Math.max(currentProgress, serverProgress, 1);
       }
 
-      if (normalizedStatus === "processing" || normalizedStatus === "applying") {
+      if (taskProcessing) {
         if (currentProgress >= 100 || currentProgress <= 0) {
           return Math.max(serverProgress, 1);
         }
@@ -956,14 +1016,10 @@ export default function TaskDetailsPage() {
 
       return serverProgress;
     });
-  }, [normalizedStatus, rollbackProcessing, serverProgress]);
+  }, [rollbackProcessing, taskProcessing, serverProgress]);
 
   useEffect(() => {
-    if (
-      !rollbackProcessing &&
-      normalizedStatus !== "processing" &&
-      normalizedStatus !== "applying"
-    ) {
+    if (!rollbackProcessing && !taskProcessing) {
       return undefined;
     }
 
@@ -974,17 +1030,17 @@ export default function TaskDetailsPage() {
     }, 800);
 
     return () => clearInterval(timer);
-  }, [normalizedStatus, rollbackProcessing]);
+  }, [rollbackProcessing, taskProcessing]);
 
   useEffect(() => {
-    if (!shouldPoll || selectedProductId) return undefined;
+    if (!shouldPoll) return undefined;
 
     const timer = setInterval(() => {
       revalidator.revalidate();
     }, 2000);
 
     return () => clearInterval(timer);
-  }, [revalidator, shouldPoll, selectedProductId]);
+  }, [revalidator, shouldPoll]);
 
   if (selectedProductId) {
     return (
