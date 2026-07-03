@@ -90,31 +90,6 @@ export default function SalesPage() {
             sales
           </Link>
         </FooterHelp>
-
-        <Box paddingBlockStart="400">
-          <Card>
-            <Box padding="400">
-              <BlockStack gap="300">
-                <Text as="h2" variant="headingMd">
-                  Your sales
-                </Text>
-                <Text as="p" tone="subdued">
-                  Sale list will show here when sales are available.
-                </Text>
-                <InlineStack>
-                  <Button
-                    variant="primary"
-                    onClick={openNewSale}
-                    loading={isOpeningNewSale}
-                    disabled={isOpeningNewSale}
-                  >
-                    Create sale
-                  </Button>
-                </InlineStack>
-              </BlockStack>
-            </Box>
-          </Card>
-        </Box>
       </Page>
     </>
   );
