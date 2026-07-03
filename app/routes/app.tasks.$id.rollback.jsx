@@ -71,12 +71,19 @@ export const action = async ({ request, params }) => {
     );
   }
 
+  await db.task.update({
+    where: { id: task.id },
+    data: {
+      status: "Rolling back",
+    },
+  });
+
   const rollback = await rollbackTask(admin, task);
 
   await db.task.update({
     where: { id: task.id },
     data: {
-      status: rollback.ok ? "Rolled back" : "Rollback failed",
+      status: rollback.ok ? "Canceled" : "Rollback failed",
       executionSummary: {
         ...(task.executionSummary || {}),
         rollback,
@@ -145,15 +152,36 @@ async function rollbackTask(admin, task) {
   const variantsByProduct = new Map();
 
   for (const original of originalVariants) {
-    if (!original.productId) continue;
+    if (!original.productId || !original.id) {
+      errors.push(
+        `Rollback skipped a variant because its product or variant ID was not recorded.`,
+      );
+      continue;
+    }
+
+    const originalPrice = normalizeMoneyInput(original.price);
+    if (originalPrice == null) {
+      errors.push(
+        `Rollback skipped ${original.title || original.id} because its original price was not recorded.`,
+      );
+      continue;
+    }
+
+    const rollbackVariant = {
+      id: original.id,
+      price: originalPrice,
+    };
+
+    if (Object.hasOwn(original, "compareAtPrice")) {
+      rollbackVariant.compareAtPrice = normalizeNullableMoneyInput(
+        original.compareAtPrice,
+      );
+    }
+
     if (!variantsByProduct.has(original.productId)) {
       variantsByProduct.set(original.productId, []);
     }
-    variantsByProduct.get(original.productId).push({
-      id: original.id,
-      price: original.price,
-      compareAtPrice: original.compareAtPrice,
-    });
+    variantsByProduct.get(original.productId).push(rollbackVariant);
   }
 
   for (const [productId, variants] of variantsByProduct) {
@@ -193,6 +221,20 @@ async function rollbackTask(admin, task) {
     errors,
     rolledBackAt: new Date().toISOString(),
   };
+}
+
+function normalizeMoneyInput(value) {
+  if (value == null || value === "") return null;
+
+  const number = Number(value);
+  if (!Number.isFinite(number)) return null;
+
+  return number.toFixed(2);
+}
+
+function normalizeNullableMoneyInput(value) {
+  if (value == null || value === "") return null;
+  return normalizeMoneyInput(value);
 }
 
 export default function RollbackTaskPage() {

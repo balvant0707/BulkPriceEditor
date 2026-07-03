@@ -2,14 +2,14 @@
 import { json } from "@remix-run/node";
 import {
   Outlet,
-  Form,
   useLoaderData,
   useLocation,
   useNavigate,
   useNavigation,
   useSearchParams,
+  useSubmit,
 } from "@remix-run/react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   Page,
   Card,
@@ -27,6 +27,7 @@ import {
   TextField,
   Pagination,
   Banner,
+  Modal,
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import db from "../db.server";
@@ -407,7 +408,10 @@ function EmptyTasksPage() {
 function TasksListPage({ tasks }) {
   const navigate = useNavigate();
   const navigation = useNavigation();
+  const submit = useSubmit();
   const [searchParams, setSearchParams] = useSearchParams();
+  const [rollbackTask, setRollbackTask] = useState(null);
+  const [deleteTask, setDeleteTask] = useState(null);
 
   const isOpeningNewTask = navigation.location?.pathname === NEW_TASK_URL;
 
@@ -503,8 +507,33 @@ function TasksListPage({ tasks }) {
     });
   };
 
+  const submitTaskAction = (path) => {
+    submit(null, {
+      method: "post",
+      action: path,
+    });
+  };
+
   const rowMarkup = paginatedTasks.map((task, index) => {
     const taskStatus = getStatusLabel(task.status);
+    const detailsPath = `/app/tasks/${task.id}`;
+    const rollbackPath = `/app/tasks/${task.id}/rollback`;
+    const deletePath = `/app/tasks/${task.id}/delete`;
+    const normalizedStatus = String(task.status || "").toLowerCase();
+    const canRollback = normalizedStatus === "complete";
+    const canDelete =
+      normalizedStatus === "canceled" ||
+      normalizedStatus === "rolled back" ||
+      normalizedStatus === "rollback failed";
+    const isDetailsLoading =
+      navigation.state !== "idle" &&
+      navigation.location?.pathname === detailsPath;
+    const isRollbackLoading =
+      navigation.state !== "idle" &&
+      navigation.formAction?.includes(rollbackPath);
+    const isDeleteLoading =
+      navigation.state !== "idle" &&
+      navigation.formAction?.includes(deletePath);
 
     return (
       <IndexTable.Row id={String(task.id)} key={task.id} position={index}>
@@ -538,15 +567,30 @@ function TasksListPage({ tasks }) {
 
         <IndexTable.Cell>
           <InlineStack gap="200" wrap={false}>
-            <Button size="slim" url={`/app/tasks/${task.id}`}>
+            <Button size="slim" url={detailsPath} loading={isDetailsLoading}>
               Details
             </Button>
 
-            <Form method="post" action={`/app/tasks/${task.id}/rollback`}>
-              <Button size="slim" submit>
-                Rollback
+            <Button
+              size="slim"
+              variant={canRollback || canDelete ? "primary" : undefined}
+              loading={isRollbackLoading}
+              disabled={normalizedStatus === "rolling back"}
+              onClick={() => setRollbackTask(task)}
+            >
+              Rollback
+            </Button>
+
+            {canDelete ? (
+              <Button
+                size="slim"
+                tone="critical"
+                loading={isDeleteLoading}
+                onClick={() => setDeleteTask(task)}
+              >
+                Delete
               </Button>
-            </Form>
+            ) : null}
           </InlineStack>
         </IndexTable.Cell>
       </IndexTable.Row>
@@ -684,6 +728,69 @@ function TasksListPage({ tasks }) {
           </Box>
         </Layout.Section>
       </Layout>
+
+      <Modal
+        open={Boolean(rollbackTask)}
+        onClose={() => setRollbackTask(null)}
+        title="Rollback task?"
+        primaryAction={{
+          content: "Rollback",
+          loading:
+            navigation.state !== "idle" &&
+            rollbackTask &&
+            navigation.formAction?.includes(
+              `/app/tasks/${rollbackTask.id}/rollback`,
+            ),
+          onAction: () => {
+            if (!rollbackTask) return;
+            submitTaskAction(`/app/tasks/${rollbackTask.id}/rollback`);
+          },
+        }}
+        secondaryActions={[
+          {
+            content: "Close",
+            onAction: () => setRollbackTask(null),
+          },
+        ]}
+      >
+        <Modal.Section>
+          <Text as="p" variant="bodyMd" fontWeight="semibold">
+            More recent tasks applied to the same products will be also
+            canceled. Are you sure?
+          </Text>
+        </Modal.Section>
+      </Modal>
+
+      <Modal
+        open={Boolean(deleteTask)}
+        onClose={() => setDeleteTask(null)}
+        title="Delete task?"
+        primaryAction={{
+          content: "Delete",
+          destructive: true,
+          loading:
+            navigation.state !== "idle" &&
+            deleteTask &&
+            navigation.formAction?.includes(`/app/tasks/${deleteTask.id}/delete`),
+          onAction: () => {
+            if (!deleteTask) return;
+            submitTaskAction(`/app/tasks/${deleteTask.id}/delete`);
+          },
+        }}
+        secondaryActions={[
+          {
+            content: "Close",
+            onAction: () => setDeleteTask(null),
+          },
+        ]}
+      >
+        <Modal.Section>
+          <Text as="p" variant="bodyMd" fontWeight="semibold">
+            The task will be deleted and you won't be able to recover it. Are
+            you sure?
+          </Text>
+        </Modal.Section>
+      </Modal>
     </Page>
   );
 }

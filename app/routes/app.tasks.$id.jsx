@@ -106,6 +106,13 @@ function getLogs(task) {
 }
 
 function DetailRow({ label, value, badgeTone }) {
+  const badgeBackground =
+    badgeTone === "success"
+      ? "#D1FADF"
+      : badgeTone === "critical"
+        ? "#FEE4E2"
+        : "#FEF0C7";
+
   return (
     <Box paddingBlock="300" borderBlockEndWidth="025" borderColor="border">
       <InlineStack gap="800" blockAlign="center" wrap={false}>
@@ -115,7 +122,16 @@ function DetailRow({ label, value, badgeTone }) {
           </Text>
         </Box>
         {badgeTone ? (
-          <Badge tone={badgeTone}>{value}</Badge>
+          <span
+            style={{
+              background: badgeBackground,
+              borderRadius: 6,
+              display: "inline-flex",
+              padding: "2px 8px",
+            }}
+          >
+            <Badge tone={badgeTone}>{value}</Badge>
+          </span>
         ) : (
           <Text as="p" fontWeight="semibold">
             {value}
@@ -131,7 +147,14 @@ export default function TaskDetailsPage() {
   const navigate = useNavigate();
   const logs = getLogs(task);
   const status = task.status || "Pending";
-  const statusTone = status === "Complete" ? "success" : "attention";
+  const statusTone =
+    status === "Complete" || status === "Rolled back"
+      ? "success"
+      : status === "Failed" ||
+          status === "Rollback failed" ||
+          status === "Canceled"
+        ? "critical"
+        : "attention";
 
   return (
     <Page

@@ -75,6 +75,7 @@ const TASK_VARIANTS_QUERY = `#graphql
         product {
           id
           title
+          productType
           tags
         }
       }
@@ -103,12 +104,14 @@ const TASK_NODES_QUERY = `#graphql
         product {
           id
           title
+          productType
           tags
         }
       }
       ... on Product {
         id
         title
+        productType
         tags
         variants(first: 100) {
           nodes {
@@ -125,6 +128,7 @@ const TASK_NODES_QUERY = `#graphql
             product {
               id
               title
+              productType
               tags
             }
           }
@@ -137,6 +141,7 @@ const TASK_NODES_QUERY = `#graphql
           nodes {
             id
             title
+            productType
             tags
             variants(first: 100) {
               nodes {
@@ -153,6 +158,7 @@ const TASK_NODES_QUERY = `#graphql
                 product {
                   id
                   title
+                  productType
                   tags
                 }
               }
@@ -439,11 +445,23 @@ async function executeTask(admin, taskData) {
 
     const targetVariants = await loadTargetVariants(admin, taskData);
     const excludedVariantIds = await loadExcludedVariantIds(admin, taskData);
+    const discountedScope = getDiscountedScope(taskData);
+    const discountedProductTypes =
+      discountedScope === "product_types_on_sale"
+        ? getDiscountedProductTypes(targetVariants)
+        : new Set();
     const variants = uniqueVariants(targetVariants).filter((variant) => {
       if (excludedVariantIds.has(variant.id)) return false;
       if (
-        taskData.discountedScope === "products_on_sale" &&
+        (taskData.applyScope === "products_on_sale" ||
+          discountedScope === "products_on_sale") &&
         isVariantDiscounted(variant)
+      ) {
+        return false;
+      }
+      if (
+        discountedScope === "product_types_on_sale" &&
+        discountedProductTypes.has(getProductType(variant))
       ) {
         return false;
       }
@@ -530,6 +548,43 @@ function isVariantDiscounted(variant) {
   const price = toNumber(variant.price);
   const compareAtPrice = toNumber(variant.compareAtPrice);
   return compareAtPrice != null && price != null && compareAtPrice > price;
+}
+
+function getDiscountedScope(taskData) {
+  const values = [
+    taskData.discountedScope,
+    taskData.excludeResources?.discountedScope,
+  ];
+
+  if (values.includes("products_on_sale") || values.includes("all_products_on_sale")) {
+    return "products_on_sale";
+  }
+
+  if (
+    values.includes("product_types_on_sale") ||
+    values.includes("all_product_types_on_sale")
+  ) {
+    return "product_types_on_sale";
+  }
+
+  return "nothing";
+}
+
+function getProductType(variant) {
+  return String(variant.product?.productType || "").trim();
+}
+
+function getDiscountedProductTypes(variants) {
+  const productTypes = new Set();
+
+  for (const variant of variants) {
+    const productType = getProductType(variant);
+    if (productType && isVariantDiscounted(variant)) {
+      productTypes.add(productType);
+    }
+  }
+
+  return productTypes;
 }
 
 async function shopifyGraphql(admin, query, variables = {}) {
