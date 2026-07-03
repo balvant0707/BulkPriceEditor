@@ -29,6 +29,8 @@ const LOGS_PER_PAGE = 10;
 export const loader = async ({ request, params }) => {
   const { session } = await authenticate.admin(request);
   const taskId = Number(params.id);
+  const url = new URL(request.url);
+  const selectedProductId = getShopifyNumericId(url.searchParams.get("productId"));
 
   if (!Number.isInteger(taskId) || taskId <= 0) {
     throw new Response("Task not found", { status: 404 });
@@ -45,10 +47,16 @@ export const loader = async ({ request, params }) => {
     throw new Response("Task not found", { status: 404 });
   }
 
+  const shopifyStoreHandle = getShopifyStoreHandle(session.shop);
+
   return json({
     task,
     shop: session.shop,
-    shopifyStoreHandle: getShopifyStoreHandle(session.shop),
+    shopifyStoreHandle,
+    selectedProductId,
+    productDetails: selectedProductId
+      ? getProductDetails(task, selectedProductId, shopifyStoreHandle)
+      : null,
   });
 };
 
@@ -155,6 +163,35 @@ function getTaskProgress(task) {
   return 0;
 }
 
+function getStatusTone(status) {
+  const normalized = normalizeStatus(status);
+
+  if (normalized === "complete" || normalized === "completed") return "success";
+
+  if (
+    normalized.includes("failed") ||
+    normalized.includes("error") ||
+    normalized.includes("cancel")
+  ) {
+    return "critical";
+  }
+
+  if (normalized === "processing" || normalized === "applying") {
+    return "attention";
+  }
+
+  return "info";
+}
+
+function getAppliedLabel(status) {
+  const normalized = normalizeStatus(status);
+
+  if (normalized === "complete" || normalized === "completed") return "Applied";
+  if (normalized === "processing" || normalized === "applying") return "Applying";
+
+  return humanize(status || "Pending");
+}
+
 function getShopifyStoreHandle(shop) {
   if (!shop) return "";
 
@@ -235,6 +272,12 @@ function getProductAdminUrl(shopifyStoreHandle, productId) {
   if (!shopifyStoreHandle || !productId) return "";
 
   return `https://admin.shopify.com/store/${shopifyStoreHandle}/products/${productId}`;
+}
+
+function getVariantAdminUrl(shopifyStoreHandle, productId, variantId) {
+  if (!shopifyStoreHandle || !productId || !variantId) return "";
+
+  return `https://admin.shopify.com/store/${shopifyStoreHandle}/products/${productId}/variants/${variantId}`;
 }
 
 function buildVariantChanges(record) {
@@ -373,6 +416,72 @@ function filterLogs(logs, searchQuery) {
   });
 }
 
+function getAppliedAt(task) {
+  return (
+    task.executionSummary?.completedAt ||
+    task.executionSummary?.appliedAt ||
+    task.completedAt ||
+    task.appliedAt ||
+    task.updatedAt ||
+    task.createdAt
+  );
+}
+
+function getProductDetails(task, productId, shopifyStoreHandle) {
+  const originalVariants = task.executionSummary?.originalVariants || [];
+  const originalInventoryItems =
+    task.executionSummary?.originalInventoryItems || [];
+
+  const variantRecords = originalVariants
+    .filter((variant) => getProductId(variant) === productId)
+    .map((variant, index) => {
+      const variantId = getVariantId(variant);
+
+      return {
+        rowId: `variant-${variantId || index}`,
+        variantId,
+        title: getVariantTitle(variant),
+        sku: getVariantSku(variant),
+        changes: buildVariantChanges(variant),
+        adminUrl: getVariantAdminUrl(shopifyStoreHandle, productId, variantId),
+      };
+    });
+
+  const inventoryRecords = originalInventoryItems
+    .filter((item) => getProductId(item) === productId)
+    .map((item, index) => {
+      const variantId = getVariantId(item);
+
+      return {
+        rowId: `inventory-${variantId || index}`,
+        variantId,
+        title: getVariantTitle(item),
+        sku: getVariantSku(item),
+        changes: buildVariantChanges(item),
+        adminUrl: getVariantAdminUrl(shopifyStoreHandle, productId, variantId),
+      };
+    });
+
+  const allRecords = [...variantRecords, ...inventoryRecords];
+
+  if (!allRecords.length) return null;
+
+  const firstOriginalRecord =
+    originalVariants.find((variant) => getProductId(variant) === productId) ||
+    originalInventoryItems.find((item) => getProductId(item) === productId);
+
+  return {
+    productId,
+    productTitle: getProductTitle(firstOriginalRecord),
+    adminUrl: getProductAdminUrl(shopifyStoreHandle, productId),
+    variants: allRecords.map((record) => ({
+      ...record,
+      changes: record.changes.length ? record.changes : ["No changes recorded"],
+    })),
+    appliedAt: getAppliedAt(task),
+  };
+}
+
 function StatusBadge({ display }) {
   return (
     <span
@@ -424,8 +533,112 @@ function DetailRow({ label, value, children }) {
   );
 }
 
+function ProductDetailsView({ task, productDetails, navigate }) {
+  const statusLabel = getAppliedLabel(task.status);
+  const statusTone = getStatusTone(task.status);
+
+  return (
+    <Page
+      title="Price change details"
+      titleMetadata={<Badge tone={statusTone}>{statusLabel}</Badge>}
+      backAction={{
+        content: "Task details",
+        onAction: () => navigate(`/app/tasks/${task.id}`),
+      }}
+    >
+      <TitleBar title="Price change details" />
+
+      <Layout>
+        <Layout.Section>
+          <BlockStack gap="400">
+            <Card>
+              <DetailRow label="Product">
+                <Text as="p" fontWeight="regular">
+                  {productDetails?.adminUrl ? (
+                    <Link url={productDetails.adminUrl} external>
+                      {productDetails.productTitle}
+                    </Link>
+                  ) : (
+                    productDetails?.productTitle || "-"
+                  )}
+                </Text>
+              </DetailRow>
+
+              <DetailRow
+                label="Applied"
+                value={formatDate(productDetails?.appliedAt)}
+              />
+            </Card>
+
+            <Card padding="0">
+              <Box padding="400">
+                <Text as="h2" variant="headingMd">
+                  Variants
+                </Text>
+              </Box>
+
+              <IndexTable
+                resourceName={{ singular: "variant", plural: "variants" }}
+                itemCount={productDetails?.variants?.length || 0}
+                selectable={false}
+                headings={[
+                  { title: "Title" },
+                  { title: "SKU" },
+                  { title: "Changes" },
+                ]}
+              >
+                {(productDetails?.variants || []).map((variant, index) => (
+                  <IndexTable.Row
+                    id={variant.rowId}
+                    key={variant.rowId}
+                    position={index}
+                  >
+                    <IndexTable.Cell>
+                      <Text as="span" fontWeight="regular">
+                        {variant.adminUrl ? (
+                          <Link url={variant.adminUrl} external>
+                            {variant.title}
+                          </Link>
+                        ) : (
+                          variant.title
+                        )}
+                      </Text>
+                    </IndexTable.Cell>
+
+                    <IndexTable.Cell>
+                      <Text as="span">{variant.sku || "-"}</Text>
+                    </IndexTable.Cell>
+
+                    <IndexTable.Cell>
+                      <Text as="span">{variant.changes.join(", ")}</Text>
+                    </IndexTable.Cell>
+                  </IndexTable.Row>
+                ))}
+              </IndexTable>
+
+              {!productDetails?.variants?.length ? (
+                <Box padding="400">
+                  <Text as="p" tone="subdued">
+                    No variant details found for this product.
+                  </Text>
+                </Box>
+              ) : null}
+            </Card>
+          </BlockStack>
+        </Layout.Section>
+      </Layout>
+    </Page>
+  );
+}
+
 export default function TaskDetailsPage() {
-  const { task, shopifyStoreHandle } = useLoaderData();
+  const {
+    task,
+    shopifyStoreHandle,
+    selectedProductId,
+    productDetails,
+  } = useLoaderData();
+
   const navigate = useNavigate();
   const revalidator = useRevalidator();
 
@@ -446,6 +659,7 @@ export default function TaskDetailsPage() {
     1,
     Math.ceil(filteredLogs.length / LOGS_PER_PAGE),
   );
+
   const safeCurrentPage = Math.min(currentPage, totalPages);
   const pageStart = (safeCurrentPage - 1) * LOGS_PER_PAGE;
   const paginatedLogs = filteredLogs.slice(
@@ -492,14 +706,24 @@ export default function TaskDetailsPage() {
   }, [normalizedStatus]);
 
   useEffect(() => {
-    if (!shouldPoll) return undefined;
+    if (!shouldPoll || selectedProductId) return undefined;
 
     const timer = setInterval(() => {
       revalidator.revalidate();
     }, 2000);
 
     return () => clearInterval(timer);
-  }, [revalidator, shouldPoll]);
+  }, [revalidator, shouldPoll, selectedProductId]);
+
+  if (selectedProductId) {
+    return (
+      <ProductDetailsView
+        task={task}
+        productDetails={productDetails}
+        navigate={navigate}
+      />
+    );
+  }
 
   return (
     <Page
@@ -520,11 +744,14 @@ export default function TaskDetailsPage() {
           <BlockStack gap="400">
             <Card>
               <DetailRow label="Changes" value={formatChange(task)} />
+
               <DetailRow
                 label="Change type"
                 value={humanize(task.applyChangesTo || "products")}
               />
+
               <DetailRow label="Apply to" value={humanize(task.applyScope)} />
+
               <DetailRow label="Exclude" value={humanize(task.excludeScope)} />
 
               <DetailRow label="Status">
@@ -620,7 +847,7 @@ export default function TaskDetailsPage() {
                           disabled={!log.productId}
                           url={
                             log.productId
-                              ? `/app/tasks/${task.id}/products/${log.productId}`
+                              ? `/app/tasks/${task.id}?productId=${log.productId}`
                               : undefined
                           }
                         >
