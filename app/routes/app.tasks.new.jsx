@@ -290,51 +290,76 @@ export async function action({ request, params }) {
       where: { id: taskId },
       data: {
         ...data,
-        status: "Processing",
-        startedAt: new Date(),
+        status: "Pending",
+        executionSummary: { progress: 0 },
+        startedAt: null,
         completedAt: null,
       },
     });
 
-    const execution = await executeTask(admin, data);
-    await db.task.update({
-      where: { id: taskId },
-      data: {
-        status: execution.ok ? "Complete" : "Failed",
-        executionSummary: execution,
-        completedAt: new Date(),
-      },
-    });
+    scheduleTaskExecution(admin, taskId, data);
 
-    return redirect("/app/tasks");
+    return redirect(`/app/tasks/${taskId}`);
   }
 
   const task = await db.task.create({
     data: {
       ...data,
       status: "Pending",
+      executionSummary: { progress: 0 },
     },
   });
 
-  await db.task.update({
-    where: { id: task.id },
-    data: {
-      status: "Processing",
-      startedAt: new Date(),
-    },
-  });
+  scheduleTaskExecution(admin, task.id, data);
 
-  const execution = await executeTask(admin, data);
-  await db.task.update({
-    where: { id: task.id },
-    data: {
-      status: execution.ok ? "Complete" : "Failed",
-      executionSummary: execution,
-      completedAt: new Date(),
-    },
-  });
+  return redirect(`/app/tasks/${task.id}`);
+}
 
-  return redirect("/app/tasks");
+function scheduleTaskExecution(admin, taskId, data) {
+  setTimeout(() => {
+    void runTaskExecution(admin, taskId, data);
+  }, 750);
+}
+
+async function runTaskExecution(admin, taskId, data) {
+  try {
+    await db.task.update({
+      where: { id: taskId },
+      data: {
+        status: "Processing",
+        executionSummary: { progress: 10 },
+        startedAt: new Date(),
+      },
+    });
+
+    const execution = await executeTask(admin, data);
+
+    await db.task.update({
+      where: { id: taskId },
+      data: {
+        status: execution.ok ? "Complete" : "Failed",
+        executionSummary: {
+          ...execution,
+          progress: 100,
+        },
+        completedAt: new Date(),
+      },
+    });
+  } catch (error) {
+    await db.task.update({
+      where: { id: taskId },
+      data: {
+        status: "Failed",
+        executionSummary: {
+          ok: false,
+          progress: 100,
+          error:
+            error instanceof Error ? error.message : "Unable to execute task.",
+        },
+        completedAt: new Date(),
+      },
+    });
+  }
 }
 
 function getRecordId(value) {

@@ -353,6 +353,11 @@ function EmptyTasksPage() {
       }}
     >
       <TitleBar title="Tasks" />
+      <style>{`
+        .Polaris-Modal-Dialog__Modal {
+          max-width: 480px;
+        }
+      `}</style>
 
       <style>{`
         .Polaris-EmptyState__Image,
@@ -733,6 +738,8 @@ function TasksListPage({ tasks }) {
         open={Boolean(rollbackTask)}
         onClose={() => setRollbackTask(null)}
         title="Rollback task?"
+        sectioned={false}
+        size="small"
         primaryAction={{
           content: "Rollback",
           loading:
@@ -743,28 +750,34 @@ function TasksListPage({ tasks }) {
             ),
           onAction: () => {
             if (!rollbackTask) return;
-            submitTaskAction(`/app/tasks/${rollbackTask.id}/rollback`);
+            const path = `/app/tasks/${rollbackTask.id}/rollback`;
+            setRollbackTask(null);
+            submitTaskAction(path);
           },
         }}
         secondaryActions={[
           {
-            content: "Close",
+            content: "No",
             onAction: () => setRollbackTask(null),
           },
         ]}
       >
-        <Modal.Section>
-          <Text as="p" variant="bodyMd" fontWeight="semibold">
-            More recent tasks applied to the same products will be also
-            canceled. Are you sure?
-          </Text>
-        </Modal.Section>
+        <div className="task-confirmation-modal">
+          <Modal.Section>
+            <Text as="p" variant="bodyMd" fontWeight="semibold">
+              More recent tasks applied to the same products will be also
+              canceled. Are you sure?
+            </Text>
+          </Modal.Section>
+        </div>
       </Modal>
 
       <Modal
         open={Boolean(deleteTask)}
         onClose={() => setDeleteTask(null)}
         title="Delete task?"
+        sectioned={false}
+        size="small"
         primaryAction={{
           content: "Delete",
           destructive: true,
@@ -774,22 +787,26 @@ function TasksListPage({ tasks }) {
             navigation.formAction?.includes(`/app/tasks/${deleteTask.id}/delete`),
           onAction: () => {
             if (!deleteTask) return;
-            submitTaskAction(`/app/tasks/${deleteTask.id}/delete`);
+            const path = `/app/tasks/${deleteTask.id}/delete`;
+            setDeleteTask(null);
+            submitTaskAction(path);
           },
         }}
         secondaryActions={[
           {
-            content: "Close",
+            content: "No",
             onAction: () => setDeleteTask(null),
           },
         ]}
       >
-        <Modal.Section>
-          <Text as="p" variant="bodyMd" fontWeight="semibold">
-            The task will be deleted and you won't be able to recover it. Are
-            you sure?
-          </Text>
-        </Modal.Section>
+        <div className="task-confirmation-modal">
+          <Modal.Section>
+            <Text as="p" variant="bodyMd" fontWeight="semibold">
+              The task will be deleted and you won't be able to recover it. Are
+              you sure?
+            </Text>
+          </Modal.Section>
+        </div>
       </Modal>
     </Page>
   );

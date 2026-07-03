@@ -1,5 +1,10 @@
 import { json } from "@remix-run/node";
-import { useLoaderData, useNavigate } from "@remix-run/react";
+import {
+  useLoaderData,
+  useNavigate,
+  useRevalidator,
+} from "@remix-run/react";
+import { useEffect } from "react";
 import {
   Badge,
   BlockStack,
@@ -75,6 +80,70 @@ function formatChange(task) {
   return `${action}${value ? ` by ${value}` : ""}`;
 }
 
+function normalizeStatus(status) {
+  return String(status || "Pending").toLowerCase();
+}
+
+function getStatusDisplay(status) {
+  const normalized = normalizeStatus(status);
+
+  if (normalized === "complete" || normalized === "completed") {
+    return {
+      label: "Completed",
+      tone: "success",
+      background: "#D1FADF",
+    };
+  }
+
+  if (normalized === "processing" || normalized === "applying") {
+    return {
+      label: "Applying",
+      tone: "attention",
+      background: "#FEDF89",
+      showProgress: true,
+    };
+  }
+
+  if (normalized === "pending") {
+    return {
+      label: "Pending",
+      tone: "attention",
+      background: "#FEDF89",
+    };
+  }
+
+  if (
+    normalized.includes("failed") ||
+    normalized.includes("cancel") ||
+    normalized.includes("error")
+  ) {
+    return {
+      label: humanize(status),
+      tone: "critical",
+      background: "#FEE4E2",
+    };
+  }
+
+  return {
+    label: humanize(status),
+    tone: "info",
+    background: "#E0F2FE",
+  };
+}
+
+function getTaskProgress(task) {
+  const progress = Number(task.executionSummary?.progress);
+
+  if (Number.isFinite(progress)) {
+    return Math.max(0, Math.min(100, Math.round(progress)));
+  }
+
+  if (normalizeStatus(task.status) === "processing") return 10;
+  if (normalizeStatus(task.status) === "complete") return 100;
+
+  return 0;
+}
+
 function getLogs(task) {
   const originalVariants = task.executionSummary?.originalVariants || [];
   const originalInventoryItems =
@@ -105,14 +174,38 @@ function getLogs(task) {
   ];
 }
 
-function DetailRow({ label, value, badgeTone }) {
-  const badgeBackground =
-    badgeTone === "success"
-      ? "#D1FADF"
-      : badgeTone === "critical"
-        ? "#FEE4E2"
-        : "#FEF0C7";
+function StatusBadge({ display }) {
+  return (
+    <span
+      style={{
+        alignItems: "center",
+        background: display.background,
+        borderRadius: 8,
+        display: "inline-flex",
+        fontWeight: 700,
+        gap: 4,
+        lineHeight: 1,
+        padding: "6px 10px",
+      }}
+    >
+      {display.tone === "attention" ? (
+        <span
+          aria-hidden="true"
+          style={{
+            background: "#B98900",
+            borderRadius: "50%",
+            display: "inline-block",
+            height: 8,
+            width: 8,
+          }}
+        />
+      ) : null}
+      {display.label}
+    </span>
+  );
+}
 
+function DetailRow({ label, value, children }) {
   return (
     <Box paddingBlock="300" borderBlockEndWidth="025" borderColor="border">
       <InlineStack gap="800" blockAlign="center" wrap={false}>
@@ -121,18 +214,7 @@ function DetailRow({ label, value, badgeTone }) {
             {label}
           </Text>
         </Box>
-        {badgeTone ? (
-          <span
-            style={{
-              background: badgeBackground,
-              borderRadius: 6,
-              display: "inline-flex",
-              padding: "2px 8px",
-            }}
-          >
-            <Badge tone={badgeTone}>{value}</Badge>
-          </span>
-        ) : (
+        {children || (
           <Text as="p" fontWeight="semibold">
             {value}
           </Text>
@@ -145,16 +227,23 @@ function DetailRow({ label, value, badgeTone }) {
 export default function TaskDetailsPage() {
   const { task } = useLoaderData();
   const navigate = useNavigate();
+  const revalidator = useRevalidator();
   const logs = getLogs(task);
   const status = task.status || "Pending";
-  const statusTone =
-    status === "Complete" || status === "Rolled back"
-      ? "success"
-      : status === "Failed" ||
-          status === "Rollback failed" ||
-          status === "Canceled"
-        ? "critical"
-        : "attention";
+  const statusDisplay = getStatusDisplay(status);
+  const statusTone = statusDisplay.tone;
+  const progress = getTaskProgress(task);
+  const shouldPoll = ["pending", "processing"].includes(normalizeStatus(status));
+
+  useEffect(() => {
+    if (!shouldPoll) return undefined;
+
+    const timer = setInterval(() => {
+      revalidator.revalidate();
+    }, 2000);
+
+    return () => clearInterval(timer);
+  }, [revalidator, shouldPoll]);
 
   return (
     <Page
@@ -181,7 +270,16 @@ export default function TaskDetailsPage() {
               />
               <DetailRow label="Apply to" value={humanize(task.applyScope)} />
               <DetailRow label="Exclude" value={humanize(task.excludeScope)} />
-              <DetailRow label="Status" value={status} badgeTone={statusTone} />
+              <DetailRow label="Status">
+                <BlockStack gap="100">
+                  <StatusBadge display={statusDisplay} />
+                  {statusDisplay.showProgress ? (
+                    <Text as="p" tone="subdued" fontWeight="semibold">
+                      Progress: {progress}%
+                    </Text>
+                  ) : null}
+                </BlockStack>
+              </DetailRow>
               <DetailRow label="Created at" value={formatDate(task.createdAt)} />
             </Card>
 
