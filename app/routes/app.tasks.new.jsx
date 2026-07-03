@@ -25,6 +25,7 @@ import {
   Spinner,
 } from "@shopify/polaris";
 import { useEffect, useMemo, useRef, useState } from "react";
+import db from "../db.server";
 import { authenticate } from "../shopify.server";
 
 const MARKETS_QUERY = `#graphql
@@ -57,8 +58,168 @@ const MARKETS_QUERY = `#graphql
   }
 `;
 
-export async function loader({ request }) {
-  const { admin } = await authenticate.admin(request);
+const TASK_VARIANTS_QUERY = `#graphql
+  query TaskProductVariants($first: Int!, $after: String, $query: String) {
+    productVariants(first: $first, after: $after, query: $query) {
+      nodes {
+        id
+        title
+        price
+        compareAtPrice
+        inventoryItem {
+          id
+          unitCost {
+            amount
+          }
+        }
+        product {
+          id
+          title
+          tags
+        }
+      }
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+    }
+  }
+`;
+
+const TASK_NODES_QUERY = `#graphql
+  query TaskNodes($ids: [ID!]!) {
+    nodes(ids: $ids) {
+      ... on ProductVariant {
+        id
+        title
+        price
+        compareAtPrice
+        inventoryItem {
+          id
+          unitCost {
+            amount
+          }
+        }
+        product {
+          id
+          title
+          tags
+        }
+      }
+      ... on Product {
+        id
+        title
+        tags
+        variants(first: 100) {
+          nodes {
+            id
+            title
+            price
+            compareAtPrice
+            inventoryItem {
+              id
+              unitCost {
+                amount
+              }
+            }
+            product {
+              id
+              title
+              tags
+            }
+          }
+        }
+      }
+      ... on Collection {
+        id
+        title
+        products(first: 100) {
+          nodes {
+            id
+            title
+            tags
+            variants(first: 100) {
+              nodes {
+                id
+                title
+                price
+                compareAtPrice
+                inventoryItem {
+                  id
+                  unitCost {
+                    amount
+                  }
+                }
+                product {
+                  id
+                  title
+                  tags
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
+const TASK_PRODUCT_VARIANTS_BULK_UPDATE = `#graphql
+  mutation TaskProductVariantsBulkUpdate(
+    $productId: ID!
+    $variants: [ProductVariantsBulkInput!]!
+  ) {
+    productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+      product {
+        id
+      }
+      productVariants {
+        id
+        price
+        compareAtPrice
+      }
+      userErrors {
+        field
+        message
+      }
+    }
+  }
+`;
+
+const TASK_INVENTORY_ITEM_UPDATE = `#graphql
+  mutation TaskInventoryItemUpdate($id: ID!, $input: InventoryItemInput!) {
+    inventoryItemUpdate(id: $id, input: $input) {
+      inventoryItem {
+        id
+        unitCost {
+          amount
+        }
+      }
+      userErrors {
+        message
+      }
+    }
+  }
+`;
+
+const MAX_TASK_VARIANTS = 250;
+const VARIANT_PAGE_SIZE = 100;
+
+export async function loader({ request, params }) {
+  const { admin, session } = await authenticate.admin(request);
+  const taskId = getRecordId(params.id || new URL(request.url).searchParams.get("id"));
+  const task = taskId
+    ? await db.task.findFirst({
+        where: {
+          id: taskId,
+          shop: session.shop,
+        },
+      })
+    : null;
+
+  if (taskId && !task) {
+    throw new Response("Task not found", { status: 404 });
+  }
 
   try {
     const response = await admin.graphql(MARKETS_QUERY);
@@ -69,6 +230,7 @@ export async function loader({ request }) {
         markets: [],
         marketsError: "Unable to load Shopify Markets.",
         shopCurrency: "USD",
+        task,
       });
     }
 
@@ -76,27 +238,519 @@ export async function loader({ request }) {
       markets: normalizeMarkets(payload.data?.markets?.nodes),
       marketsError: "",
       shopCurrency: payload.data?.shop?.currencyCode || "USD",
+      task,
     });
   } catch {
     return json({
       markets: [],
       marketsError: "Unable to load Shopify Markets.",
       shopCurrency: "USD",
+      task,
     });
   }
 }
 
-export async function action({ request }) {
-  await authenticate.admin(request);
+export async function action({ request, params }) {
+  const { admin, session } = await authenticate.admin(request);
+  const formData = await request.formData();
+  const taskId = getRecordId(
+    getFormValue(formData, "id") || params.id || new URL(request.url).searchParams.get("id"),
+  );
+  const data = buildTaskData(session.shop, formData);
+  const startedAt = new Date();
+  const execution = await executeTask(admin, data);
+  const completedAt = new Date();
+  const taskData = {
+    ...data,
+    status: execution.ok ? "completed" : "failed",
+    executionSummary: execution,
+    startedAt,
+    completedAt,
+  };
 
-  // Later save this data in DB.
-  // Example:
-  // const formData = await request.formData();
-  // const selectedCollections = formData.getAll("apply_collection_ids[]");
-  // const selectedProducts = formData.getAll("apply_product_ids[]");
-  // const selectedVariants = formData.getAll("apply_variant_ids[]");
+  if (taskId) {
+    const result = await db.task.updateMany({
+      where: {
+        id: taskId,
+        shop: session.shop,
+      },
+      data: taskData,
+    });
 
-  return redirect("/app");
+    if (!result.count) {
+      throw new Response("Task not found", { status: 404 });
+    }
+  } else {
+    await db.task.create({ data: taskData });
+  }
+
+  return redirect("/app/tasks");
+}
+
+function getRecordId(value) {
+  const id = Number(value);
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
+
+function getFormValue(formData, name, fallback = "") {
+  return String(formData.get(name) || fallback);
+}
+
+function getFormValues(formData, name) {
+  return formData.getAll(name).map((value) => String(value));
+}
+
+function hasFormValue(formData, name) {
+  return formData.has(name);
+}
+
+function formDataToConfiguration(formData) {
+  const configuration = {};
+
+  for (const key of formData.keys()) {
+    const values = getFormValues(formData, key);
+    configuration[key] = key.endsWith("[]") ? values : values[0] || "";
+  }
+
+  return configuration;
+}
+
+function buildRoundingData(formData, prefix) {
+  return {
+    mode: getFormValue(formData, `${prefix}_rounding_mode`, "none"),
+    overrideToNearest: hasFormValue(formData, `${prefix}_override_to_nearest`),
+    centsValue: getFormValue(formData, `${prefix}_override_cents_value`),
+    endingDigits: getFormValues(formData, `${prefix}_price_ending_digits[]`),
+    endingPattern: getFormValue(formData, `${prefix}_price_ending_pattern`),
+  };
+}
+
+function buildChangeData(formData, prefix) {
+  return {
+    action: getFormValue(formData, `${prefix}_change_action`),
+    relativeTo: getFormValue(formData, `${prefix}_change_relative_to`),
+    type: getFormValue(formData, `${prefix}_change_type`, "by_percent"),
+    percent: getFormValue(formData, `${prefix}_change_percent`),
+    amount: getFormValue(formData, `${prefix}_change_amount`),
+    rounding: buildRoundingData(formData, prefix),
+  };
+}
+
+function buildTaskData(shop, formData) {
+  const selectedMarketIds = getFormValues(formData, "selected_market_ids[]");
+  const selectedMarketHandles = getFormValues(formData, "selected_market_handles[]");
+  const selectedMarketCurrencyCodes = getFormValues(
+    formData,
+    "selected_market_currency_codes[]",
+  );
+
+  return {
+    shop,
+    status: "draft",
+    applyChangesTo: getFormValue(formData, "apply_changes_to", "products"),
+    applyToFixedPrices: hasFormValue(formData, "apply_to_fixed_prices"),
+    selectedMarkets: selectedMarketIds.map((id, index) => ({
+      id,
+      handle: selectedMarketHandles[index] || "",
+      currencyCode: selectedMarketCurrencyCodes[index] || "",
+    })),
+    priceChange: buildChangeData(formData, "price"),
+    compareAtPriceChange: buildChangeData(formData, "compare_at_price"),
+    costPerItemChange: buildChangeData(formData, "cost_per_item"),
+    applyScope: getFormValue(formData, "condition", "whole_store"),
+    excludeScope: getFormValue(formData, "exclude", "nothing"),
+    discountedScope: getFormValue(formData, "exclude_discounted", "nothing"),
+    applyResources: {
+      scope: getFormValue(formData, "apply_scope"),
+      saleFilter: getFormValue(formData, "apply_sale_filter"),
+      collectionIds: getFormValues(formData, "apply_collection_ids[]"),
+      productIds: getFormValues(formData, "apply_product_ids[]"),
+      variantIds: getFormValues(formData, "apply_variant_ids[]"),
+      tagNames: getFormValues(formData, "apply_tag_names[]"),
+    },
+    excludeResources: {
+      scope: getFormValue(formData, "exclude_scope"),
+      discountedScope: getFormValue(formData, "discounted_exclusion_scope"),
+      collectionIds: getFormValues(formData, "exclude_collection_ids[]"),
+      productIds: getFormValues(formData, "exclude_product_ids[]"),
+      variantIds: getFormValues(formData, "exclude_variant_ids[]"),
+      tagNames: getFormValues(formData, "exclude_tag_names[]"),
+    },
+    configuration: formDataToConfiguration(formData),
+    autoReapplyChanges: hasFormValue(formData, "auto_reapply_changes"),
+  };
+}
+
+async function executeTask(admin, taskData) {
+  try {
+    if (taskData.applyChangesTo === "markets") {
+      return {
+        ok: false,
+        error:
+          "Market price-list updates are not executed yet. Product variant tasks are supported.",
+        analyzedVariants: 0,
+        updatedVariants: 0,
+      };
+    }
+
+    const targetVariants = await loadTargetVariants(admin, taskData);
+    const excludedVariantIds = await loadExcludedVariantIds(admin, taskData);
+    const variants = uniqueVariants(targetVariants).filter((variant) => {
+      if (excludedVariantIds.has(variant.id)) return false;
+      if (
+        taskData.discountedScope === "products_on_sale" &&
+        isVariantDiscounted(variant)
+      ) {
+        return false;
+      }
+      return true;
+    });
+
+    const productVariantUpdates = [];
+    const inventoryUpdates = [];
+
+    for (const variant of variants) {
+      const variantUpdate = buildVariantUpdate(variant, taskData);
+      if (variantUpdate) productVariantUpdates.push(variantUpdate);
+
+      const inventoryUpdate = buildInventoryUpdate(variant, taskData.costPerItemChange);
+      if (inventoryUpdate) inventoryUpdates.push(inventoryUpdate);
+    }
+
+    const variantResults = await applyVariantUpdates(admin, productVariantUpdates);
+    const inventoryResults = await applyInventoryUpdates(admin, inventoryUpdates);
+    const errors = [...variantResults.errors, ...inventoryResults.errors];
+
+    return {
+      ok: errors.length === 0,
+      analyzedVariants: variants.length,
+      variantUpdates: productVariantUpdates.length,
+      inventoryUpdates: inventoryUpdates.length,
+      updatedVariants: variantResults.updatedCount,
+      updatedInventoryItems: inventoryResults.updatedCount,
+      skippedVariants:
+        targetVariants.length - variants.length + variants.length - productVariantUpdates.length,
+      errors,
+      cappedAt: MAX_TASK_VARIANTS,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "Unable to execute task.",
+      analyzedVariants: 0,
+      updatedVariants: 0,
+    };
+  }
+}
+
+function uniqueVariants(variants) {
+  const byId = new Map();
+
+  for (const variant of variants) {
+    if (variant?.id && !byId.has(variant.id)) {
+      byId.set(variant.id, variant);
+    }
+  }
+
+  return [...byId.values()];
+}
+
+function isVariantDiscounted(variant) {
+  const price = toNumber(variant.price);
+  const compareAtPrice = toNumber(variant.compareAtPrice);
+  return compareAtPrice != null && price != null && compareAtPrice > price;
+}
+
+async function shopifyGraphql(admin, query, variables = {}) {
+  const response = await admin.graphql(query, { variables });
+  const payload = await response.json();
+
+  if (payload.errors) {
+    throw new Error(payload.errors.map((error) => error.message).join("; "));
+  }
+
+  return payload.data;
+}
+
+async function loadTargetVariants(admin, taskData) {
+  const { applyScope, applyResources } = taskData;
+
+  if (applyScope === "selected_products") {
+    return loadVariantsFromProductIds(admin, applyResources.productIds);
+  }
+
+  if (applyScope === "selected_products_with_variants") {
+    return loadVariantsFromVariantIds(admin, applyResources.variantIds);
+  }
+
+  if (applyScope === "selected_collections") {
+    return loadVariantsFromCollectionIds(admin, applyResources.collectionIds);
+  }
+
+  if (applyScope === "selected_tags") {
+    return loadVariantsFromTags(admin, applyResources.tagNames);
+  }
+
+  return loadVariantsByQuery(admin, null);
+}
+
+async function loadExcludedVariantIds(admin, taskData) {
+  const { excludeScope, excludeResources } = taskData;
+  let variants = [];
+
+  if (excludeScope === "selected_products") {
+    variants = await loadVariantsFromProductIds(admin, excludeResources.productIds);
+  } else if (excludeScope === "selected_products_with_variants") {
+    variants = await loadVariantsFromVariantIds(admin, excludeResources.variantIds);
+  } else if (excludeScope === "selected_collections") {
+    variants = await loadVariantsFromCollectionIds(
+      admin,
+      excludeResources.collectionIds,
+    );
+  } else if (excludeScope === "selected_tags") {
+    variants = await loadVariantsFromTags(admin, excludeResources.tagNames);
+  }
+
+  return new Set(variants.map((variant) => variant.id));
+}
+
+async function loadVariantsByQuery(admin, query) {
+  const variants = [];
+  let after = null;
+
+  do {
+    const data = await shopifyGraphql(admin, TASK_VARIANTS_QUERY, {
+      first: Math.min(VARIANT_PAGE_SIZE, MAX_TASK_VARIANTS - variants.length),
+      after,
+      query,
+    });
+    const connection = data.productVariants;
+    variants.push(...(connection?.nodes || []));
+    after = connection?.pageInfo?.hasNextPage ? connection.pageInfo.endCursor : null;
+  } while (after && variants.length < MAX_TASK_VARIANTS);
+
+  return variants;
+}
+
+async function loadNodes(admin, ids) {
+  const cleanIds = [...new Set((ids || []).filter(Boolean))];
+  if (!cleanIds.length) return [];
+
+  const data = await shopifyGraphql(admin, TASK_NODES_QUERY, {
+    ids: cleanIds,
+  });
+
+  return data.nodes || [];
+}
+
+function variantsFromNodes(nodes) {
+  const variants = [];
+
+  for (const node of nodes || []) {
+    if (!node) continue;
+    if (node.price !== undefined && node.product?.id) {
+      variants.push(node);
+      continue;
+    }
+    if (node.variants?.nodes) {
+      variants.push(...node.variants.nodes);
+      continue;
+    }
+    if (node.products?.nodes) {
+      for (const product of node.products.nodes) {
+        variants.push(...(product.variants?.nodes || []));
+      }
+    }
+  }
+
+  return variants;
+}
+
+async function loadVariantsFromProductIds(admin, productIds) {
+  return variantsFromNodes(await loadNodes(admin, productIds));
+}
+
+async function loadVariantsFromVariantIds(admin, variantIds) {
+  return variantsFromNodes(await loadNodes(admin, variantIds));
+}
+
+async function loadVariantsFromCollectionIds(admin, collectionIds) {
+  return variantsFromNodes(await loadNodes(admin, collectionIds));
+}
+
+async function loadVariantsFromTags(admin, tagNames) {
+  const variants = [];
+
+  for (const tagName of tagNames || []) {
+    const safeTag = String(tagName).replaceAll('"', '\\"');
+    variants.push(...(await loadVariantsByQuery(admin, `tag:"${safeTag}"`)));
+    if (variants.length >= MAX_TASK_VARIANTS) break;
+  }
+
+  return variants.slice(0, MAX_TASK_VARIANTS);
+}
+
+function buildVariantUpdate(variant, taskData) {
+  const update = {
+    productId: variant.product?.id,
+    variant: { id: variant.id },
+  };
+  const nextPrice = calculateFieldValue(variant.price, variant, taskData.priceChange);
+  const nextCompareAtPrice = calculateFieldValue(
+    variant.compareAtPrice,
+    variant,
+    taskData.compareAtPriceChange,
+    { resetValue: null, fallbackBase: variant.price },
+  );
+
+  if (nextPrice != null) update.variant.price = nextPrice;
+  if (nextCompareAtPrice !== undefined) {
+    update.variant.compareAtPrice = nextCompareAtPrice;
+  }
+
+  return Object.keys(update.variant).length > 1 && update.productId ? update : null;
+}
+
+function buildInventoryUpdate(variant, costChange) {
+  if (!variant.inventoryItem?.id) return null;
+
+  const nextCost = calculateFieldValue(
+    variant.inventoryItem.unitCost?.amount,
+    variant,
+    costChange,
+    { resetValue: null },
+  );
+
+  if (nextCost === undefined) return null;
+
+  return {
+    id: variant.inventoryItem.id,
+    input: { cost: nextCost },
+  };
+}
+
+function calculateFieldValue(currentValue, variant, change, options = {}) {
+  const action = change?.action || "";
+  const current = toNumber(currentValue);
+
+  if (!action) return undefined;
+  if (action === "reset_compare_at_price" || action === "reset_cost_per_item") {
+    return options.resetValue;
+  }
+  if (action === "set_to_price") return formatPrice(variant.price);
+  if (action === "set_to_compare_at_price") {
+    return variant.compareAtPrice == null ? undefined : formatPrice(variant.compareAtPrice);
+  }
+  if (action === "set_new_value") return formatPrice(change.amount);
+
+  let nextValue = current ?? toNumber(options.fallbackBase);
+  if (nextValue == null) return undefined;
+
+  if (action === "set_margin") {
+    const cost = toNumber(variant.inventoryItem?.unitCost?.amount);
+    const margin = toNumber(change.percent);
+    if (cost == null || margin == null || margin >= 100) return undefined;
+    nextValue = cost / (1 - margin / 100);
+  } else if (action === "increase" || action === "decrease") {
+    const direction = action === "increase" ? 1 : -1;
+    if (change.type === "by_amount") {
+      const amount = toNumber(change.amount);
+      if (amount == null) return undefined;
+      nextValue += direction * amount;
+    } else {
+      const percent = toNumber(change.percent);
+      if (percent == null) return undefined;
+      nextValue += direction * nextValue * (percent / 100);
+    }
+  }
+
+  nextValue = applyRounding(nextValue, change.rounding);
+  return formatPrice(Math.max(0, nextValue));
+}
+
+function applyRounding(value, rounding = {}) {
+  if (rounding.mode === "round_to_whole") return Math.round(value);
+
+  if (rounding.mode === "override_cents") {
+    const cents = clampCents(rounding.centsValue);
+    const lower = Math.floor(value) + cents / 100;
+    const upper = Math.ceil(value) + cents / 100;
+    return rounding.overrideToNearest && Math.abs(upper - value) < Math.abs(lower - value)
+      ? upper
+      : lower;
+  }
+
+  if (rounding.mode === "set_ending") {
+    const ending = String(rounding.endingPattern || "").replace("*", "");
+    const parsedEnding = Number(`0${ending.startsWith(".") ? ending : `.${ending}`}`);
+    if (Number.isFinite(parsedEnding)) {
+      return Math.floor(value) + parsedEnding;
+    }
+  }
+
+  return value;
+}
+
+function clampCents(value) {
+  const cents = Number(value);
+  if (!Number.isFinite(cents)) return 0;
+  return Math.max(0, Math.min(99, Math.trunc(cents)));
+}
+
+function toNumber(value) {
+  if (value == null || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function formatPrice(value) {
+  const number = toNumber(value);
+  return number == null ? null : number.toFixed(2);
+}
+
+async function applyVariantUpdates(admin, updates) {
+  const errors = [];
+  let updatedCount = 0;
+  const byProduct = new Map();
+
+  for (const update of updates) {
+    if (!byProduct.has(update.productId)) byProduct.set(update.productId, []);
+    byProduct.get(update.productId).push(update.variant);
+  }
+
+  for (const [productId, variants] of byProduct) {
+    const data = await shopifyGraphql(admin, TASK_PRODUCT_VARIANTS_BULK_UPDATE, {
+      productId,
+      variants,
+    });
+    const result = data.productVariantsBulkUpdate;
+    const userErrors = result?.userErrors || [];
+    if (userErrors.length) {
+      errors.push(...userErrors.map((error) => error.message));
+    } else {
+      updatedCount += result?.productVariants?.length || 0;
+    }
+  }
+
+  return { errors, updatedCount };
+}
+
+async function applyInventoryUpdates(admin, updates) {
+  const errors = [];
+  let updatedCount = 0;
+
+  for (const update of updates) {
+    const data = await shopifyGraphql(admin, TASK_INVENTORY_ITEM_UPDATE, update);
+    const result = data.inventoryItemUpdate;
+    const userErrors = result?.userErrors || [];
+    if (userErrors.length) {
+      errors.push(...userErrors.map((error) => error.message));
+    } else {
+      updatedCount += 1;
+    }
+  }
+
+  return { errors, updatedCount };
 }
 
 /* -------------------- Form options -------------------- */
@@ -206,7 +860,7 @@ function normalizeMarkets(markets = []) {
 function SectionCard({ title, children }) {
   return (
     <Card>
-      <BlockStack gap="400">
+      <BlockStack gap="200">
         <Text as="h2" variant="headingMd">
           {title}
         </Text>
@@ -502,7 +1156,7 @@ function ResourcePickerModal({
               justifyContent: "center",
             }}
           >
-            <BlockStack gap="300" inlineAlign="center">
+            <BlockStack gap="200" inlineAlign="center">
               <Spinner accessibilityLabel={`Loading ${resourceLabel}`} size="large" />
               <Text as="p" tone="subdued">
                 Loading {resourceLabel}...
@@ -519,7 +1173,7 @@ function ResourcePickerModal({
             }}
           >
             <div style={{ flexShrink: 0 }}>
-              <Box paddingBlockEnd="300">
+              <Box paddingBlockEnd="200">
                 <TextField
                   label={searchPlaceholder}
                   labelHidden
@@ -533,7 +1187,7 @@ function ResourcePickerModal({
 
             {error ? (
               <div style={{ flexShrink: 0 }}>
-                <Box paddingBlockEnd="300">
+                <Box paddingBlockEnd="200">
                   <Banner tone="critical">{error}</Banner>
                 </Box>
               </div>
@@ -651,7 +1305,7 @@ function ResourcePickerModal({
                             {item.title}
                           </Text>
                         ) : (
-                          <InlineStack gap="300" blockAlign="center" wrap={false}>
+                          <InlineStack gap="200" blockAlign="center" wrap={false}>
                             <ResourceAvatar
                               title={item.productTitle || item.title}
                               imageUrl={item.imageUrl}
@@ -701,7 +1355,7 @@ function ResourcePickerModal({
                 )}
 
                 {loadingMore ? (
-                  <Box padding="400">
+                  <Box padding="200">
                     <BlockStack gap="200" inlineAlign="center">
                       <Spinner
                         accessibilityLabel={`Loading more ${resourceLabel}`}
@@ -728,11 +1382,11 @@ function ResourcePickerModal({
               }}
             >
               <Box
-                paddingBlockStart="300"
+                paddingBlockStart="200"
                 paddingInlineStart="050"
                 paddingInlineEnd="050"
               >
-                <InlineStack align="space-between" blockAlign="center" gap="300">
+                <InlineStack align="space-between" blockAlign="center" gap="200">
                   <Text as="p" tone="subdued" variant="bodyMd">
                     {tempSelectedIds.length}/{limit} {resourceLabel} selected
                   </Text>
@@ -909,8 +1563,8 @@ function ResourcePickerField({
 
   if (collectionMode) {
     return (
-      <Box paddingBlockStart="300">
-        <BlockStack gap="300">
+      <Box paddingBlockStart="200">
+        <BlockStack gap="200">
           <InlineStack gap="200" blockAlign="end" wrap={false}>
             <Box width="100%">
               <TextField
@@ -969,8 +1623,8 @@ function ResourcePickerField({
 
   if (productMode) {
     return (
-      <Box paddingBlockStart="300">
-        <BlockStack gap="300">
+      <Box paddingBlockStart="200">
+        <BlockStack gap="200">
           <InlineStack gap="200" blockAlign="end" wrap={false}>
             <Box width="100%">
               <TextField
@@ -1029,8 +1683,8 @@ function ResourcePickerField({
 
   if (variantMode) {
     return (
-      <Box paddingBlockStart="300">
-        <BlockStack gap="300">
+      <Box paddingBlockStart="200">
+        <BlockStack gap="200">
           <InlineStack gap="200" blockAlign="end" wrap={false}>
             <Box width="100%">
               <TextField
@@ -1089,8 +1743,8 @@ function ResourcePickerField({
 
   if (tagMode) {
     return (
-      <Box paddingBlockStart="300">
-        <BlockStack gap="300">
+      <Box paddingBlockStart="200">
+        <BlockStack gap="200">
           <InlineStack gap="200" blockAlign="end" wrap={false}>
             <Box width="100%">
               <TextField
@@ -1154,11 +1808,17 @@ function ResourcePickerField({
 
 /* -------------------- Price fields -------------------- */
 
-function RoundingFields({ prefix }) {
-  const [rounding, setRounding] = useState("none");
-  const [nearest, setNearest] = useState(false);
-  const [cents, setCents] = useState("99");
-  const [endingDigits, setEndingDigits] = useState(["*", ".", "9", "9"]);
+function RoundingFields({ prefix, initialRounding = {} }) {
+  const [rounding, setRounding] = useState(initialRounding.mode || "none");
+  const [nearest, setNearest] = useState(
+    Boolean(initialRounding.overrideToNearest),
+  );
+  const [cents, setCents] = useState(initialRounding.centsValue || "99");
+  const [endingDigits, setEndingDigits] = useState(
+    initialRounding.endingDigits?.length
+      ? initialRounding.endingDigits
+      : ["*", ".", "9", "9"],
+  );
 
   const updateEndingDigit = (index, value) => {
     const nextValue = value.slice(-1);
@@ -1181,7 +1841,7 @@ function RoundingFields({ prefix }) {
   };
 
   return (
-    <BlockStack gap="300">
+    <BlockStack gap="200">
       <Select
         label="Rounding"
         name={`${prefix}_rounding_mode`}
@@ -1279,12 +1939,15 @@ function PriceChangeFields({
   showRelative = false,
   relativeOptions = priceRelativeOptions,
   currency = "USD",
+  initialChange = {},
 }) {
-  const [action, setAction] = useState(defaultAction);
-  const [relativeTo, setRelativeTo] = useState("");
-  const [changeType, setChangeType] = useState("by_percent");
-  const [percent, setPercent] = useState("");
-  const [amount, setAmount] = useState("");
+  const [action, setAction] = useState(initialChange.action ?? defaultAction);
+  const [relativeTo, setRelativeTo] = useState(initialChange.relativeTo || "");
+  const [changeType, setChangeType] = useState(
+    initialChange.type || "by_percent",
+  );
+  const [percent, setPercent] = useState(initialChange.percent || "");
+  const [amount, setAmount] = useState(initialChange.amount || "");
 
   const isPriceField = fieldPrefix === "price";
   const isCompareAtPriceField = fieldPrefix === "compare_at_price";
@@ -1375,7 +2038,10 @@ function PriceChangeFields({
       {shouldShowRounding && (
         <>
           <Divider />
-          <RoundingFields prefix={fieldPrefix} />
+          <RoundingFields
+            prefix={fieldPrefix}
+            initialRounding={initialChange.rounding}
+          />
         </>
       )}
     </BlockStack>
@@ -1384,18 +2050,48 @@ function PriceChangeFields({
 
 /* -------------------- Main page -------------------- */
 
+function getConfigArray(configuration, name) {
+  const value = configuration?.[name];
+  if (Array.isArray(value)) return value;
+  return value ? [value] : [];
+}
+
+function getConfigValue(configuration, name, fallback = "") {
+  const value = configuration?.[name];
+  if (Array.isArray(value)) return value[0] || fallback;
+  return value || fallback;
+}
+
+function idsToSelectedItems(ids) {
+  return ids.map((id) => ({ id, title: id }));
+}
+
+function tagsToSelectedItems(tags) {
+  return tags.map((title) => ({ id: title, title }));
+}
+
 export default function NewTaskPage() {
   const {
     markets = [],
     marketsError = "",
     shopCurrency = "USD",
+    task = null,
   } = useLoaderData();
   const navigation = useNavigation();
   const isSubmitting = navigation.state !== "idle";
+  const configuration = task?.configuration || {};
 
-  const [applyChangesTo, setApplyChangesTo] = useState("products");
-  const [applyToFixedPrices, setApplyToFixedPrices] = useState(false);
-  const [selectedMarkets, setSelectedMarkets] = useState([]);
+  const [applyChangesTo, setApplyChangesTo] = useState(
+    getConfigValue(configuration, "apply_changes_to", task?.applyChangesTo || "products"),
+  );
+  const [applyToFixedPrices, setApplyToFixedPrices] = useState(
+    Boolean(task?.applyToFixedPrices || configuration.apply_to_fixed_prices),
+  );
+  const [selectedMarkets, setSelectedMarkets] = useState(
+    getConfigArray(configuration, "selected_market_ids[]").length
+      ? getConfigArray(configuration, "selected_market_ids[]")
+      : task?.selectedMarkets?.map((market) => market.id).filter(Boolean) || [],
+  );
   const marketChoices = useMemo(
     () =>
       markets.map((market) => ({
@@ -1409,20 +2105,48 @@ export default function NewTaskPage() {
     [markets, selectedMarkets],
   );
 
-  const [applyTo, setApplyTo] = useState(["whole_store"]);
-  const [exclude, setExclude] = useState(["nothing"]);
-  const [excludeDiscounted, setExcludeDiscounted] = useState(["nothing"]);
-  const [autoReapply, setAutoReapply] = useState(false);
+  const [applyTo, setApplyTo] = useState([
+    getConfigValue(configuration, "condition", task?.applyScope || "whole_store"),
+  ]);
+  const [exclude, setExclude] = useState([
+    getConfigValue(configuration, "exclude", task?.excludeScope || "nothing"),
+  ]);
+  const [excludeDiscounted, setExcludeDiscounted] = useState([
+    getConfigValue(
+      configuration,
+      "exclude_discounted",
+      task?.discountedScope || "nothing",
+    ),
+  ]);
+  const [autoReapply, setAutoReapply] = useState(
+    Boolean(task?.autoReapplyChanges || configuration.auto_reapply_changes),
+  );
 
-  const [applyCollections, setApplyCollections] = useState([]);
-  const [applyProducts, setApplyProducts] = useState([]);
-  const [applyVariants, setApplyVariants] = useState([]);
-  const [applyTags, setApplyTags] = useState([]);
+  const [applyCollections, setApplyCollections] = useState(
+    idsToSelectedItems(getConfigArray(configuration, "apply_collection_ids[]")),
+  );
+  const [applyProducts, setApplyProducts] = useState(
+    idsToSelectedItems(getConfigArray(configuration, "apply_product_ids[]")),
+  );
+  const [applyVariants, setApplyVariants] = useState(
+    idsToSelectedItems(getConfigArray(configuration, "apply_variant_ids[]")),
+  );
+  const [applyTags, setApplyTags] = useState(
+    tagsToSelectedItems(getConfigArray(configuration, "apply_tag_names[]")),
+  );
 
-  const [excludeCollections, setExcludeCollections] = useState([]);
-  const [excludeProducts, setExcludeProducts] = useState([]);
-  const [excludeVariants, setExcludeVariants] = useState([]);
-  const [excludeTags, setExcludeTags] = useState([]);
+  const [excludeCollections, setExcludeCollections] = useState(
+    idsToSelectedItems(getConfigArray(configuration, "exclude_collection_ids[]")),
+  );
+  const [excludeProducts, setExcludeProducts] = useState(
+    idsToSelectedItems(getConfigArray(configuration, "exclude_product_ids[]")),
+  );
+  const [excludeVariants, setExcludeVariants] = useState(
+    idsToSelectedItems(getConfigArray(configuration, "exclude_variant_ids[]")),
+  );
+  const [excludeTags, setExcludeTags] = useState(
+    tagsToSelectedItems(getConfigArray(configuration, "exclude_tag_names[]")),
+  );
 
   useEffect(() => {
     const marketIds = new Set(markets.map((market) => market.id));
@@ -1452,17 +2176,23 @@ export default function NewTaskPage() {
 
   return (
     <>
-      <TitleBar title="New task" />
+      <TitleBar title={task ? "Edit task" : "New task"} />
 
       <Page
-        title="New task"
+        title={task ? "Edit task" : "New task"}
         narrowWidth
         backAction={{
           content: "Back",
           url: "/app",
         }}
         primaryAction={{
-          content: isSubmitting ? "Saving..." : "Save",
+          content: isSubmitting
+            ? task
+              ? "Updating..."
+              : "Running..."
+            : task
+              ? "Update"
+              : "Run task",
           onAction: submitTaskForm,
           loading: isSubmitting,
           disabled: isSubmitting,
@@ -1476,11 +2206,12 @@ export default function NewTaskPage() {
         ]}
       >
         <Form method="post" id="task-create-form">
+          {task?.id ? <input type="hidden" name="id" value={task.id} /> : null}
           <input type="hidden" name="apply_changes_to" value={applyChangesTo} />
 
           <Layout>
             <Layout.Section>
-              <BlockStack gap="400">
+              <BlockStack gap="200">
                 <SectionCard title="Change type">
                   <ButtonGroup segmented>
                     <Button
@@ -1569,6 +2300,7 @@ export default function NewTaskPage() {
                     showRelative
                     relativeOptions={priceRelativeOptions}
                     currency={shopCurrency}
+                    initialChange={task?.priceChange}
                   />
                 </SectionCard>
 
@@ -1580,6 +2312,7 @@ export default function NewTaskPage() {
                     showRelative
                     relativeOptions={compareRelativeOptions}
                     currency={shopCurrency}
+                    initialChange={task?.compareAtPriceChange}
                   />
                 </SectionCard>
 
@@ -1590,6 +2323,7 @@ export default function NewTaskPage() {
                     defaultAction=""
                     showRelative={false}
                     currency={shopCurrency}
+                    initialChange={task?.costPerItemChange}
                   />
                 </SectionCard>
 
@@ -1687,7 +2421,7 @@ export default function NewTaskPage() {
                     loading={isSubmitting}
                     disabled={isSubmitting}
                   >
-                    {isSubmitting ? "Saving..." : "Save"}
+                    {isSubmitting ? "Running..." : task ? "Update" : "Run task"}
                   </Button>
                 </InlineStack>
               </BlockStack>

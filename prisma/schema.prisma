@@ -55,3 +55,67 @@ model shop {
   uninstalledAt           DateTime?
   announcementEmailSentAt DateTime?
 }
+
+model Task {
+  id                   Int       @id @default(autoincrement())
+  shop                 String    @db.VarChar(255)
+  status               String    @default("draft") @db.VarChar(32)
+  applyChangesTo       String    @default("products") @db.VarChar(32)
+  applyToFixedPrices   Boolean   @default(false)
+  selectedMarkets      Json?
+  priceChange          Json?
+  compareAtPriceChange Json?
+  costPerItemChange    Json?
+  applyScope           String    @default("whole_store") @db.VarChar(64)
+  excludeScope         String    @default("nothing") @db.VarChar(64)
+  discountedScope      String    @default("nothing") @db.VarChar(64)
+  applyResources       Json?
+  excludeResources     Json?
+  configuration        Json?
+  executionSummary     Json?
+  autoReapplyChanges   Boolean   @default(false)
+  startedAt            DateTime?
+  completedAt          DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@index([shop])
+  @@index([status])
+  @@map("task")
+}
+
+model Sale {
+  id                    Int       @id @default(autoincrement())
+  shop                  String    @db.VarChar(255)
+  title                 String    @db.VarChar(255)
+  status                String    @default("draft") @db.VarChar(32)
+  changeType            String    @default("products") @db.VarChar(32)
+  applyToFixedPrices    Boolean   @default(false)
+  markets               Json?
+  priceChange           Json?
+  compareAtPriceChange  Json?
+  applyScope            String    @default("whole_store") @db.VarChar(64)
+  excludeScope          String    @default("nothing") @db.VarChar(64)
+  discountedScope       String    @default("nothing") @db.VarChar(64)
+  applyResources        Json?
+  excludeResources      Json?
+  tagRules              Json?
+  schedule              Json?
+  configuration         Json?
+  executionSummary      Json?
+  startAt               DateTime?
+  endAt                 DateTime?
+  addTagsEnabled        Boolean   @default(false)
+  removeTagsEnabled     Boolean   @default(false)
+  trackConditionChanges Boolean   @default(false)
+  autoReapplyChanges    Boolean   @default(false)
+  startedAt             DateTime?
+  completedAt           DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([shop])
+  @@index([status])
+  @@index([startAt])
+  @@map("sale")
+}

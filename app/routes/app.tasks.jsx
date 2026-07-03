@@ -20,18 +20,23 @@ import {
   Layout,
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
+import db from "../db.server";
 import { authenticate } from "../shopify.server";
 
 const TASK_HELP_URL = "https://help.platmart.io/article/28-how-to-use-tasks";
 const NEW_TASK_URL = "/app/tasks/new";
+const TASKS_URL = "/app/tasks";
 
 export const loader = async ({ request }) => {
-  await authenticate.admin(request);
+  const { session } = await authenticate.admin(request);
 
-  // Later replace this with real DB task count
-  const taskCount = 0;
+  const tasks = await db.task.findMany({
+    where: { shop: session.shop },
+    orderBy: { updatedAt: "desc" },
+    take: 50,
+  });
 
-  return json({ taskCount });
+  return json({ taskCount: tasks.length, tasks });
 };
 
 function EmptyTasksPage() {
@@ -102,7 +107,7 @@ function EmptyTasksPage() {
   );
 }
 
-function TasksListPage() {
+function TasksListPage({ tasks }) {
   const navigate = useNavigate();
   const navigation = useNavigation();
   const isOpeningNewTask = navigation.location?.pathname === NEW_TASK_URL;
@@ -130,21 +135,44 @@ function TasksListPage() {
                   Your tasks
                 </Text>
 
-                <Text as="p" variant="bodyMd" tone="subdued">
-                  Task list will show here when tasks are available.
-                </Text>
-
-                <InlineStack>
-                  <Button
-                    variant="primary"
-                    url={NEW_TASK_URL}
-                    onClick={openNewTask}
-                    loading={isOpeningNewTask}
-                    disabled={isOpeningNewTask}
+                {tasks.map((task) => (
+                  <Box
+                    key={task.id}
+                    padding="300"
+                    borderColor="border"
+                    borderWidth="025"
+                    borderRadius="200"
                   >
-                    Create task
-                  </Button>
-                </InlineStack>
+                    <InlineStack align="space-between" blockAlign="center">
+                      <BlockStack gap="050">
+                        <Text as="p" variant="bodyMd" fontWeight="semibold">
+                          Task #{task.id}
+                        </Text>
+                        <Text as="p" variant="bodySm" tone="subdued">
+                          {task.applyChangesTo} - {task.status}
+                        </Text>
+                        {task.executionSummary ? (
+                          <Text as="p" variant="bodySm" tone="subdued">
+                            Analyzed {task.executionSummary.analyzedVariants || 0},
+                            updated {task.executionSummary.updatedVariants || 0}
+                          </Text>
+                        ) : null}
+                      </BlockStack>
+
+                      <Button url={`/app/tasks/${task.id}`}>Edit</Button>
+                    </InlineStack>
+                  </Box>
+                ))}
+
+                <Button
+                  variant="primary"
+                  url={NEW_TASK_URL}
+                  onClick={openNewTask}
+                  loading={isOpeningNewTask}
+                  disabled={isOpeningNewTask}
+                >
+                  Create task
+                </Button>
               </BlockStack>
             </Box>
           </Card>
@@ -155,10 +183,10 @@ function TasksListPage() {
 }
 
 export default function TaskPage() {
-  const { taskCount } = useLoaderData();
+  const { taskCount, tasks } = useLoaderData();
   const location = useLocation();
 
-  if (location.pathname === NEW_TASK_URL) {
+  if (location.pathname !== TASKS_URL) {
     return <Outlet />;
   }
 
@@ -166,5 +194,5 @@ export default function TaskPage() {
     return <EmptyTasksPage />;
   }
 
-  return <TasksListPage />;
+  return <TasksListPage tasks={tasks} />;
 }
