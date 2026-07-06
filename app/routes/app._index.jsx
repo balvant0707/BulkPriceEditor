@@ -1,4 +1,5 @@
 // app/routes/app._index.jsx
+import { json } from "@remix-run/node";
 import {
   Page,
   Layout,
@@ -14,8 +15,10 @@ import {
   Image,
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
-import { useNavigate, useNavigation } from "@remix-run/react";
+import { useLoaderData, useNavigate, useNavigation } from "@remix-run/react";
 import { useState } from "react";
+import db from "../db.server";
+import { authenticate } from "../shopify.server";
 
 const statsRowStyle = {
   display: "flex",
@@ -29,18 +32,18 @@ const statsValueStyle = {
   color: "#202223",
 };
 
-const taskStats = [
-  { label: "All tasks", value: 0, url: "/app/tasks" },
-  { label: "Completed", value: 0, url: "/app/tasks?status=completed" },
-  { label: "Archived", value: 0, url: "/app/tasks?status=archived" },
-  { label: "Canceled", value: 0, url: "/app/tasks?status=canceled" },
+const taskStatDefinitions = [
+  { id: "all", label: "All tasks", url: "/app/tasks" },
+  { id: "completed", label: "Completed", url: "/app/tasks?status=completed" },
+  { id: "archived", label: "Archived", url: "/app/tasks?status=archived" },
+  { id: "canceled", label: "Canceled", url: "/app/tasks?status=canceled" },
 ];
 
-const saleStats = [
-  { label: "All sales", value: 0, url: "/app/sales" },
-  { label: "Active", value: 0, url: "/app/sales?status=active" },
-  { label: "Scheduled", value: 0, url: "/app/sales?status=scheduled" },
-  { label: "Completed", value: 0, url: "/app/sales?status=completed" },
+const saleStatDefinitions = [
+  { id: "all", label: "All sales", url: "/app/sales" },
+  { id: "active", label: "Active", url: "/app/sales?status=active" },
+  { id: "scheduled", label: "Scheduled", url: "/app/sales?status=scheduled" },
+  { id: "completed", label: "Completed", url: "/app/sales?status=completed" },
 ];
 
 const changelogItems = [
@@ -60,6 +63,82 @@ const changelogItems = [
     url: "",
   },
 ];
+
+function taskMatchesStatus(task, statusId) {
+  if (statusId === "all") {
+    return true;
+  }
+
+  const status = String(task.status || "").toLowerCase();
+
+  if (statusId === "completed") {
+    return (
+      status === "complete" ||
+      status.includes("completed") ||
+      status.includes("success")
+    );
+  }
+
+  if (statusId === "archived") {
+    return status.includes("archived");
+  }
+
+  if (statusId === "canceled") {
+    return (
+      status.includes("cancel") ||
+      status.includes("failed") ||
+      status.includes("error")
+    );
+  }
+
+  return false;
+}
+
+function saleMatchesStatus(sale, statusId) {
+  if (statusId === "all") {
+    return true;
+  }
+
+  const status = String(sale.status || "").toLowerCase();
+
+  if (statusId === "completed") {
+    return (
+      status === "complete" ||
+      status === "completed" ||
+      status === "finished" ||
+      status === "ended"
+    );
+  }
+
+  return status === statusId;
+}
+
+function buildStats(definitions, records, matcher) {
+  return definitions.map((definition) => ({
+    ...definition,
+    value: records.filter((record) => matcher(record, definition.id)).length,
+  }));
+}
+
+export const loader = async ({ request }) => {
+  const { session } = await authenticate.admin(request);
+
+  const [tasks, sales] = await Promise.all([
+    db.task.findMany({
+      where: { shop: session.shop },
+      select: { status: true },
+    }),
+    db.sale.findMany({
+      where: { shop: session.shop },
+      select: { status: true },
+    }),
+  ]);
+
+  return json({
+    taskStats: buildStats(taskStatDefinitions, tasks, taskMatchesStatus),
+    saleStats: buildStats(saleStatDefinitions, sales, saleMatchesStatus),
+  });
+};
 
 function StatsCard({
   title,
@@ -218,6 +297,7 @@ function FooterLinks() {
 }
 
 export default function AppIndex() {
+  const { taskStats, saleStats } = useLoaderData();
   const navigate = useNavigate();
   const navigation = useNavigation();
   const nextPath = navigation.location?.pathname;
