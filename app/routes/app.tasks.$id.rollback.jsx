@@ -143,7 +143,7 @@ async function runRollbackExecution(admin, task, rollbackStartedAt) {
     await db.task.update({
       where: { id: task.id },
       data: {
-        status: rollback.ok ? "Canceled" : "Rollback failed",
+        status: rollback.ok ? "Rolled back" : "Rollback failed",
         executionSummary: {
           ...executionSummary,
           rollback,

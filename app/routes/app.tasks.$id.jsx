@@ -346,7 +346,7 @@ function getBaseTaskDisplay(task) {
 
   if (isTaskCompleted(task)) {
     return {
-      label: "Complete",
+      label: "Completed",
       tone: "success",
       background: "#D1FADF",
       showProgress: false,
@@ -503,15 +503,31 @@ function getRollbackProgress(task) {
   return 0;
 }
 
+function getRollbackSummary(task) {
+  return (
+    task.rollback ||
+    task.rollbackSummary ||
+    task.executionSummary?.rollback ||
+    task.executionSummary?.rollbackSummary ||
+    {}
+  );
+}
+
 function getRollbackState(task) {
   const taskStatus = normalizeStatus(getTaskStatusValue(task));
   const rollbackStatus = normalizeStatus(getRollbackStatusValue(task));
   const taskStatusKey = normalizeStatusKey(getTaskStatusValue(task));
   const rollbackStatusKey = normalizeStatusKey(getRollbackStatusValue(task));
   const rollbackProgress = getRollbackProgress(task);
+  const rollbackSummary = getRollbackSummary(task);
 
   const hasStartedAt = Boolean(getRollbackStartedValue(task));
   const hasCompletedAt = Boolean(getRollbackCompletedValue(task));
+  const hasSuccessfulRollback =
+    rollbackSummary?.ok === true &&
+    (rollbackProgress >= 100 ||
+      Boolean(rollbackSummary.completedAt) ||
+      Boolean(rollbackSummary.rolledBackAt));
 
   const completedStatuses = [
     "complete",
@@ -539,6 +555,7 @@ function getRollbackState(task) {
 
   const isCompleted =
     hasCompletedAt ||
+    hasSuccessfulRollback ||
     completedStatuses.includes(rollbackStatusKey) ||
     completedStatuses.includes(taskStatusKey) ||
     taskStatus.includes("rolled back") ||
@@ -581,25 +598,52 @@ function getStatusToneFromDisplay(display) {
 
 function getAppliedLabel(task) {
   if (isTaskFailed(task)) return getCanceledStatusLabel(getTaskStatusValue(task));
-  if (isTaskCompleted(task)) return "Complete";
+  if (isTaskCompleted(task)) return "Completed";
   if (isTaskProcessing(task)) return "Applying";
 
   return humanize(getTaskStatusValue(task) || "Pending");
 }
 
-function getDetailsStatusLabel(task, rollbackState = null) {
-  if (rollbackState?.isCompleted) return "Rolled Back";
-  if (rollbackState?.isProcessing) return "Rolling Back";
-  if (rollbackState?.isFailed) {
-    return getCanceledStatusLabel(
-      getRollbackStatusValue(task) || getTaskStatusValue(task) || "Cancel",
-    );
+function getDetailsStatusDisplay(task, rollbackState = null) {
+  if (rollbackState?.isCompleted) {
+    return {
+      label: "Rolled Back",
+      tone: "success",
+      background: "#D1FADF",
+      showProgress: false,
+    };
   }
-  if (isTaskCompleted(task)) return "Complete";
-  if (isTaskProcessing(task)) return "Applying";
-  if (isTaskFailed(task)) return getCanceledStatusLabel(getTaskStatusValue(task));
 
-  return humanize(getTaskStatusValue(task) || "Pending");
+  if (rollbackState?.isProcessing) {
+    return {
+      label: "Rolling Back",
+      tone: "attention",
+      background: "#FEDF89",
+      showProgress: true,
+    };
+  }
+
+  if (rollbackState?.isFailed) {
+    return {
+      label: getCanceledStatusLabel(
+        getRollbackStatusValue(task) || getTaskStatusValue(task) || "Cancel",
+      ),
+      tone: "critical",
+      background: "#FEE4E2",
+      showProgress: false,
+    };
+  }
+
+  if (isTaskCompleted(task)) {
+    return {
+      label: "Completed",
+      tone: "success",
+      background: "#D1FADF",
+      showProgress: false,
+    };
+  }
+
+  return getBaseTaskDisplay(task);
 }
 
 function getLogStatusLabel(task, statusDisplay, rollbackState = null) {
@@ -608,7 +652,7 @@ function getLogStatusLabel(task, statusDisplay, rollbackState = null) {
   }
 
   if (isTaskProcessing(task)) return statusDisplay.label;
-  if (isTaskCompleted(task)) return "Active";
+  if (isTaskCompleted(task)) return "Applied";
   if (isTaskFailed(task)) return getCanceledStatusLabel(getTaskStatusValue(task));
 
   return humanize(getTaskStatusValue(task) || "Pending");
@@ -1745,15 +1789,14 @@ function ApplyToDetails({ task, selectedCollections }) {
 
 function ProductDetailsView({ task, productDetails, navigate }) {
   const rollbackState = getRollbackState(task);
-  const statusLabel = getDetailsStatusLabel(task, rollbackState);
-  const statusTone = rollbackState.isCompleted || isTaskCompleted(task)
-    ? "success"
-    : getStatusToneFromDisplay(getBaseTaskDisplay(task));
+  const statusDisplay = getDetailsStatusDisplay(task, rollbackState);
+  const statusTone = getStatusToneFromDisplay(statusDisplay);
+  const rowStatusLabel = getLogStatusLabel(task, statusDisplay, rollbackState);
 
   return (
     <Page
       title="Price change details"
-      titleMetadata={<Badge tone={statusTone}>{statusLabel}</Badge>}
+      titleMetadata={<Badge tone={statusTone}>{statusDisplay.label}</Badge>}
       backAction={{
         content: "Task details",
         onAction: () => navigate(`/app/tasks/${task.id}`),
@@ -1771,6 +1814,10 @@ function ProductDetailsView({ task, productDetails, navigate }) {
                     {productDetails?.productTitle || "-"}
                   </AdminLink>
                 </Text>
+              </DetailRow>
+
+              <DetailRow label="Status">
+                <StatusBadge display={statusDisplay} />
               </DetailRow>
 
               <DetailRow
@@ -1794,6 +1841,7 @@ function ProductDetailsView({ task, productDetails, navigate }) {
                   { title: "Title" },
                   { title: "SKU" },
                   { title: "Changes" },
+                  { title: "Status" },
                 ]}
               >
                 {(productDetails?.variants || []).map((variant, index) => (
@@ -1820,6 +1868,10 @@ function ProductDetailsView({ task, productDetails, navigate }) {
                           ? variant.changes.join(", ")
                           : "-"}
                       </Text>
+                    </IndexTable.Cell>
+
+                    <IndexTable.Cell>
+                      <Badge tone={statusTone}>{rowStatusLabel}</Badge>
                     </IndexTable.Cell>
                   </IndexTable.Row>
                 ))}

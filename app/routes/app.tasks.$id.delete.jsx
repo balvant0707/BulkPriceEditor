@@ -21,9 +21,12 @@ export const action = async ({ request, params }) => {
     throw new Response("Task not found", { status: 404 });
   }
 
-  const canDelete = ["Canceled", "Rolled back", "Rollback failed"].includes(
-    task.status,
-  );
+  const normalizedStatus = String(task.status || "").toLowerCase().trim();
+  const canDelete =
+    normalizedStatus === "canceled" ||
+    normalizedStatus === "rolled back" ||
+    normalizedStatus === "rolled_back" ||
+    normalizedStatus === "rollback failed";
 
   if (!canDelete) {
     return redirect(
