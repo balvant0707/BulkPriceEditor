@@ -1547,8 +1547,9 @@ function ResourcePickerModal({
                                 </Text>
                               ) : null}
                               <style>
-                                `.Polaris-Badge.Polaris-Badge--toneSuccess {
-                                      width= "fit-content"
+                                `.Polaris-Badge {
+                                      width= "fit-content !important",
+                                      height= "fit-content !important"
                                   }`
                               </style>
                               {item.status ? (
