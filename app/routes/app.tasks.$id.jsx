@@ -27,7 +27,7 @@ import { TitleBar } from "@shopify/app-bridge-react";
 import db from "../db.server";
 import { authenticate } from "../shopify.server";
 
-const LOGS_PER_PAGE = 10;
+const LOGS_PER_PAGE = 5;
 const TASK_EXECUTION_TIMEOUT_MS = 10 * 60 * 1000;
 const ACTIVE_TASK_STATUSES = [
   "Pending",
@@ -92,6 +92,13 @@ export const loader = async ({ request, params }) => {
     productDetails: selectedProductId
       ? getProductDetails(task, selectedProductId, shopifyStoreHandle)
       : null,
+    shopCurrency:
+      (
+        await db.shop.findUnique({
+          where: { shop: session.shop },
+          select: { currency: true },
+        })
+      )?.currency || "",
   });
 };
 
@@ -599,6 +606,78 @@ function formatPriceValue(value) {
   return value === undefined || value === null || value === "" ? "-" : value;
 }
 
+function getCurrencySymbol(currencyCode) {
+  const symbols = {
+    INR: "₹",
+    USD: "$",
+    EUR: "€",
+    GBP: "£",
+    CAD: "$",
+    AUD: "$",
+  };
+
+  return symbols[String(currencyCode || "").toUpperCase()] || "";
+}
+
+function formatMoneyValue(value, currencyCode) {
+  const formattedValue = formatPriceValue(value);
+  const currencySymbol = getCurrencySymbol(currencyCode);
+
+  if (formattedValue === "-" || !currencySymbol) return formattedValue;
+
+  return `${formattedValue} ${currencySymbol}`;
+}
+
+function buildVariantChangeItems(record, currencyCode) {
+  const changes = [];
+
+  if (record?.price !== record?.nextPrice) {
+    changes.push({
+      label: "Price",
+      text: `Price: ${formatMoneyValue(record?.price, currencyCode)} → ${formatMoneyValue(
+        record?.nextPrice,
+        currencyCode,
+      )}`,
+    });
+  }
+
+  if (record?.compareAtPrice !== record?.nextCompareAtPrice) {
+    changes.push({
+      label: "Compare price",
+      text: `Compare price: ${formatMoneyValue(
+        record?.compareAtPrice,
+        currencyCode,
+      )} → ${formatMoneyValue(record?.nextCompareAtPrice, currencyCode)}`,
+    });
+  }
+
+  if (record?.cost !== record?.nextCost) {
+    changes.push({
+      label: "Cost",
+      text: `Cost: ${formatMoneyValue(record?.cost, currencyCode)} → ${formatMoneyValue(
+        record?.nextCost,
+        currencyCode,
+      )}`,
+    });
+  }
+
+  return changes;
+}
+
+function summarizeProductChanges(changeItems) {
+  if (!changeItems.length) {
+    return {
+      primary: "No changes recorded",
+      moreCount: 0,
+    };
+  }
+
+  return {
+    primary: changeItems[0].text,
+    moreCount: Math.max(changeItems.length - 1, 0),
+  };
+}
+
 function summarizeVariantValue(variants, field) {
   const values = [
     ...new Set(
@@ -614,7 +693,7 @@ function summarizeVariantValue(variants, field) {
   return "Multiple";
 }
 
-function createProductGroups(task, shopifyStoreHandle) {
+function createProductGroups(task, shopifyStoreHandle, shopCurrency) {
   const groups = new Map();
   const originalVariants = task.executionSummary?.originalVariants || [];
   const originalInventoryItems =
@@ -641,6 +720,7 @@ function createProductGroups(task, shopifyStoreHandle) {
         priceChangeCount: 0,
         compareAtChangeCount: 0,
         costChangeCount: 0,
+        changeItems: [],
         status: getBaseTaskDisplay(task).label,
       });
     }
@@ -654,6 +734,8 @@ function createProductGroups(task, shopifyStoreHandle) {
     }
 
     if (record?.cost !== record?.nextCost) group.costChangeCount += 1;
+
+    group.changeItems.push(...buildVariantChangeItems(record, shopCurrency));
 
     group.variants.push({
       rowId: `${groupKey}-${variantId || index}`,
@@ -700,6 +782,7 @@ function createProductGroups(task, shopifyStoreHandle) {
       ...group,
       changes: changes.length ? changes : ["No changes recorded"],
       otherChanges: group.variants.flatMap((variant) => variant.changes),
+      changeSummary: summarizeProductChanges(group.changeItems),
       price: summarizeVariantValue(group.variants, "price"),
       compareAtPrice: summarizeVariantValue(group.variants, "compareAtPrice"),
       newSetPrice: summarizeVariantValue(group.variants, "newSetPrice"),
@@ -723,6 +806,7 @@ function filterLogs(logs, searchQuery) {
       log.price,
       log.compareAtPrice,
       log.newSetPrice,
+      log.changeSummary?.primary,
       ...(log.variants || []).flatMap((variant) => [
         variant.title,
         variant.sku,
@@ -978,7 +1062,7 @@ function ProductDetailsView({ task, productDetails, navigate }) {
 }
 
 export default function TaskDetailsPage() {
-  const { task, shopifyStoreHandle, selectedProductId, productDetails } =
+  const { task, shopifyStoreHandle, selectedProductId, productDetails, shopCurrency } =
     useLoaderData();
 
   const navigate = useNavigate();
@@ -1014,6 +1098,10 @@ export default function TaskDetailsPage() {
     : baseStatusDisplay;
 
   const statusTone = getStatusToneFromDisplay(statusDisplay);
+  const logStatusLabel =
+    taskProcessing || rollbackProcessing
+      ? statusDisplay.label
+      : getAppliedLabel(task);
 
   const rawServerProgress = rollbackProcessing
     ? Math.max(rollbackState.progress || 1, 1)
@@ -1025,8 +1113,8 @@ export default function TaskDetailsPage() {
   const [visibleProgress, setVisibleProgress] = useState(serverProgress);
 
   const logs = useMemo(
-    () => createProductGroups(task, shopifyStoreHandle),
-    [task, shopifyStoreHandle],
+    () => createProductGroups(task, shopifyStoreHandle, shopCurrency),
+    [task, shopifyStoreHandle, shopCurrency],
   );
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -1224,7 +1312,7 @@ export default function TaskDetailsPage() {
 
                   {statusDisplay.showProgress ? (
                     <BlockStack gap="100">
-                      <Box maxWidth="320px">
+                      <Box maxWidth="320px" display="none">
                         <ProgressBar
                           progress={visibleProgress}
                           size="small"
@@ -1244,29 +1332,16 @@ export default function TaskDetailsPage() {
 
             <Card>
               <BlockStack gap="300">
-                <InlineStack align="space-between" blockAlign="center">
-                  <Text as="h2" variant="headingMd">
-                    Logs
-                  </Text>
-
-                  {filteredLogs.length ? (
-                    <Text as="p" tone="subdued">
-                      Showing {pageStart + 1}-
-                      {Math.min(
-                        pageStart + LOGS_PER_PAGE,
-                        filteredLogs.length,
-                      )}{" "}
-                      of {filteredLogs.length}
-                    </Text>
-                  ) : null}
-                </InlineStack>
+                <Text as="h2" variant="headingMd">
+                  Logs
+                </Text>
 
                 <TextField
-                  label="Search logs"
+                  label="Product name"
                   labelHidden
                   value={searchQuery}
                   onChange={setSearchQuery}
-                  placeholder="Search by products..."
+                  placeholder="Product name"
                   clearButton
                   onClearButtonClick={() => setSearchQuery("")}
                   autoComplete="off"
@@ -1278,10 +1353,7 @@ export default function TaskDetailsPage() {
                   selectable={false}
                   headings={[
                     { title: "Product" },
-                    { title: "Price" },
-                    { title: "Compare price" },
-                    { title: "New set price" },
-                    { title: "Other changes" },
+                    { title: "Changes" },
                     { title: "Status" },
                     { title: "" },
                   ]}
@@ -1301,27 +1373,18 @@ export default function TaskDetailsPage() {
                       </IndexTable.Cell>
 
                       <IndexTable.Cell>
-                        <Text as="span">{log.price}</Text>
+                        <BlockStack gap="100">
+                          <Text as="span">{log.changeSummary.primary}</Text>
+                          {log.changeSummary.moreCount > 0 ? (
+                            <Text as="span" tone="subdued">
+                              and {log.changeSummary.moreCount} more
+                            </Text>
+                          ) : null}
+                        </BlockStack>
                       </IndexTable.Cell>
 
                       <IndexTable.Cell>
-                        <Text as="span">{log.compareAtPrice}</Text>
-                      </IndexTable.Cell>
-
-                      <IndexTable.Cell>
-                        <Text as="span">{log.newSetPrice}</Text>
-                      </IndexTable.Cell>
-
-                      <IndexTable.Cell>
-                        <Text as="span">
-                          {log.otherChanges.length
-                            ? log.otherChanges.join(", ")
-                            : "-"}
-                        </Text>
-                      </IndexTable.Cell>
-
-                      <IndexTable.Cell>
-                        <Badge tone={statusTone}>{statusDisplay.label}</Badge>
+                        <Badge tone={statusTone}>{logStatusLabel}</Badge>
                       </IndexTable.Cell>
 
                       <IndexTable.Cell>
