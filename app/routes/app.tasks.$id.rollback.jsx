@@ -80,13 +80,27 @@ export const action = async ({ request, params }) => {
         ...(task.executionSummary || {}),
         rollback: {
           status: "processing",
-          progress: 1,
+          progress: 0,
           startedAt: rollbackStartedAt,
         },
       },
     },
   });
 
+  scheduleRollbackExecution(admin, task, rollbackStartedAt);
+
+  return redirect(
+    `/app/tasks?message=${encodeURIComponent("Rollback started")}`,
+  );
+};
+
+function scheduleRollbackExecution(admin, task, rollbackStartedAt) {
+  setTimeout(() => {
+    void runRollbackExecution(admin, task, rollbackStartedAt);
+  }, 100);
+}
+
+async function runRollbackExecution(admin, task, rollbackStartedAt) {
   const updateRollbackProgress = async (progress, summary = {}) => {
     await db.task.update({
       where: { id: task.id },
@@ -104,32 +118,47 @@ export const action = async ({ request, params }) => {
     });
   };
 
-  const rollback = await rollbackTask(
-    admin,
-    task,
-    updateRollbackProgress,
-    rollbackStartedAt,
-  );
+  try {
+    const rollback = await rollbackTask(
+      admin,
+      task,
+      updateRollbackProgress,
+      rollbackStartedAt,
+    );
 
-  await db.task.update({
-    where: { id: task.id },
-    data: {
-      status: rollback.ok ? "Canceled" : "Rollback failed",
-      executionSummary: {
-        ...(task.executionSummary || {}),
-        rollback,
+    await db.task.update({
+      where: { id: task.id },
+      data: {
+        status: rollback.ok ? "Canceled" : "Rollback failed",
+        executionSummary: {
+          ...(task.executionSummary || {}),
+          rollback,
+        },
       },
-    },
-  });
-
-  return redirect(
-    `/app/tasks?message=${encodeURIComponent(
-      rollback.ok
-        ? "Task changes were rolled back."
-        : "Rollback failed. Check task details.",
-    )}`,
-  );
-};
+    });
+  } catch (error) {
+    await db.task.update({
+      where: { id: task.id },
+      data: {
+        status: "Rollback failed",
+        executionSummary: {
+          ...(task.executionSummary || {}),
+          rollback: {
+            ok: false,
+            status: "failed",
+            progress: 100,
+            startedAt: rollbackStartedAt,
+            completedAt: new Date().toISOString(),
+            error:
+              error instanceof Error
+                ? error.message
+                : "Unable to roll back task.",
+          },
+        },
+      },
+    });
+  }
+}
 
 async function loadTask(id, shop) {
   const taskId = Number(id);
@@ -158,6 +187,16 @@ function normalizeStatus(status) {
 
 function canRollbackTask(task) {
   const status = normalizeStatus(task.status);
+
+  if (
+    status.includes("cancel") ||
+    status.includes("rolling back") ||
+    status.includes("rollback") ||
+    status.includes("failed") ||
+    status.includes("error")
+  ) {
+    return false;
+  }
 
   return (
     status === "complete" ||

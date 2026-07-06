@@ -290,9 +290,9 @@ export async function action({ request, params }) {
       where: { id: taskId },
       data: {
         ...data,
-        status: "Pending",
-        executionSummary: { progress: 0 },
-        startedAt: null,
+        status: "Processing",
+        executionSummary: { progress: 1 },
+        startedAt: new Date(),
         completedAt: null,
       },
     });
@@ -305,8 +305,9 @@ export async function action({ request, params }) {
   const task = await db.task.create({
     data: {
       ...data,
-      status: "Pending",
-      executionSummary: { progress: 0 },
+      status: "Processing",
+      executionSummary: { progress: 1 },
+      startedAt: new Date(),
     },
   });
 
@@ -318,7 +319,7 @@ export async function action({ request, params }) {
 function scheduleTaskExecution(admin, taskId, data) {
   setTimeout(() => {
     void runTaskExecution(admin, taskId, data);
-  }, 750);
+  }, 100);
 }
 
 async function runTaskExecution(admin, taskId, data) {

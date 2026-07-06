@@ -6,10 +6,11 @@ import {
   useLocation,
   useNavigate,
   useNavigation,
+  useRevalidator,
   useSearchParams,
   useSubmit,
 } from "@remix-run/react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Page,
   Card,
@@ -29,7 +30,7 @@ import {
   Banner,
   Modal,
 } from "@shopify/polaris";
-import { TitleBar } from "@shopify/app-bridge-react";
+import { TitleBar, useAppBridge } from "@shopify/app-bridge-react";
 import db from "../db.server";
 import { authenticate } from "../shopify.server";
 
@@ -334,11 +335,14 @@ function getStatusTone(status) {
   }
 
   if (
-    normalized.includes("cancel") ||
     normalized.includes("failed") ||
     normalized.includes("error")
   ) {
     return "critical";
+  }
+
+  if (normalized.includes("cancel")) {
+    return "subdued";
   }
 
   if (
@@ -350,6 +354,142 @@ function getStatusTone(status) {
   }
 
   return "subdued";
+}
+
+function getNumberValue(...values) {
+  const foundValue = values
+    .map((value) => Number(value))
+    .find((value) => Number.isFinite(value));
+
+  return Number.isFinite(foundValue) ? foundValue : null;
+}
+
+function getRollbackProgress(task) {
+  const progress = getNumberValue(
+    task.rollbackProgress,
+    task.rollbackPercent,
+    task.executionSummary?.rollbackProgress,
+    task.executionSummary?.rollbackPercent,
+    task.executionSummary?.rollback?.progress,
+    task.executionSummary?.rollbackSummary?.progress,
+  );
+
+  if (Number.isFinite(progress)) {
+    return Math.max(0, Math.min(100, Math.round(progress)));
+  }
+
+  return 0;
+}
+
+function getTaskProgress(task) {
+  const progress = getNumberValue(
+    task.progress,
+    task.percent,
+    task.percentage,
+    task.executionProgress,
+    task.executionPercent,
+    task.executionSummary?.progress,
+    task.executionSummary?.percent,
+    task.executionSummary?.percentage,
+  );
+
+  if (Number.isFinite(progress)) {
+    return Math.max(0, Math.min(100, Math.round(progress)));
+  }
+
+  return 0;
+}
+
+function isTaskApplying(task) {
+  const status = String(task.status || "").toLowerCase();
+
+  if (
+    status.includes("cancel") ||
+    status.includes("failed") ||
+    status.includes("error") ||
+    status.includes("rollback")
+  ) {
+    return false;
+  }
+
+  return (
+    status === "pending" ||
+    status === "processing" ||
+    status === "applying" ||
+    status === "running" ||
+    status === "in_progress" ||
+    status === "started"
+  );
+}
+
+function isRollbackProcessing(task) {
+  const status = String(task.status || "").toLowerCase();
+  const rollbackStatus = String(
+    task.executionSummary?.rollback?.status ||
+      task.executionSummary?.rollbackStatus ||
+      "",
+  ).toLowerCase();
+
+  return (
+    status === "rolling back" ||
+    status === "rollback_processing" ||
+    status === "rollback in progress" ||
+    rollbackStatus === "processing" ||
+    rollbackStatus === "running" ||
+    rollbackStatus === "in_progress"
+  );
+}
+
+function isTaskRollbackable(task) {
+  const status = String(task.status || "").toLowerCase();
+
+  return (
+    status === "complete" ||
+    status === "completed" ||
+    status === "applied" ||
+    status === "done" ||
+    status === "success" ||
+    status === "successful"
+  );
+}
+
+function isTaskDeletable(task) {
+  const status = String(task.status || "").toLowerCase();
+
+  return (
+    status === "canceled" ||
+    status === "cancelled" ||
+    status === "rolled back" ||
+    status === "rolled_back" ||
+    status === "rollback failed"
+  );
+}
+
+function getTaskStatusDisplay(task) {
+  if (isRollbackProcessing(task)) {
+    return {
+      label: "Canceling",
+      tone: "attention",
+      progress: getRollbackProgress(task),
+      showProgress: true,
+    };
+  }
+
+  if (isTaskApplying(task)) {
+    return {
+      label: "Applying",
+      tone: "attention",
+      progress: Math.max(getTaskProgress(task), 1),
+      showProgress: true,
+    };
+  }
+
+  return {
+    label: getStatusLabel(task.status),
+    tone: getStatusTone(task.status),
+    progress: 0,
+    showProgress: false,
+  };
 }
 
 function taskMatchesTab(task, activeTab) {
@@ -469,8 +609,10 @@ function EmptyTasksPage() {
 }
 
 function TasksListPage({ tasks }) {
+  const shopify = useAppBridge();
   const navigate = useNavigate();
   const navigation = useNavigation();
+  const revalidator = useRevalidator();
   const submit = useSubmit();
   const [searchParams, setSearchParams] = useSearchParams();
   const [rollbackTask, setRollbackTask] = useState(null);
@@ -486,6 +628,8 @@ function TasksListPage({ tasks }) {
   const queryValue = searchParams.get("q") || "";
   const message = searchParams.get("message") || "";
   const pageParam = Number(searchParams.get("page") || 1);
+  const hasActiveTasks =
+    tasks.some(isRollbackProcessing) || tasks.some(isTaskApplying);
 
   const selectedTabIndex = Math.max(
     TASK_TABS.findIndex((tab) => tab.id === activeTab),
@@ -586,17 +730,30 @@ function TasksListPage({ tasks }) {
     });
   };
 
+  useEffect(() => {
+    if (message === "Rollback started") {
+      shopify.toast.show("Rollback started");
+    }
+  }, [message, shopify]);
+
+  useEffect(() => {
+    if (!hasActiveTasks) return undefined;
+
+    const timer = setInterval(() => {
+      revalidator.revalidate();
+    }, 2000);
+
+    return () => clearInterval(timer);
+  }, [hasActiveTasks, revalidator]);
+
   const rowMarkup = paginatedTasks.map((task, index) => {
-    const taskStatus = getStatusLabel(task.status);
+    const statusDisplay = getTaskStatusDisplay(task);
     const detailsPath = `/app/tasks/${task.id}`;
     const rollbackPath = `/app/tasks/${task.id}/rollback`;
     const deletePath = `/app/tasks/${task.id}/delete`;
-    const normalizedStatus = String(task.status || "").toLowerCase();
-    const canRollback = normalizedStatus === "complete";
-    const canDelete =
-      normalizedStatus === "canceled" ||
-      normalizedStatus === "rolled back" ||
-      normalizedStatus === "rollback failed";
+    const rollbackProcessing = isRollbackProcessing(task);
+    const canRollback = isTaskRollbackable(task);
+    const canDelete = isTaskDeletable(task);
     const isDetailsLoading =
       navigation.state !== "idle" &&
       navigation.location?.pathname === detailsPath;
@@ -634,7 +791,15 @@ function TasksListPage({ tasks }) {
         </IndexTable.Cell>
 
         <IndexTable.Cell>
-          <Badge tone={getStatusTone(task.status)}>{taskStatus}</Badge>
+          <BlockStack gap="100">
+            <Badge tone={statusDisplay.tone}>{statusDisplay.label}</Badge>
+
+            {statusDisplay.showProgress ? (
+              <Text as="span" variant="bodySm" tone="subdued">
+                Progress: {statusDisplay.progress}%
+              </Text>
+            ) : null}
+          </BlockStack>
         </IndexTable.Cell>
 
         <IndexTable.Cell>
@@ -643,15 +808,17 @@ function TasksListPage({ tasks }) {
               Details
             </Button>
 
-            <Button
-              size="slim"
-              variant={canRollback || canDelete ? "primary" : undefined}
-              loading={isRollbackLoading}
-              disabled={normalizedStatus === "rolling back"}
-              onClick={() => setRollbackTask(task)}
-            >
-              Rollback
-            </Button>
+            {canRollback || rollbackProcessing ? (
+              <Button
+                size="slim"
+                variant={canRollback ? "primary" : undefined}
+                loading={isRollbackLoading}
+                disabled={rollbackProcessing}
+                onClick={() => setRollbackTask(task)}
+              >
+                Rollback
+              </Button>
+            ) : null}
 
             {canDelete ? (
               <Button
@@ -691,7 +858,7 @@ function TasksListPage({ tasks }) {
 
       <Layout>
         <Layout.Section>
-          {message ? (
+          {message && message !== "Rollback started" ? (
             <Box paddingBlockEnd="400">
               <Banner tone="info">{message}</Banner>
             </Box>

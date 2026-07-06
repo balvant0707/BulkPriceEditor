@@ -19,6 +19,7 @@ import {
   Modal,
   Page,
   Pagination,
+  ProgressBar,
   Text,
   TextField,
 } from "@shopify/polaris";
@@ -215,6 +216,7 @@ function isTaskProcessing(task) {
 
   return (
     status === "processing" ||
+    status === "pending" ||
     status === "applying" ||
     status === "running" ||
     status === "in_progress" ||
@@ -237,7 +239,7 @@ function getBaseTaskDisplay(task) {
 
   if (isTaskProcessing(task)) {
     return {
-      label: "Processing",
+      label: "Applying",
       tone: "attention",
       background: "#FEDF89",
       showProgress: true,
@@ -942,7 +944,7 @@ export default function TaskDetailsPage() {
 
   const statusDisplay = rollbackProcessing
     ? {
-        label: "Processing",
+        label: "Canceling",
         tone: "attention",
         background: "#FEDF89",
         showProgress: true,
@@ -1155,9 +1157,18 @@ export default function TaskDetailsPage() {
                   <StatusBadge display={statusDisplay} />
 
                   {statusDisplay.showProgress ? (
-                    <Text as="p" tone="subdued">
-                      Progress: {visibleProgress}%
-                    </Text>
+                    <BlockStack gap="100">
+                      <Box maxWidth="320px">
+                        <ProgressBar
+                          progress={visibleProgress}
+                          size="small"
+                          tone="primary"
+                        />
+                      </Box>
+                      <Text as="p" tone="subdued">
+                        Progress: {visibleProgress}%
+                      </Text>
+                    </BlockStack>
                   ) : null}
                 </BlockStack>
               </DetailRow>
