@@ -628,7 +628,11 @@ function buildSaleVariantUpdate(variant, saleData) {
     productId: variant.product?.id,
     variant: { id: variant.id },
   };
-  const nextPrice = calculateSaleFieldValue(variant.price, saleData.priceChange);
+  const nextPrice = calculateSaleFieldValue(
+    variant.price,
+    saleData.priceChange,
+    variant,
+  );
   const nextCompareAtPrice = calculateSaleCompareAtPrice(variant, saleData);
 
   if (nextPrice != null) update.variant.price = nextPrice;
@@ -639,12 +643,17 @@ function buildSaleVariantUpdate(variant, saleData) {
   return Object.keys(update.variant).length > 1 && update.productId ? update : null;
 }
 
-function calculateSaleFieldValue(currentValue, change) {
+function calculateSaleFieldValue(currentValue, change, variant) {
   const action = change?.action || "";
   const current = toSaleNumber(currentValue);
 
   if (!action) return undefined;
   if (action === "set_new_value") return formatSalePrice(change.amount);
+  if (action === "set_to_compare_at_price") {
+    return variant.compareAtPrice == null
+      ? undefined
+      : formatSalePrice(variant.compareAtPrice);
+  }
 
   if (current == null) return undefined;
   let nextValue = current;
@@ -669,10 +678,11 @@ function calculateSaleCompareAtPrice(variant, saleData) {
   const change = saleData.compareAtPriceChange;
 
   if (!change?.action) return undefined;
+  if (change.action === "reset_compare_at_price") return null;
   if (change.action === "set_to_price") return formatSalePrice(variant.price);
   if (change.action === "set_new_value") return formatSalePrice(change.amount);
 
-  return calculateSaleFieldValue(variant.compareAtPrice, change);
+  return calculateSaleFieldValue(variant.compareAtPrice, change, variant);
 }
 
 function applySaleRounding(value, rounding = {}) {
@@ -2012,8 +2022,10 @@ export default function NewSalePage() {
                   <Select
                     label="Action"
                     options={[
+                      { label: "Increase", value: "increase" },
                       { label: "Decrease", value: "decrease" },
                       { label: "Set new price", value: "set_new_value" },
+                      { label: "Set to compare at price", value: "set_to_compare_at_price" },
                     ]}
                     value={form.priceAction}
                     onChange={setField("priceAction")}
@@ -2030,7 +2042,8 @@ export default function NewSalePage() {
                     />
                   ) : null}
 
-                  {form.priceAction === "decrease" ? (
+                  {form.priceAction === "increase" ||
+                  form.priceAction === "decrease" ? (
                     <>
                       <Select
                         label="Change type"
@@ -2094,6 +2107,10 @@ export default function NewSalePage() {
                       {
                         label: "Set to old price (discount)",
                         value: "set_to_price",
+                      },
+                      {
+                        label: "Reset compare at price",
+                        value: "reset_compare_at_price",
                       },
                     ]}
                     value={form.compareAction}
