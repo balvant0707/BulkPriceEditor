@@ -469,7 +469,11 @@ function TasksListPage({ tasks }) {
 
   const isOpeningNewTask = navigation.location?.pathname === NEW_TASK_URL;
 
-  const activeTab = searchParams.get("view") || "all";
+  const requestedTab =
+    searchParams.get("status") || searchParams.get("view") || "all";
+  const activeTab = TASK_TABS.some((tab) => tab.id === requestedTab)
+    ? requestedTab
+    : "all";
   const queryValue = searchParams.get("q") || "";
   const message = searchParams.get("message") || "";
   const pageParam = Number(searchParams.get("page") || 1);
@@ -485,6 +489,7 @@ function TasksListPage({ tasks }) {
     return TASK_TABS.map((tab) => ({
       ...tab,
       content: `${tab.content} (${tabCounts[tab.id] || 0})`,
+      url: tab.id === "all" ? TASKS_URL : `${TASKS_URL}?status=${tab.id}`,
     }));
   }, [tasks]);
 
@@ -506,7 +511,8 @@ function TasksListPage({ tasks }) {
     const selectedTab = tabsWithCounts[selectedIndex];
 
     updateSearchParams({
-      view: selectedTab.id === "all" ? "" : selectedTab.id,
+      status: selectedTab.id === "all" ? "" : selectedTab.id,
+      view: "",
       page: "",
     });
   };

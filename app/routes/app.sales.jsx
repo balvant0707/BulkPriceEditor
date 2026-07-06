@@ -12,6 +12,7 @@ import {
   Box,
   InlineStack,
   Text,
+  Tabs,
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import {
@@ -20,13 +21,40 @@ import {
   useLocation,
   useNavigate,
   useNavigation,
+  useSearchParams,
 } from "@remix-run/react";
+import { useMemo } from "react";
 import db from "../db.server";
 import { authenticate } from "../shopify.server";
 
 const CREATE_SALE_URL = "/app/sales/new";
 const SALES_URL = "/app/sales";
 const HELP_URL = "https://help.platmart.io/article/29-how-to-use-sales";
+const SALE_TABS = [
+  { id: "all", content: "All sales" },
+  { id: "active", content: "Active" },
+  { id: "scheduled", content: "Scheduled" },
+  { id: "completed", content: "Completed" },
+];
+
+function saleMatchesTab(sale, activeTab) {
+  if (activeTab === "all") {
+    return true;
+  }
+
+  const status = String(sale.status || "").toLowerCase();
+
+  if (activeTab === "completed") {
+    return (
+      status === "complete" ||
+      status === "completed" ||
+      status === "finished" ||
+      status === "ended"
+    );
+  }
+
+  return status === activeTab;
+}
 
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
@@ -44,10 +72,44 @@ export default function SalesPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const navigation = useNavigation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const isOpeningNewSale =
     navigation.location?.pathname === CREATE_SALE_URL ||
     location.pathname === CREATE_SALE_URL;
   const openNewSale = () => navigate(CREATE_SALE_URL);
+  const requestedTab = searchParams.get("status") || "all";
+  const activeTab = SALE_TABS.some((tab) => tab.id === requestedTab)
+    ? requestedTab
+    : "all";
+  const selectedTabIndex = Math.max(
+    SALE_TABS.findIndex((tab) => tab.id === activeTab),
+    0,
+  );
+  const tabs = useMemo(
+    () =>
+      SALE_TABS.map((tab) => ({
+        ...tab,
+        url: tab.id === "all" ? SALES_URL : `${SALES_URL}?status=${tab.id}`,
+      })),
+    [],
+  );
+  const filteredSales = useMemo(
+    () => sales.filter((sale) => saleMatchesTab(sale, activeTab)),
+    [sales, activeTab],
+  );
+
+  const handleTabChange = (selectedIndex) => {
+    const selectedTab = SALE_TABS[selectedIndex];
+    const nextParams = new URLSearchParams(searchParams);
+
+    if (selectedTab.id === "all") {
+      nextParams.delete("status");
+    } else {
+      nextParams.set("status", selectedTab.id);
+    }
+
+    setSearchParams(nextParams);
+  };
 
   if (location.pathname !== SALES_URL) {
     return <Outlet />;
@@ -83,41 +145,63 @@ export default function SalesPage() {
         <Layout>
           <Layout.Section>
             {sales.length ? (
-              <Card>
+              <Card padding="0">
+                <Tabs
+                  tabs={tabs}
+                  selected={selectedTabIndex}
+                  onSelect={handleTabChange}
+                />
                 <Box padding="500">
                   <BlockStack gap="300">
                     <Text as="h2" variant="headingMd">
                       Your sales
                     </Text>
 
-                    {sales.map((sale) => (
-                      <Box
-                        key={sale.id}
-                        padding="300"
-                        borderColor="border"
-                        borderWidth="025"
-                        borderRadius="200"
-                      >
-                        <InlineStack align="space-between" blockAlign="center">
-                          <BlockStack gap="050">
-                            <Text as="p" variant="bodyMd" fontWeight="semibold">
-                              {sale.title}
-                            </Text>
-                            <Text as="p" variant="bodySm" tone="subdued">
-                              {sale.changeType} - {sale.status}
-                            </Text>
-                            {sale.executionSummary ? (
-                              <Text as="p" variant="bodySm" tone="subdued">
-                                Analyzed {sale.executionSummary.analyzedVariants || 0},
-                                updated {sale.executionSummary.updatedVariants || 0}
+                    {filteredSales.length ? (
+                      filteredSales.map((sale) => (
+                        <Box
+                          key={sale.id}
+                          padding="300"
+                          borderColor="border"
+                          borderWidth="025"
+                          borderRadius="200"
+                        >
+                          <InlineStack
+                            align="space-between"
+                            blockAlign="center"
+                          >
+                            <BlockStack gap="050">
+                              <Text
+                                as="p"
+                                variant="bodyMd"
+                                fontWeight="semibold"
+                              >
+                                {sale.title}
                               </Text>
-                            ) : null}
-                          </BlockStack>
+                              <Text as="p" variant="bodySm" tone="subdued">
+                                {sale.changeType} - {sale.status}
+                              </Text>
+                              {sale.executionSummary ? (
+                                <Text as="p" variant="bodySm" tone="subdued">
+                                  Analyzed{" "}
+                                  {sale.executionSummary.analyzedVariants || 0},
+                                  updated{" "}
+                                  {sale.executionSummary.updatedVariants || 0}
+                                </Text>
+                              ) : null}
+                            </BlockStack>
 
-                          <Button url={`/app/sales/${sale.id}`}>Edit</Button>
-                        </InlineStack>
+                            <Button url={`/app/sales/${sale.id}`}>Edit</Button>
+                          </InlineStack>
+                        </Box>
+                      ))
+                    ) : (
+                      <Box paddingBlock="400">
+                        <Text as="p" tone="subdued">
+                          No sales found for this status.
+                        </Text>
                       </Box>
-                    ))}
+                    )}
                   </BlockStack>
                 </Box>
               </Card>
