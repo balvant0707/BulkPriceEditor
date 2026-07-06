@@ -41,7 +41,7 @@ const PAGE_SIZE = 10;
 const TASK_TABS = [
   {
     id: "all",
-    content: "All",
+    content: "All tasks",
   },
   {
     id: "completed",
@@ -382,6 +382,13 @@ function taskMatchesTab(task, activeTab) {
   return true;
 }
 
+function getTaskTabCounts(tasks) {
+  return TASK_TABS.reduce((counts, tab) => {
+    counts[tab.id] = tasks.filter((task) => taskMatchesTab(task, tab.id)).length;
+    return counts;
+  }, {});
+}
+
 function EmptyTasksPage() {
   const navigate = useNavigate();
   const navigation = useNavigation();
@@ -485,6 +492,15 @@ function TasksListPage({ tasks }) {
     0,
   );
 
+  const tabsWithCounts = useMemo(() => {
+    const tabCounts = getTaskTabCounts(tasks);
+
+    return TASK_TABS.map((tab) => ({
+      ...tab,
+      content: `${tab.content} (${tabCounts[tab.id] || 0})`,
+    }));
+  }, [tasks]);
+
   const updateSearchParams = (updates) => {
     const nextParams = new URLSearchParams(searchParams);
 
@@ -500,7 +516,7 @@ function TasksListPage({ tasks }) {
   };
 
   const handleTabChange = (selectedIndex) => {
-    const selectedTab = TASK_TABS[selectedIndex];
+    const selectedTab = tabsWithCounts[selectedIndex];
 
     updateSearchParams({
       view: selectedTab.id === "all" ? "" : selectedTab.id,
@@ -683,7 +699,7 @@ function TasksListPage({ tasks }) {
 
           <Card padding="0">
             <Tabs
-              tabs={TASK_TABS}
+              tabs={tabsWithCounts}
               selected={selectedTabIndex}
               onSelect={handleTabChange}
             />

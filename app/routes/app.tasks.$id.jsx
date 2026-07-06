@@ -4,6 +4,7 @@ import {
   useLoaderData,
   useNavigate,
   useRevalidator,
+  useSubmit,
 } from "@remix-run/react";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -15,7 +16,6 @@ import {
   IndexTable,
   InlineStack,
   Layout,
-  Link,
   Modal,
   Page,
   Pagination,
@@ -512,26 +512,43 @@ function getVariantAdminUrl(shopifyStoreHandle, productId, variantId) {
   return `https://admin.shopify.com/store/${shopifyStoreHandle}/products/${productId}/variants/${variantId}`;
 }
 
+function AdminLink({ url, children }) {
+  if (!url) return children;
+
+  return (
+    <a href={url} target="_blank" rel="noopener noreferrer">
+      {children}
+    </a>
+  );
+}
+
 function buildVariantChanges(record) {
   const changes = [];
-
-  if (record?.price !== record?.nextPrice) {
-    changes.push(`Price: ${record?.price ?? "-"} -> ${record?.nextPrice ?? "-"}`);
-  }
-
-  if (record?.compareAtPrice !== record?.nextCompareAtPrice) {
-    changes.push(
-      `Compare at: ${record?.compareAtPrice ?? "-"} -> ${
-        record?.nextCompareAtPrice ?? "-"
-      }`,
-    );
-  }
 
   if (record?.cost !== record?.nextCost) {
     changes.push(`Cost: ${record?.cost ?? "-"} -> ${record?.nextCost ?? "-"}`);
   }
 
   return changes;
+}
+
+function formatPriceValue(value) {
+  return value === undefined || value === null || value === "" ? "-" : value;
+}
+
+function summarizeVariantValue(variants, field) {
+  const values = [
+    ...new Set(
+      variants
+        .map((variant) => formatPriceValue(variant[field]))
+        .filter((value) => value !== "-"),
+    ),
+  ];
+
+  if (!values.length) return "-";
+  if (values.length === 1) return values[0];
+
+  return "Multiple";
 }
 
 function createProductGroups(task, shopifyStoreHandle) {
@@ -580,7 +597,11 @@ function createProductGroups(task, shopifyStoreHandle) {
       variantId,
       title: variantTitle,
       sku,
+      price: record?.price,
+      compareAtPrice: record?.compareAtPrice,
+      newSetPrice: record?.nextPrice,
       changes: buildVariantChanges(record),
+      adminUrl: getVariantAdminUrl(shopifyStoreHandle, productId, variantId),
       type,
     });
   }
@@ -615,6 +636,10 @@ function createProductGroups(task, shopifyStoreHandle) {
     return {
       ...group,
       changes: changes.length ? changes : ["No changes recorded"],
+      otherChanges: group.variants.flatMap((variant) => variant.changes),
+      price: summarizeVariantValue(group.variants, "price"),
+      compareAtPrice: summarizeVariantValue(group.variants, "compareAtPrice"),
+      newSetPrice: summarizeVariantValue(group.variants, "newSetPrice"),
       variantCount: group.variants.length,
     };
   });
@@ -632,10 +657,16 @@ function filterLogs(logs, searchQuery) {
       log.variantCount,
       log.status,
       ...(log.changes || []),
+      log.price,
+      log.compareAtPrice,
+      log.newSetPrice,
       ...(log.variants || []).flatMap((variant) => [
         variant.title,
         variant.sku,
         variant.variantId,
+        variant.price,
+        variant.compareAtPrice,
+        variant.newSetPrice,
         ...(variant.changes || []),
       ]),
     ]
@@ -673,6 +704,9 @@ function getProductDetails(task, productId, shopifyStoreHandle) {
         variantId,
         title: getVariantTitle(variant),
         sku: getVariantSku(variant),
+        price: variant.price,
+        compareAtPrice: variant.compareAtPrice,
+        newSetPrice: variant.nextPrice,
         changes: buildVariantChanges(variant),
         adminUrl: getVariantAdminUrl(shopifyStoreHandle, productId, variantId),
       };
@@ -688,6 +722,9 @@ function getProductDetails(task, productId, shopifyStoreHandle) {
         variantId,
         title: getVariantTitle(item),
         sku: getVariantSku(item),
+        price: item.price,
+        compareAtPrice: item.compareAtPrice,
+        newSetPrice: item.nextPrice,
         changes: buildVariantChanges(item),
         adminUrl: getVariantAdminUrl(shopifyStoreHandle, productId, variantId),
       };
@@ -785,13 +822,9 @@ function ProductDetailsView({ task, productDetails, navigate }) {
             <Card>
               <DetailRow label="Product">
                 <Text as="p" fontWeight="regular">
-                  {productDetails?.adminUrl ? (
-                    <Link url={productDetails.adminUrl} external>
-                      {productDetails.productTitle}
-                    </Link>
-                  ) : (
-                    productDetails?.productTitle || "-"
-                  )}
+                  <AdminLink url={productDetails?.adminUrl}>
+                    {productDetails?.productTitle || "-"}
+                  </AdminLink>
                 </Text>
               </DetailRow>
 
@@ -815,7 +848,10 @@ function ProductDetailsView({ task, productDetails, navigate }) {
                 headings={[
                   { title: "Title" },
                   { title: "SKU" },
-                  { title: "Changes" },
+                  { title: "Price" },
+                  { title: "Compare price" },
+                  { title: "New set price" },
+                  { title: "Other changes" },
                 ]}
               >
                 {(productDetails?.variants || []).map((variant, index) => (
@@ -826,13 +862,9 @@ function ProductDetailsView({ task, productDetails, navigate }) {
                   >
                     <IndexTable.Cell>
                       <Text as="span" fontWeight="regular">
-                        {variant.adminUrl ? (
-                          <Link url={variant.adminUrl} external>
-                            {variant.title}
-                          </Link>
-                        ) : (
-                          variant.title
-                        )}
+                        <AdminLink url={variant.adminUrl}>
+                          {variant.title}
+                        </AdminLink>
                       </Text>
                     </IndexTable.Cell>
 
@@ -841,7 +873,27 @@ function ProductDetailsView({ task, productDetails, navigate }) {
                     </IndexTable.Cell>
 
                     <IndexTable.Cell>
-                      <Text as="span">{variant.changes.join(", ")}</Text>
+                      <Text as="span">{formatPriceValue(variant.price)}</Text>
+                    </IndexTable.Cell>
+
+                    <IndexTable.Cell>
+                      <Text as="span">
+                        {formatPriceValue(variant.compareAtPrice)}
+                      </Text>
+                    </IndexTable.Cell>
+
+                    <IndexTable.Cell>
+                      <Text as="span">
+                        {formatPriceValue(variant.newSetPrice)}
+                      </Text>
+                    </IndexTable.Cell>
+
+                    <IndexTable.Cell>
+                      <Text as="span">
+                        {variant.changes.length
+                          ? variant.changes.join(", ")
+                          : "-"}
+                      </Text>
                     </IndexTable.Cell>
                   </IndexTable.Row>
                 ))}
@@ -869,6 +921,7 @@ export default function TaskDetailsPage() {
   const navigate = useNavigate();
   const revalidator = useRevalidator();
   const deleteFetcher = useFetcher();
+  const submit = useSubmit();
 
   const rollbackState = getRollbackState(task);
   const taskCompleted = isTaskCompleted(task);
@@ -945,7 +998,10 @@ export default function TaskDetailsPage() {
     setRollbackModalOpen(false);
     setClientRollbackStarted(true);
     setVisibleProgress(1);
-    navigate(`/app/tasks/${task.id}/rollback`);
+    submit(null, {
+      method: "post",
+      action: `/app/tasks/${task.id}/rollback`,
+    });
   };
 
   const handleDelete = () => {
@@ -1017,20 +1073,6 @@ export default function TaskDetailsPage() {
       return serverProgress;
     });
   }, [rollbackProcessing, taskProcessing, serverProgress]);
-
-  useEffect(() => {
-    if (!rollbackProcessing && !taskProcessing) {
-      return undefined;
-    }
-
-    const timer = setInterval(() => {
-      setVisibleProgress((currentProgress) =>
-        currentProgress >= 99 ? currentProgress : currentProgress + 1,
-      );
-    }, 800);
-
-    return () => clearInterval(timer);
-  }, [rollbackProcessing, taskProcessing]);
 
   useEffect(() => {
     if (!shouldPoll) return undefined;
@@ -1147,7 +1189,7 @@ export default function TaskDetailsPage() {
                   labelHidden
                   value={searchQuery}
                   onChange={setSearchQuery}
-                  placeholder="Search by product, variant, SKU, status, or changes"
+                  placeholder="Search by products..."
                   clearButton
                   onClearButtonClick={() => setSearchQuery("")}
                   autoComplete="off"
@@ -1159,8 +1201,10 @@ export default function TaskDetailsPage() {
                   selectable={false}
                   headings={[
                     { title: "Product" },
-                    { title: "Variants" },
-                    { title: "Changes" },
+                    { title: "Price" },
+                    { title: "Compare price" },
+                    { title: "New set price" },
+                    { title: "Other changes" },
                     { title: "Status" },
                     { title: "" },
                   ]}
@@ -1173,22 +1217,30 @@ export default function TaskDetailsPage() {
                     >
                       <IndexTable.Cell>
                         <Text as="span" fontWeight="regular">
-                          {log.adminUrl ? (
-                            <Link url={log.adminUrl} external>
-                              {log.productTitle}
-                            </Link>
-                          ) : (
-                            log.productTitle
-                          )}
+                          <AdminLink url={log.adminUrl}>
+                            {log.productTitle}
+                          </AdminLink>
                         </Text>
                       </IndexTable.Cell>
 
                       <IndexTable.Cell>
-                        <Text as="span">{log.variantCount}</Text>
+                        <Text as="span">{log.price}</Text>
                       </IndexTable.Cell>
 
                       <IndexTable.Cell>
-                        <Text as="span">{log.changes.join(", ")}</Text>
+                        <Text as="span">{log.compareAtPrice}</Text>
+                      </IndexTable.Cell>
+
+                      <IndexTable.Cell>
+                        <Text as="span">{log.newSetPrice}</Text>
+                      </IndexTable.Cell>
+
+                      <IndexTable.Cell>
+                        <Text as="span">
+                          {log.otherChanges.length
+                            ? log.otherChanges.join(", ")
+                            : "-"}
+                        </Text>
                       </IndexTable.Cell>
 
                       <IndexTable.Cell>

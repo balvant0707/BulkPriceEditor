@@ -62,11 +62,12 @@ export const loader = async ({ request, params }) => {
 export const action = async ({ request, params }) => {
   const { admin, session } = await authenticate.admin(request);
   const task = await loadTask(params.id, session.shop);
+  const rollbackStartedAt = new Date().toISOString();
 
-  if (task.status !== "Complete") {
+  if (!canRollbackTask(task)) {
     return redirect(
       `/app/tasks?message=${encodeURIComponent(
-        "Task can be rolled back only after status is Complete.",
+        "Task can be rolled back only after it is complete.",
       )}`,
     );
   }
@@ -75,10 +76,40 @@ export const action = async ({ request, params }) => {
     where: { id: task.id },
     data: {
       status: "Rolling back",
+      executionSummary: {
+        ...(task.executionSummary || {}),
+        rollback: {
+          status: "processing",
+          progress: 1,
+          startedAt: rollbackStartedAt,
+        },
+      },
     },
   });
 
-  const rollback = await rollbackTask(admin, task);
+  const updateRollbackProgress = async (progress, summary = {}) => {
+    await db.task.update({
+      where: { id: task.id },
+      data: {
+        executionSummary: {
+          ...(task.executionSummary || {}),
+          rollback: {
+            status: "processing",
+            startedAt: rollbackStartedAt,
+            ...summary,
+            progress,
+          },
+        },
+      },
+    });
+  };
+
+  const rollback = await rollbackTask(
+    admin,
+    task,
+    updateRollbackProgress,
+    rollbackStartedAt,
+  );
 
   await db.task.update({
     where: { id: task.id },
@@ -121,6 +152,25 @@ async function loadTask(id, shop) {
   return task;
 }
 
+function normalizeStatus(status) {
+  return String(status || "").toLowerCase().trim();
+}
+
+function canRollbackTask(task) {
+  const status = normalizeStatus(task.status);
+
+  return (
+    status === "complete" ||
+    status === "completed" ||
+    status === "applied" ||
+    status === "done" ||
+    status === "success" ||
+    status === "successful" ||
+    Boolean(task.completedAt) ||
+    Boolean(task.executionSummary?.completedAt)
+  );
+}
+
 async function shopifyGraphql(admin, query, variables = {}) {
   const response = await admin.graphql(query, { variables });
   const payload = await response.json();
@@ -132,7 +182,12 @@ async function shopifyGraphql(admin, query, variables = {}) {
   return payload.data;
 }
 
-async function rollbackTask(admin, task) {
+async function rollbackTask(
+  admin,
+  task,
+  onProgress = async () => {},
+  startedAt = new Date().toISOString(),
+) {
   const originalVariants = task.executionSummary?.originalVariants || [];
   const originalInventoryItems =
     task.executionSummary?.originalInventoryItems || [];
@@ -184,6 +239,39 @@ async function rollbackTask(admin, task) {
     variantsByProduct.get(original.productId).push(rollbackVariant);
   }
 
+  const totalUpdateSteps = variantsByProduct.size + originalInventoryItems.length;
+  let completedUpdateSteps = 0;
+  await onProgress(25, {
+    variantUpdateSteps: variantsByProduct.size,
+    inventoryUpdateSteps: originalInventoryItems.length,
+    updatedVariants,
+    updatedInventoryItems,
+  });
+
+  const reportUpdateProgress = async () => {
+    completedUpdateSteps += 1;
+    const progress =
+      totalUpdateSteps > 0
+        ? 25 + Math.round((completedUpdateSteps / totalUpdateSteps) * 70)
+        : 95;
+
+    await onProgress(Math.min(progress, 95), {
+      updateSteps: totalUpdateSteps,
+      completedUpdateSteps,
+      updatedVariants,
+      updatedInventoryItems,
+    });
+  };
+
+  if (totalUpdateSteps === 0) {
+    await onProgress(95, {
+      updateSteps: 0,
+      completedUpdateSteps: 0,
+      updatedVariants,
+      updatedInventoryItems,
+    });
+  }
+
   for (const [productId, variants] of variantsByProduct) {
     const data = await shopifyGraphql(admin, TASK_PRODUCT_VARIANTS_BULK_UPDATE, {
       productId,
@@ -197,6 +285,8 @@ async function rollbackTask(admin, task) {
     } else {
       updatedVariants += result?.productVariants?.length || 0;
     }
+
+    await reportUpdateProgress();
   }
 
   for (const original of originalInventoryItems) {
@@ -212,13 +302,19 @@ async function rollbackTask(admin, task) {
     } else {
       updatedInventoryItems += 1;
     }
+
+    await reportUpdateProgress();
   }
 
   return {
     ok: errors.length === 0,
+    status: errors.length === 0 ? "complete" : "failed",
+    progress: 100,
     updatedVariants,
     updatedInventoryItems,
     errors,
+    startedAt,
+    completedAt: new Date().toISOString(),
     rolledBackAt: new Date().toISOString(),
   };
 }
@@ -239,7 +335,7 @@ function normalizeNullableMoneyInput(value) {
 
 export default function RollbackTaskPage() {
   const { task } = useLoaderData();
-  const canRollback = task.status === "Complete";
+  const canRollback = canRollbackTask(task);
 
   return (
     <Page
@@ -254,7 +350,7 @@ export default function RollbackTaskPage() {
             <BlockStack gap="400">
               {!canRollback ? (
                 <Banner tone="warning">
-                  Task can be rolled back only after status is Complete.
+                  Task can be rolled back only after it is complete.
                 </Banner>
               ) : null}
 

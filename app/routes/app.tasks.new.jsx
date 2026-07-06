@@ -323,6 +323,18 @@ function scheduleTaskExecution(admin, taskId, data) {
 
 async function runTaskExecution(admin, taskId, data) {
   try {
+    const updateProgress = async (progress, summary = {}) => {
+      await db.task.update({
+        where: { id: taskId },
+        data: {
+          executionSummary: {
+            ...summary,
+            progress,
+          },
+        },
+      });
+    };
+
     await db.task.update({
       where: { id: taskId },
       data: {
@@ -332,7 +344,7 @@ async function runTaskExecution(admin, taskId, data) {
       },
     });
 
-    const execution = await executeTask(admin, data);
+    const execution = await executeTask(admin, data, updateProgress);
 
     await db.task.update({
       where: { id: taskId },
@@ -456,7 +468,7 @@ function buildTaskData(shop, formData) {
   };
 }
 
-async function executeTask(admin, taskData) {
+async function executeTask(admin, taskData, onProgress = async () => {}) {
   try {
     if (taskData.applyChangesTo === "markets") {
       return {
@@ -470,6 +482,10 @@ async function executeTask(admin, taskData) {
 
     const targetVariants = await loadTargetVariants(admin, taskData);
     const excludedVariantIds = await loadExcludedVariantIds(admin, taskData);
+    await onProgress(25, {
+      analyzedVariants: targetVariants.length,
+    });
+
     const discountedScope = getDiscountedScope(taskData);
     const discountedProductTypes =
       discountedScope === "product_types_on_sale"
@@ -529,8 +545,53 @@ async function executeTask(admin, taskData) {
       }
     }
 
-    const variantResults = await applyVariantUpdates(admin, productVariantUpdates);
-    const inventoryResults = await applyInventoryUpdates(admin, inventoryUpdates);
+    await onProgress(40, {
+      analyzedVariants: variants.length,
+      variantUpdates: productVariantUpdates.length,
+      inventoryUpdates: inventoryUpdates.length,
+      skippedVariants:
+        targetVariants.length - variants.length + variants.length - productVariantUpdates.length,
+    });
+
+    const totalUpdateSteps =
+      countProductUpdateSteps(productVariantUpdates) + inventoryUpdates.length;
+    let completedUpdateSteps = 0;
+    const reportUpdateProgress = async () => {
+      completedUpdateSteps += 1;
+      const progress =
+        totalUpdateSteps > 0
+          ? 40 + Math.round((completedUpdateSteps / totalUpdateSteps) * 55)
+          : 95;
+
+      await onProgress(Math.min(progress, 95), {
+        analyzedVariants: variants.length,
+        variantUpdates: productVariantUpdates.length,
+        inventoryUpdates: inventoryUpdates.length,
+        updateSteps: totalUpdateSteps,
+        completedUpdateSteps,
+      });
+    };
+
+    if (totalUpdateSteps === 0) {
+      await onProgress(95, {
+        analyzedVariants: variants.length,
+        variantUpdates: 0,
+        inventoryUpdates: 0,
+        skippedVariants:
+          targetVariants.length - variants.length + variants.length - productVariantUpdates.length,
+      });
+    }
+
+    const variantResults = await applyVariantUpdates(
+      admin,
+      productVariantUpdates,
+      reportUpdateProgress,
+    );
+    const inventoryResults = await applyInventoryUpdates(
+      admin,
+      inventoryUpdates,
+      reportUpdateProgress,
+    );
     const errors = [...variantResults.errors, ...inventoryResults.errors];
 
     return {
@@ -555,6 +616,10 @@ async function executeTask(admin, taskData) {
       updatedVariants: 0,
     };
   }
+}
+
+function countProductUpdateSteps(updates) {
+  return new Set(updates.map((update) => update.productId).filter(Boolean)).size;
 }
 
 function uniqueVariants(variants) {
@@ -859,7 +924,7 @@ function formatPrice(value) {
   return number == null ? null : number.toFixed(2);
 }
 
-async function applyVariantUpdates(admin, updates) {
+async function applyVariantUpdates(admin, updates, onStepComplete = async () => {}) {
   const errors = [];
   let updatedCount = 0;
   const byProduct = new Map();
@@ -881,12 +946,14 @@ async function applyVariantUpdates(admin, updates) {
     } else {
       updatedCount += result?.productVariants?.length || 0;
     }
+
+    await onStepComplete();
   }
 
   return { errors, updatedCount };
 }
 
-async function applyInventoryUpdates(admin, updates) {
+async function applyInventoryUpdates(admin, updates, onStepComplete = async () => {}) {
   const errors = [];
   let updatedCount = 0;
 
@@ -899,6 +966,8 @@ async function applyInventoryUpdates(admin, updates) {
     } else {
       updatedCount += 1;
     }
+
+    await onStepComplete();
   }
 
   return { errors, updatedCount };
