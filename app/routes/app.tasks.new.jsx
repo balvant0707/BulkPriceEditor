@@ -1,6 +1,12 @@
 // app/routes/app.tasks.new.jsx
 import { json, redirect } from "@remix-run/node";
-import { Form, useFetcher, useLoaderData, useNavigation } from "@remix-run/react";
+import {
+  Form,
+  useActionData,
+  useFetcher,
+  useLoaderData,
+  useNavigation,
+} from "@remix-run/react";
 import { TitleBar } from "@shopify/app-bridge-react";
 import {
   Page,
@@ -263,6 +269,11 @@ export async function action({ request, params }) {
     getFormValue(formData, "id") || params.id || new URL(request.url).searchParams.get("id"),
   );
   const data = buildTaskData(session.shop, formData);
+  const validationError = validateTaskData(data);
+
+  if (validationError) {
+    return json({ error: validationError }, { status: 400 });
+  }
 
   if (taskId) {
     const existingTask = await db.task.findFirst({
@@ -467,6 +478,20 @@ function buildTaskData(shop, formData) {
     configuration: formDataToConfiguration(formData),
     autoReapplyChanges: hasFormValue(formData, "auto_reapply_changes"),
   };
+}
+
+function validateTaskData(taskData) {
+  if (taskData.priceChange?.action !== "set_margin") {
+    return "";
+  }
+
+  const margin = toNumber(taskData.priceChange.percent);
+
+  if (margin == null || margin < 0 || margin >= 100) {
+    return "Set margin requires a margin percentage from 0 to 99.99.";
+  }
+
+  return "";
 }
 
 async function executeTask(admin, taskData, onProgress = async () => {}) {
@@ -889,7 +914,9 @@ function calculateFieldValue(currentValue, variant, change, options = {}) {
   } else if (action === "set_margin") {
     const cost = toNumber(variant.inventoryItem?.unitCost?.amount);
     const margin = toNumber(change.percent);
-    if (cost == null || margin == null || margin >= 100) return undefined;
+    if (cost == null || cost <= 0 || margin == null || margin < 0 || margin >= 100) {
+      return undefined;
+    }
     nextValue = cost / (1 - margin / 100);
   } else if (action === "increase" || action === "decrease") {
     if (nextValue == null) return undefined;
@@ -2332,6 +2359,7 @@ export default function NewTaskPage() {
     shopCurrency = "USD",
     task = null,
   } = useLoaderData();
+  const actionData = useActionData();
   const navigation = useNavigation();
   const isSubmitting = navigation.state !== "idle";
   const configuration = task?.configuration || {};
@@ -2467,6 +2495,10 @@ export default function NewTaskPage() {
           <Layout>
             <Layout.Section>
               <BlockStack gap="200">
+                {actionData?.error ? (
+                  <Banner tone="critical">{actionData.error}</Banner>
+                ) : null}
+
                 <SectionCard title="Change type">
                   <ButtonGroup segmented>
                     <Button

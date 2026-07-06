@@ -1060,10 +1060,7 @@ function ProductDetailsView({ task, productDetails, navigate }) {
                 headings={[
                   { title: "Title" },
                   { title: "SKU" },
-                  { title: "Price" },
-                  { title: "Compare price" },
-                  { title: "New set price" },
-                  { title: "Other changes" },
+                  { title: "Changes" },
                 ]}
               >
                 {(productDetails?.variants || []).map((variant, index) => (
@@ -1082,22 +1079,6 @@ function ProductDetailsView({ task, productDetails, navigate }) {
 
                     <IndexTable.Cell>
                       <Text as="span">{variant.sku || "-"}</Text>
-                    </IndexTable.Cell>
-
-                    <IndexTable.Cell>
-                      <Text as="span">{formatPriceValue(variant.price)}</Text>
-                    </IndexTable.Cell>
-
-                    <IndexTable.Cell>
-                      <Text as="span">
-                        {formatPriceValue(variant.compareAtPrice)}
-                      </Text>
-                    </IndexTable.Cell>
-
-                    <IndexTable.Cell>
-                      <Text as="span">
-                        {formatPriceValue(variant.newSetPrice)}
-                      </Text>
                     </IndexTable.Cell>
 
                     <IndexTable.Cell>
