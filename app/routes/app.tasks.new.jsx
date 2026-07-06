@@ -216,6 +216,7 @@ const TASK_INVENTORY_ITEM_UPDATE = `#graphql
 
 const MAX_TASK_VARIANTS = 250;
 const VARIANT_PAGE_SIZE = 100;
+const TASK_UPDATE_CONCURRENCY = 4;
 
 export async function loader({ request, params }) {
   const { admin, session } = await authenticate.admin(request);
@@ -999,20 +1000,32 @@ async function applyVariantUpdates(admin, updates, onStepComplete = async () => 
     byProduct.get(update.productId).push(update.variant);
   }
 
-  for (const [productId, variants] of byProduct) {
-    const data = await shopifyGraphql(admin, TASK_PRODUCT_VARIANTS_BULK_UPDATE, {
-      productId,
-      variants,
-    });
-    const result = data.productVariantsBulkUpdate;
-    const userErrors = result?.userErrors || [];
-    if (userErrors.length) {
-      errors.push(...userErrors.map((error) => error.message));
-    } else {
-      updatedCount += result?.productVariants?.length || 0;
-    }
+  const productUpdates = Array.from(byProduct, ([productId, variants]) => ({
+    productId,
+    variants,
+  }));
 
-    await onStepComplete();
+  for (const batch of chunkArray(productUpdates, TASK_UPDATE_CONCURRENCY)) {
+    const results = await Promise.all(
+      batch.map(async ({ productId, variants }) => {
+        const data = await shopifyGraphql(admin, TASK_PRODUCT_VARIANTS_BULK_UPDATE, {
+          productId,
+          variants,
+        });
+        return data.productVariantsBulkUpdate;
+      }),
+    );
+
+    for (const result of results) {
+      const userErrors = result?.userErrors || [];
+      if (userErrors.length) {
+        errors.push(...userErrors.map((error) => error.message));
+      } else {
+        updatedCount += result?.productVariants?.length || 0;
+      }
+
+      await onStepComplete();
+    }
   }
 
   return { errors, updatedCount };
@@ -1022,20 +1035,37 @@ async function applyInventoryUpdates(admin, updates, onStepComplete = async () =
   const errors = [];
   let updatedCount = 0;
 
-  for (const update of updates) {
-    const data = await shopifyGraphql(admin, TASK_INVENTORY_ITEM_UPDATE, update);
-    const result = data.inventoryItemUpdate;
-    const userErrors = result?.userErrors || [];
-    if (userErrors.length) {
-      errors.push(...userErrors.map((error) => error.message));
-    } else {
-      updatedCount += 1;
-    }
+  for (const batch of chunkArray(updates, TASK_UPDATE_CONCURRENCY)) {
+    const results = await Promise.all(
+      batch.map(async (update) => {
+        const data = await shopifyGraphql(admin, TASK_INVENTORY_ITEM_UPDATE, update);
+        return data.inventoryItemUpdate;
+      }),
+    );
 
-    await onStepComplete();
+    for (const result of results) {
+      const userErrors = result?.userErrors || [];
+      if (userErrors.length) {
+        errors.push(...userErrors.map((error) => error.message));
+      } else {
+        updatedCount += 1;
+      }
+
+      await onStepComplete();
+    }
   }
 
   return { errors, updatedCount };
+}
+
+function chunkArray(items, size) {
+  const chunks = [];
+
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+
+  return chunks;
 }
 
 /* -------------------- Form options -------------------- */

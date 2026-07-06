@@ -14,6 +14,8 @@ import { TitleBar } from "@shopify/app-bridge-react";
 import db from "../db.server";
 import { authenticate } from "../shopify.server";
 
+const ROLLBACK_UPDATE_CONCURRENCY = 4;
+
 const TASK_PRODUCT_VARIANTS_BULK_UPDATE = `#graphql
   mutation TaskRollbackProductVariantsBulkUpdate(
     $productId: ID!
@@ -75,7 +77,7 @@ export const action = async ({ request, params }) => {
   await db.task.update({
     where: { id: task.id },
     data: {
-      status: "Rolling back",
+      status: "Canceled",
       executionSummary: {
         ...(task.executionSummary || {}),
         rollback: {
@@ -311,38 +313,57 @@ async function rollbackTask(
     });
   }
 
-  for (const [productId, variants] of variantsByProduct) {
-    const data = await shopifyGraphql(admin, TASK_PRODUCT_VARIANTS_BULK_UPDATE, {
-      productId,
-      variants,
-    });
-    const result = data.productVariantsBulkUpdate;
-    const userErrors = result?.userErrors || [];
+  const productUpdates = Array.from(variantsByProduct, ([productId, variants]) => ({
+    productId,
+    variants,
+  }));
 
-    if (userErrors.length) {
-      errors.push(...userErrors.map((error) => error.message));
-    } else {
-      updatedVariants += result?.productVariants?.length || 0;
+  for (const batch of chunkArray(productUpdates, ROLLBACK_UPDATE_CONCURRENCY)) {
+    const results = await Promise.all(
+      batch.map(async ({ productId, variants }) => {
+        const data = await shopifyGraphql(admin, TASK_PRODUCT_VARIANTS_BULK_UPDATE, {
+          productId,
+          variants,
+        });
+        return data.productVariantsBulkUpdate;
+      }),
+    );
+
+    for (const result of results) {
+      const userErrors = result?.userErrors || [];
+
+      if (userErrors.length) {
+        errors.push(...userErrors.map((error) => error.message));
+      } else {
+        updatedVariants += result?.productVariants?.length || 0;
+      }
+
+      await reportUpdateProgress();
     }
-
-    await reportUpdateProgress();
   }
 
-  for (const original of originalInventoryItems) {
-    const data = await shopifyGraphql(admin, TASK_INVENTORY_ITEM_UPDATE, {
-      id: original.id,
-      input: { cost: original.cost },
-    });
-    const result = data.inventoryItemUpdate;
-    const userErrors = result?.userErrors || [];
+  for (const batch of chunkArray(originalInventoryItems, ROLLBACK_UPDATE_CONCURRENCY)) {
+    const results = await Promise.all(
+      batch.map(async (original) => {
+        const data = await shopifyGraphql(admin, TASK_INVENTORY_ITEM_UPDATE, {
+          id: original.id,
+          input: { cost: original.cost },
+        });
+        return data.inventoryItemUpdate;
+      }),
+    );
 
-    if (userErrors.length) {
-      errors.push(...userErrors.map((error) => error.message));
-    } else {
-      updatedInventoryItems += 1;
+    for (const result of results) {
+      const userErrors = result?.userErrors || [];
+
+      if (userErrors.length) {
+        errors.push(...userErrors.map((error) => error.message));
+      } else {
+        updatedInventoryItems += 1;
+      }
+
+      await reportUpdateProgress();
     }
-
-    await reportUpdateProgress();
   }
 
   return {
@@ -356,6 +377,16 @@ async function rollbackTask(
     completedAt: new Date().toISOString(),
     rolledBackAt: new Date().toISOString(),
   };
+}
+
+function chunkArray(items, size) {
+  const chunks = [];
+
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+
+  return chunks;
 }
 
 function normalizeMoneyInput(value) {

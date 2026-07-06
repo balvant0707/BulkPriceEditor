@@ -5,10 +5,11 @@ import {
   useLoaderData,
   useLocation,
   useNavigation,
+  useRevalidator,
   useSearchParams,
   useSubmit,
 } from "@remix-run/react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Page,
   Card,
@@ -351,6 +352,126 @@ function getStatusTone(status) {
   return "subdued";
 }
 
+function getNumberValue(...values) {
+  const foundValue = values
+    .map((value) => Number(value))
+    .find((value) => Number.isFinite(value));
+
+  return Number.isFinite(foundValue) ? foundValue : null;
+}
+
+function getProgressValue(...values) {
+  const progress = getNumberValue(...values);
+
+  if (!Number.isFinite(progress)) {
+    return 0;
+  }
+
+  return Math.max(0, Math.min(100, Math.round(progress)));
+}
+
+function getTaskProgress(task) {
+  return getProgressValue(
+    task.progress,
+    task.percent,
+    task.percentage,
+    task.executionProgress,
+    task.executionPercent,
+    task.executionSummary?.progress,
+    task.executionSummary?.percent,
+    task.executionSummary?.percentage,
+  );
+}
+
+function getRollbackProgress(task) {
+  return getProgressValue(
+    task.rollbackProgress,
+    task.rollbackPercent,
+    task.rollbackPercentage,
+    task.rollback?.progress,
+    task.rollback?.percent,
+    task.rollbackSummary?.progress,
+    task.rollbackSummary?.percent,
+    task.rollbackSummary?.percentage,
+    task.executionSummary?.rollbackProgress,
+    task.executionSummary?.rollbackPercent,
+    task.executionSummary?.rollbackPercentage,
+    task.executionSummary?.rollback?.progress,
+    task.executionSummary?.rollback?.percent,
+    task.executionSummary?.rollbackSummary?.progress,
+    task.executionSummary?.rollbackSummary?.percent,
+    task.executionSummary?.rollbackSummary?.percentage,
+  );
+}
+
+function isRollbackProcessing(task) {
+  const taskStatus = String(task.status || "").toLowerCase();
+  const rollbackStatus = String(
+    task.rollbackStatus ||
+      task.rollback?.status ||
+      task.rollbackSummary?.status ||
+      task.executionSummary?.rollbackStatus ||
+      task.executionSummary?.rollback?.status ||
+      task.executionSummary?.rollbackSummary?.status ||
+      "",
+  ).toLowerCase();
+  const progress = getRollbackProgress(task);
+
+  if (progress >= 100) {
+    return false;
+  }
+
+  return (
+    rollbackStatus === "processing" ||
+    rollbackStatus === "running" ||
+    rollbackStatus === "in_progress" ||
+    rollbackStatus.includes("processing") ||
+    rollbackStatus.includes("running") ||
+    rollbackStatus.includes("in progress") ||
+    taskStatus === "rolling back" ||
+    taskStatus.includes("rollback processing") ||
+    taskStatus.includes("rollback running")
+  );
+}
+
+function isTaskProcessing(task) {
+  const status = String(task.status || "").toLowerCase();
+  return (
+    status.includes("processing") ||
+    status.includes("applying") ||
+    status.includes("pending") ||
+    status.includes("running") ||
+    status.includes("in_progress")
+  );
+}
+
+function getTaskListStatus(task) {
+  if (isRollbackProcessing(task)) {
+    return {
+      label: "Rolling Back",
+      tone: "subdued",
+      progress: getRollbackProgress(task),
+      showProgress: true,
+    };
+  }
+
+  if (isTaskProcessing(task)) {
+    return {
+      label: getStatusLabel(task.status),
+      tone: getStatusTone(task.status),
+      progress: getTaskProgress(task),
+      showProgress: true,
+    };
+  }
+
+  return {
+    label: getStatusLabel(task.status),
+    tone: getStatusTone(task.status),
+    progress: 0,
+    showProgress: false,
+  };
+}
+
 function taskMatchesTab(task, activeTab) {
   if (activeTab === "all") {
     return true;
@@ -462,6 +583,7 @@ function EmptyTasksPage() {
 
 function TasksListPage({ tasks }) {
   const navigation = useNavigation();
+  const revalidator = useRevalidator();
   const submit = useSubmit();
   const [searchParams, setSearchParams] = useSearchParams();
   const [rollbackTask, setRollbackTask] = useState(null);
@@ -553,6 +675,23 @@ function TasksListPage({ tasks }) {
     });
   }, [tasks, activeTab, queryValue]);
 
+  const hasActiveTask = useMemo(
+    () => tasks.some((task) => isTaskProcessing(task) || isRollbackProcessing(task)),
+    [tasks],
+  );
+
+  useEffect(() => {
+    if (!hasActiveTask) return undefined;
+
+    const interval = window.setInterval(() => {
+      if (revalidator.state === "idle") {
+        revalidator.revalidate();
+      }
+    }, 2000);
+
+    return () => window.clearInterval(interval);
+  }, [hasActiveTask, revalidator]);
+
   const totalPages = Math.max(1, Math.ceil(filteredTasks.length / PAGE_SIZE));
   const currentPage = Math.min(Math.max(pageParam, 1), totalPages);
   const startIndex = (currentPage - 1) * PAGE_SIZE;
@@ -580,7 +719,7 @@ function TasksListPage({ tasks }) {
   };
 
   const rowMarkup = paginatedTasks.map((task, index) => {
-    const taskStatus = getStatusLabel(task.status);
+    const taskStatus = getTaskListStatus(task);
     const detailsPath = `/app/tasks/${task.id}`;
     const rollbackPath = `/app/tasks/${task.id}/rollback`;
     const deletePath = `/app/tasks/${task.id}/delete`;
@@ -627,7 +766,16 @@ function TasksListPage({ tasks }) {
         </IndexTable.Cell>
 
         <IndexTable.Cell>
-          <Badge tone={getStatusTone(task.status)}>{taskStatus}</Badge>
+          <BlockStack gap="050">
+            <Box>
+              <Badge tone={taskStatus.tone}>{taskStatus.label}</Badge>
+            </Box>
+            {taskStatus.showProgress ? (
+              <Text as="span" variant="bodySm" tone="subdued">
+                Progress: {taskStatus.progress}%
+              </Text>
+            ) : null}
+          </BlockStack>
         </IndexTable.Cell>
 
         <IndexTable.Cell>
@@ -640,7 +788,7 @@ function TasksListPage({ tasks }) {
               size="slim"
               variant={canRollback ? "primary" : undefined}
               loading={isRollbackLoading}
-              disabled={!canRollback || normalizedStatus === "rolling back"}
+              disabled={!canRollback || isRollbackProcessing(task)}
               onClick={() => setRollbackTask(task)}
             >
               Rollback
