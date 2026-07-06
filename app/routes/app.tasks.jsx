@@ -411,6 +411,20 @@ function EmptyTasksPage() {
       }}
     >
       <TitleBar title="Tasks" />
+      <style>{`
+        .Polaris-Modal-Dialog__Modal {
+          max-width: 480px;
+        }
+      `}</style>
+
+      <style>{`
+        .Polaris-EmptyState__Image,
+        .Polaris-EmptyState__Image img {
+          opacity: 1 !important;
+          filter: none !important;
+        }
+      `}</style>
+
       <Layout>
         <Layout.Section>
           <Card>

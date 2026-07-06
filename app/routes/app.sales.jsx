@@ -64,6 +64,13 @@ export default function SalesPage() {
           Create sale
         </button>
       </TitleBar>
+<style>{`
+    .Polaris-EmptyState__Image,
+    .Polaris-EmptyState__Image img {
+      opacity: 1 !important;
+      filter: none !important;
+    }
+  `}</style>
       <Page
         title="Sales"
         primaryAction={{
