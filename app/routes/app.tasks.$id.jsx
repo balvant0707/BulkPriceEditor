@@ -26,7 +26,6 @@ import {
 import { TitleBar } from "@shopify/app-bridge-react";
 import db from "../db.server";
 import { authenticate } from "../shopify.server";
-import { styleText } from "node:util";
 
 const TASK_EXECUTION_TIMEOUT_MS = 10 * 60 * 1000;
 const ACTIVE_TASK_STATUSES = [
