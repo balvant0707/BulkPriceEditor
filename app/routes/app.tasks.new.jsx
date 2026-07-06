@@ -521,7 +521,7 @@ async function executeTask(admin, taskData, onProgress = async () => {}) {
         productVariantUpdates.push(variantUpdate);
       }
 
-      if (variantUpdate || shouldLogPriceToCompareAtNoChange(variant, taskData)) {
+      if (variantUpdate || shouldLogPriceNoChange(variant, taskData)) {
         originalVariants.push(buildOriginalVariantRecord(variant, variantUpdate));
       }
 
@@ -823,12 +823,18 @@ function buildVariantUpdate(variant, taskData) {
   return Object.keys(update.variant).length > 1 && update.productId ? update : null;
 }
 
-function shouldLogPriceToCompareAtNoChange(variant, taskData) {
-  return (
-    taskData.priceChange?.action === "set_to_compare_at_price" &&
-    (variant.compareAtPrice == null ||
-      moneyValuesEqual(variant.price, variant.compareAtPrice))
-  );
+function shouldLogPriceNoChange(variant, taskData) {
+  const action = taskData.priceChange?.action;
+
+  if (action === "set_to_compare_at_price") {
+    return true;
+  }
+
+  if (action === "set_margin") {
+    return true;
+  }
+
+  return false;
 }
 
 function buildOriginalVariantRecord(variant, variantUpdate) {
@@ -2223,6 +2229,7 @@ function PriceChangeFields({
   const shouldShowRounding =
     ((isPriceField || isCompareAtPriceField) && action === "") ||
     (isCostPerItemField && action === "") ||
+    (isPriceField && action === "set_margin") ||
     (isIncreaseOrDecrease && !isCompareNoFieldsAction);
 
   return (

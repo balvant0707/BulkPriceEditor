@@ -717,7 +717,9 @@ function buildVariantChangeItems(record, currencyCode) {
 }
 
 function shouldShowPriceNoChange(task) {
-  return task.priceChange?.action === "set_to_compare_at_price";
+  return ["set_to_compare_at_price", "set_margin"].includes(
+    task.priceChange?.action,
+  );
 }
 
 function summarizeProductChanges(changeItems, noChangeLabel = "") {
