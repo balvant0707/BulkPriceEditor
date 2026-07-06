@@ -390,14 +390,9 @@ function getTaskTabCounts(tasks) {
 }
 
 function EmptyTasksPage() {
-  const navigate = useNavigate();
   const navigation = useNavigation();
 
   const isOpeningNewTask = navigation.location?.pathname === NEW_TASK_URL;
-
-  const openNewTask = () => {
-    navigate(NEW_TASK_URL);
-  };
 
   return (
     <Page
@@ -405,7 +400,6 @@ function EmptyTasksPage() {
       primaryAction={{
         content: "Create task",
         url: NEW_TASK_URL,
-        onAction: openNewTask,
         loading: isOpeningNewTask,
         disabled: isOpeningNewTask,
       }}
@@ -434,7 +428,6 @@ function EmptyTasksPage() {
                 action={{
                   content: "Create first task",
                   url: NEW_TASK_URL,
-                  onAction: openNewTask,
                   loading: isOpeningNewTask,
                   disabled: isOpeningNewTask,
                 }}
@@ -469,7 +462,6 @@ function EmptyTasksPage() {
 }
 
 function TasksListPage({ tasks }) {
-  const navigate = useNavigate();
   const navigation = useNavigation();
   const submit = useSubmit();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -477,10 +469,6 @@ function TasksListPage({ tasks }) {
   const [deleteTask, setDeleteTask] = useState(null);
 
   const isOpeningNewTask = navigation.location?.pathname === NEW_TASK_URL;
-
-  const openNewTask = () => {
-    navigate(NEW_TASK_URL);
-  };
 
   const activeTab = searchParams.get("view") || "all";
   const queryValue = searchParams.get("q") || "";
@@ -645,9 +633,9 @@ function TasksListPage({ tasks }) {
 
             <Button
               size="slim"
-              variant={canRollback || canDelete ? "primary" : undefined}
+              variant={canRollback ? "primary" : undefined}
               loading={isRollbackLoading}
-              disabled={normalizedStatus === "rolling back"}
+              disabled={!canRollback || normalizedStatus === "rolling back"}
               onClick={() => setRollbackTask(task)}
             >
               Rollback
@@ -682,7 +670,6 @@ function TasksListPage({ tasks }) {
       primaryAction={{
         content: "Create task",
         url: NEW_TASK_URL,
-        onAction: openNewTask,
         loading: isOpeningNewTask,
         disabled: isOpeningNewTask,
       }}
