@@ -157,17 +157,54 @@ function formatDate(value) {
 }
 
 function formatChange(task) {
-  const priceChange = task.priceChange || {};
-  const action = humanize(priceChange.action || "change");
+  const changes = [
+    formatChangePayload(task.priceChange, "price"),
+    formatChangePayload(task.compareAtPriceChange, "compare at price"),
+    formatChangePayload(task.costPerItemChange, "cost per item"),
+  ].filter(Boolean);
+
+  return changes.length ? changes.join(", ") : "Change";
+}
+
+function formatChangePayload(change, label) {
+  const action = String(change?.action || "").toLowerCase();
+  if (!action) return "";
+
+  if (action === "reset_compare_at_price") return "Reset compare at price";
+  if (action === "reset_cost_per_item") return "Reset cost per item";
+  if (action === "set_to_price") return "Set compare at price to price";
+  if (action === "set_to_compare_at_price") {
+    return "Set price to compare at price";
+  }
+  if (action === "set_margin") {
+    return change.percent
+      ? `Set ${label} margin to ${change.percent}%`
+      : `Set ${label} margin`;
+  }
+
+  const actionLabel =
+    action === "increase"
+      ? "Increase"
+      : action === "decrease"
+        ? "Decrease"
+        : action === "set_new_value"
+          ? "Set"
+          : humanize(action);
 
   const value =
-    priceChange.type === "by_amount"
-      ? priceChange.amount
-      : priceChange.percent
-        ? `${priceChange.percent}%`
-        : "";
+    change.type === "by_amount"
+      ? change.amount
+      : change.percent
+        ? `${change.percent}%`
+        : change.amount;
 
-  return `${action}${value ? ` by ${value}` : ""}`;
+  if (action === "set_new_value") {
+    return value ? `Set ${label} to ${value}` : `Set ${label}`;
+  }
+
+  const valueText = value ? ` by ${value}` : "";
+
+  return `${actionLabel} ${label}${valueText}`;
 }
 
 function getNumberValue(...values) {
@@ -679,10 +716,14 @@ function buildVariantChangeItems(record, currencyCode) {
   return changes;
 }
 
-function summarizeProductChanges(changeItems) {
+function shouldShowPriceNoChange(task) {
+  return task.priceChange?.action === "set_to_compare_at_price";
+}
+
+function summarizeProductChanges(changeItems, noChangeLabel = "") {
   if (!changeItems.length) {
     return {
-      primary: "No changes recorded",
+      primary: noChangeLabel || "No changes recorded",
       moreCount: 0,
     };
   }
@@ -795,9 +836,14 @@ function createProductGroups(task, shopifyStoreHandle, shopCurrency) {
 
     return {
       ...group,
-      changes: changes.length ? changes : ["No changes recorded"],
+      changes: changes.length
+        ? changes
+        : [shouldShowPriceNoChange(task) ? "Price: no change" : "No changes recorded"],
       otherChanges: group.variants.flatMap((variant) => variant.changes),
-      changeSummary: summarizeProductChanges(group.changeItems),
+      changeSummary: summarizeProductChanges(
+        group.changeItems,
+        shouldShowPriceNoChange(task) ? "Price: no change" : "",
+      ),
       price: summarizeVariantValue(group.variants, "price"),
       compareAtPrice: summarizeVariantValue(group.variants, "compareAtPrice"),
       newSetPrice: summarizeVariantValue(group.variants, "newSetPrice"),
@@ -906,7 +952,9 @@ function getProductDetails(task, productId, shopifyStoreHandle) {
     adminUrl: getProductAdminUrl(shopifyStoreHandle, productId),
     variants: allRecords.map((record) => ({
       ...record,
-      changes: record.changes.length ? record.changes : ["No changes recorded"],
+      changes: record.changes.length
+        ? record.changes
+        : [shouldShowPriceNoChange(task) ? "Price: no change" : "No changes recorded"],
     })),
     appliedAt: getAppliedAt(task),
   };

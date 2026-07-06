@@ -519,17 +519,10 @@ async function executeTask(admin, taskData, onProgress = async () => {}) {
       const variantUpdate = buildVariantUpdate(variant, taskData);
       if (variantUpdate) {
         productVariantUpdates.push(variantUpdate);
-        originalVariants.push({
-          id: variant.id,
-          title: variant.title,
-          productId: variant.product?.id,
-          productTitle: variant.product?.title,
-          price: variant.price,
-          compareAtPrice: variant.compareAtPrice,
-          nextPrice: variantUpdate.variant.price ?? variant.price,
-          nextCompareAtPrice:
-            variantUpdate.variant.compareAtPrice ?? variant.compareAtPrice,
-        });
+      }
+
+      if (variantUpdate || shouldLogPriceToCompareAtNoChange(variant, taskData)) {
+        originalVariants.push(buildOriginalVariantRecord(variant, variantUpdate));
       }
 
       const inventoryUpdate = buildInventoryUpdate(variant, taskData.costPerItemChange);
@@ -820,12 +813,36 @@ function buildVariantUpdate(variant, taskData) {
     { resetValue: null, fallbackBase: variant.price },
   );
 
-  if (nextPrice != null) update.variant.price = nextPrice;
+  if (nextPrice != null && !moneyValuesEqual(nextPrice, variant.price)) {
+    update.variant.price = nextPrice;
+  }
   if (nextCompareAtPrice !== undefined) {
     update.variant.compareAtPrice = nextCompareAtPrice;
   }
 
   return Object.keys(update.variant).length > 1 && update.productId ? update : null;
+}
+
+function shouldLogPriceToCompareAtNoChange(variant, taskData) {
+  return (
+    taskData.priceChange?.action === "set_to_compare_at_price" &&
+    (variant.compareAtPrice == null ||
+      moneyValuesEqual(variant.price, variant.compareAtPrice))
+  );
+}
+
+function buildOriginalVariantRecord(variant, variantUpdate) {
+  return {
+    id: variant.id,
+    title: variant.title,
+    productId: variant.product?.id,
+    productTitle: variant.product?.title,
+    price: variant.price,
+    compareAtPrice: variant.compareAtPrice,
+    nextPrice: variantUpdate?.variant.price ?? variant.price,
+    nextCompareAtPrice:
+      variantUpdate?.variant.compareAtPrice ?? variant.compareAtPrice,
+  };
 }
 
 function buildInventoryUpdate(variant, costChange) {
@@ -928,6 +945,17 @@ function formatPrice(value) {
   return number == null ? null : number.toFixed(2);
 }
 
+function moneyValuesEqual(left, right) {
+  const leftNumber = toNumber(left);
+  const rightNumber = toNumber(right);
+
+  if (leftNumber == null || rightNumber == null) {
+    return leftNumber == null && rightNumber == null;
+  }
+
+  return leftNumber.toFixed(2) === rightNumber.toFixed(2);
+}
+
 async function applyVariantUpdates(admin, updates, onStepComplete = async () => {}) {
   const errors = [];
   let updatedCount = 0;
@@ -984,7 +1012,10 @@ const priceActionOptions = [
   { label: "Increase price", value: "increase" },
   { label: "Decrease price", value: "decrease" },
   { label: "Set new price", value: "set_new_value" },
-  { label: "Set to compare at price", value: "set_to_compare_at_price" },
+  {
+    label: "Set price to compare at price",
+    value: "set_to_compare_at_price",
+  },
   { label: "Set margin", value: "set_margin" },
 ];
 
@@ -992,8 +1023,8 @@ const compareAtActionOptions = [
   { label: "Do not change compare at price", value: "" },
   { label: "Increase compare at price", value: "increase" },
   { label: "Decrease compare at price", value: "decrease" },
-  { label: "Set new compare on price", value: "set_new_value" },
-  { label: "Set to price", value: "set_to_price" },
+  { label: "Set new compare at price", value: "set_new_value" },
+  { label: "Set compare at price to price", value: "set_to_price" },
   { label: "Reset compare at price", value: "reset_compare_at_price" },
 ];
 
