@@ -216,7 +216,9 @@ const TASK_INVENTORY_ITEM_UPDATE = `#graphql
 
 const MAX_TASK_VARIANTS = 250;
 const VARIANT_PAGE_SIZE = 100;
-const TASK_UPDATE_CONCURRENCY = 4;
+const TASK_UPDATE_CONCURRENCY = 8;
+const PROGRESS_UPDATE_MIN_INTERVAL_MS = 1200;
+const PROGRESS_UPDATE_MIN_DELTA = 5;
 
 export async function loader({ request, params }) {
   const { admin, session } = await authenticate.admin(request);
@@ -331,22 +333,48 @@ export async function action({ request, params }) {
 function scheduleTaskExecution(admin, taskId, data) {
   setTimeout(() => {
     void runTaskExecution(admin, taskId, data);
-  }, 100);
+  }, 0);
+}
+
+function createProgressUpdater(taskId) {
+  let lastWriteAt = 0;
+  let lastWrittenProgress = 0;
+  let latestSummary = {};
+
+  return async (progress, summary = {}, options = {}) => {
+    const safeProgress = Math.max(
+      0,
+      Math.min(100, Math.round(Number(progress) || 0)),
+    );
+    const now = Date.now();
+
+    latestSummary = {
+      ...latestSummary,
+      ...summary,
+      progress: safeProgress,
+    };
+
+    const shouldWrite =
+      options.force ||
+      safeProgress >= 95 ||
+      safeProgress - lastWrittenProgress >= PROGRESS_UPDATE_MIN_DELTA ||
+      now - lastWriteAt >= PROGRESS_UPDATE_MIN_INTERVAL_MS;
+
+    if (!shouldWrite) return;
+
+    lastWriteAt = now;
+    lastWrittenProgress = safeProgress;
+
+    await db.task.update({
+      where: { id: taskId },
+      data: { executionSummary: latestSummary },
+    });
+  };
 }
 
 async function runTaskExecution(admin, taskId, data) {
   try {
-    const updateProgress = async (progress, summary = {}) => {
-      await db.task.update({
-        where: { id: taskId },
-        data: {
-          executionSummary: {
-            ...summary,
-            progress,
-          },
-        },
-      });
-    };
+    const updateProgress = createProgressUpdater(taskId);
 
     await db.task.update({
       where: { id: taskId },
@@ -436,6 +464,25 @@ function buildChangeData(formData, prefix) {
   };
 }
 
+function buildSelectedCollectionRecords(formData, prefix) {
+  const ids = getFormValues(formData, `${prefix}_collection_ids[]`);
+  const titles = getFormValues(formData, `${prefix}_collection_titles[]`);
+  const handles = getFormValues(formData, `${prefix}_collection_handles[]`);
+  const productsCounts = getFormValues(
+    formData,
+    `${prefix}_collection_products_counts[]`,
+  );
+  const imageUrls = getFormValues(formData, `${prefix}_collection_image_urls[]`);
+
+  return ids.map((id, index) => ({
+    id,
+    title: titles[index] || "",
+    handle: handles[index] || "",
+    productsCount: productsCounts[index] || "",
+    imageUrl: imageUrls[index] || "",
+  }));
+}
+
 function buildTaskData(shop, formData) {
   const selectedMarketIds = getFormValues(formData, "selected_market_ids[]");
   const selectedMarketHandles = getFormValues(formData, "selected_market_handles[]");
@@ -443,6 +490,8 @@ function buildTaskData(shop, formData) {
     formData,
     "selected_market_currency_codes[]",
   );
+  const applyCollections = buildSelectedCollectionRecords(formData, "apply");
+  const excludeCollections = buildSelectedCollectionRecords(formData, "exclude");
 
   return {
     shop,
@@ -464,6 +513,7 @@ function buildTaskData(shop, formData) {
       scope: getFormValue(formData, "apply_scope"),
       saleFilter: getFormValue(formData, "apply_sale_filter"),
       collectionIds: getFormValues(formData, "apply_collection_ids[]"),
+      collections: applyCollections,
       productIds: getFormValues(formData, "apply_product_ids[]"),
       variantIds: getFormValues(formData, "apply_variant_ids[]"),
       tagNames: getFormValues(formData, "apply_tag_names[]"),
@@ -472,6 +522,7 @@ function buildTaskData(shop, formData) {
       scope: getFormValue(formData, "exclude_scope"),
       discountedScope: getFormValue(formData, "discounted_exclusion_scope"),
       collectionIds: getFormValues(formData, "exclude_collection_ids[]"),
+      collections: excludeCollections,
       productIds: getFormValues(formData, "exclude_product_ids[]"),
       variantIds: getFormValues(formData, "exclude_variant_ids[]"),
       tagNames: getFormValues(formData, "exclude_tag_names[]"),
@@ -1899,12 +1950,33 @@ function ResourcePickerField({
           />
 
           {selectedCollections.map((item) => (
-            <input
-              key={item.id}
-              type="hidden"
-              name={`${sectionPrefix}_collection_ids[]`}
-              value={item.id}
-            />
+            <div key={item.id}>
+              <input
+                type="hidden"
+                name={`${sectionPrefix}_collection_ids[]`}
+                value={item.id}
+              />
+              <input
+                type="hidden"
+                name={`${sectionPrefix}_collection_titles[]`}
+                value={item.title || ""}
+              />
+              <input
+                type="hidden"
+                name={`${sectionPrefix}_collection_handles[]`}
+                value={item.handle || ""}
+              />
+              <input
+                type="hidden"
+                name={`${sectionPrefix}_collection_products_counts[]`}
+                value={item.productsCount || ""}
+              />
+              <input
+                type="hidden"
+                name={`${sectionPrefix}_collection_image_urls[]`}
+                value={item.imageUrl || ""}
+              />
+            </div>
           ))}
 
           <ResourcePickerModal
@@ -2378,6 +2450,25 @@ function idsToSelectedItems(ids) {
   return ids.map((id) => ({ id, title: id }));
 }
 
+function collectionConfigToSelectedItems(configuration, prefix) {
+  const ids = getConfigArray(configuration, `${prefix}_collection_ids[]`);
+  const titles = getConfigArray(configuration, `${prefix}_collection_titles[]`);
+  const handles = getConfigArray(configuration, `${prefix}_collection_handles[]`);
+  const productsCounts = getConfigArray(
+    configuration,
+    `${prefix}_collection_products_counts[]`,
+  );
+  const imageUrls = getConfigArray(configuration, `${prefix}_collection_image_urls[]`);
+
+  return ids.map((id, index) => ({
+    id,
+    title: titles[index] || id,
+    handle: handles[index] || "",
+    productsCount: productsCounts[index] || "",
+    imageUrl: imageUrls[index] || "",
+  }));
+}
+
 function tagsToSelectedItems(tags) {
   return tags.map((title) => ({ id: title, title }));
 }
@@ -2436,7 +2527,7 @@ export default function NewTaskPage() {
   );
 
   const [applyCollections, setApplyCollections] = useState(
-    idsToSelectedItems(getConfigArray(configuration, "apply_collection_ids[]")),
+    collectionConfigToSelectedItems(configuration, "apply"),
   );
   const [applyProducts, setApplyProducts] = useState(
     idsToSelectedItems(getConfigArray(configuration, "apply_product_ids[]")),
@@ -2449,7 +2540,7 @@ export default function NewTaskPage() {
   );
 
   const [excludeCollections, setExcludeCollections] = useState(
-    idsToSelectedItems(getConfigArray(configuration, "exclude_collection_ids[]")),
+    collectionConfigToSelectedItems(configuration, "exclude"),
   );
   const [excludeProducts, setExcludeProducts] = useState(
     idsToSelectedItems(getConfigArray(configuration, "exclude_product_ids[]")),

@@ -95,11 +95,9 @@ export const loader = async ({ request, params }) => {
         select: { currency: true },
       })
     )?.currency || "";
-  const selectedCollections = await getSelectedCollectionDetails(
-    admin,
-    task,
-    shopifyStoreHandle,
-  );
+  const selectedCollections = isCollectionScope(task)
+    ? await getSelectedCollectionDetails(admin, task, shopifyStoreHandle)
+    : [];
 
   return json({
     task,
@@ -679,6 +677,40 @@ function getCollectionAdminUrl(shopifyStoreHandle, collectionId) {
   return `https://admin.shopify.com/store/${shopifyStoreHandle}/collections/${collectionId}`;
 }
 
+function isCollectionScope(task) {
+  const values = [
+    task?.applyScope,
+    task?.scope,
+    task?.targetScope,
+    task?.selectionScope,
+    task?.applyTo?.scope,
+    task?.selection?.scope,
+    task?.target?.scope,
+    task?.executionSummary?.applyScope,
+    task?.executionSummary?.scope,
+    task?.executionSummary?.targetScope,
+    task?.executionSummary?.selectionScope,
+    task?.executionSummary?.applyTo?.scope,
+    task?.executionSummary?.selection?.scope,
+    task?.executionSummary?.target?.scope,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return values.includes("collection");
+}
+
+function isPlaceholderCollectionTitle(title, collectionId = "") {
+  const normalizedTitle = String(title || "").trim().toLowerCase();
+  const normalizedId = String(collectionId || "").trim().toLowerCase();
+
+  if (!normalizedTitle) return true;
+  if (normalizedId && normalizedTitle === `collection ${normalizedId}`) return true;
+
+  return /^collection\s+\d+$/i.test(normalizedTitle);
+}
+
 function parsePossibleArray(value) {
   if (!value) return [];
 
@@ -731,6 +763,32 @@ function readJsonField(value) {
   } catch {
     return value;
   }
+}
+
+function getArrayValue(value) {
+  const parsed = readJsonField(value);
+
+  if (Array.isArray(parsed)) return parsed;
+  if (parsed === undefined || parsed === null || parsed === "") return [];
+
+  return [parsed];
+}
+
+function getConfigArray(configuration, name) {
+  const value = configuration?.[name];
+  return getArrayValue(value);
+}
+
+function buildCollectionRecordsFromIds(ids, titles = [], handles = [], counts = [], imageUrls = []) {
+  return getArrayValue(ids)
+    .map((id, index) => ({
+      id,
+      title: getArrayValue(titles)[index] || "",
+      handle: getArrayValue(handles)[index] || "",
+      productsCount: getArrayValue(counts)[index] || "",
+      imageUrl: getArrayValue(imageUrls)[index] || "",
+    }))
+    .filter((record) => record.id || record.title || record.handle);
 }
 
 function getCollectionRecordId(record) {
@@ -792,7 +850,7 @@ function getCollectionRecordHandle(record) {
 }
 
 function getCollectionRecordTitle(record, collectionId = "") {
-  if (!record) return collectionId ? `Collection ${collectionId}` : "Collection";
+  if (!record) return "";
 
   if (typeof record === "string") {
     const trimmed = record.trim();
@@ -802,7 +860,7 @@ function getCollectionRecordTitle(record, collectionId = "") {
       trimmed.includes("gid://shopify/Collection/") ||
       trimmed === numericId
     ) {
-      return numericId ? `Collection ${numericId}` : "Collection";
+      return "";
     }
 
     return trimmed;
@@ -818,7 +876,7 @@ function getCollectionRecordTitle(record, collectionId = "") {
     record?.text ||
     record?.handle ||
     record?.collectionHandle ||
-    (collectionId ? `Collection ${collectionId}` : "Collection")
+    ""
   );
 }
 
@@ -891,120 +949,79 @@ function collectCollectionRecordsFromObject(value, depth = 0) {
 }
 
 function getSelectedCollectionRecords(task) {
+  if (!isCollectionScope(task)) return [];
+
+  const configuration = task.configuration || {};
+  const applyResources = task.applyResources || {};
   const summary = task.executionSummary || {};
-  const candidateValues = [
-    task.selectedCollections,
-    task.selectedCollectionsJson,
-    task.selectedCollection,
-    task.collections,
-    task.collectionsJson,
-    task.collection,
-    task.collectionIds,
-    task.collectionIdsJson,
-    task.collectionId,
-    task.collectionGids,
-    task.collectionGidsJson,
-    task.selectedCollectionIds,
-    task.selectedCollectionIdsJson,
-    task.selectedCollectionGids,
-    task.selectedCollectionGidsJson,
-    task.applyCollections,
-    task.applyCollectionsJson,
-    task.appliedCollections,
-    task.appliedCollectionsJson,
-    task.targetCollections,
-    task.targetCollectionsJson,
-    task.resources,
-    task.resourcesJson,
-    task.selectedResources,
-    task.selectedResourcesJson,
-    task.targets,
-    task.targetsJson,
-    task.applyTargets?.collections,
-    task.applyTargets?.selectedCollections,
-    task.applyTargets?.collectionIds,
-    task.applyTo?.collections,
-    task.applyTo?.selectedCollections,
-    task.applyTo?.collectionIds,
-    task.selection?.collections,
-    task.selection?.selectedCollections,
-    task.selection?.collectionIds,
-    task.target?.collections,
-    task.target?.selectedCollections,
-    task.target?.collectionIds,
-    task.metadata?.collections,
-    task.metadata?.selectedCollections,
-    task.metadata?.collectionIds,
-    task.meta?.collections,
-    task.meta?.selectedCollections,
-    task.meta?.collectionIds,
-    task.configuration?.collections,
-    task.configuration?.selectedCollections,
-    task.configuration?.collectionIds,
-    summary.collections,
-    summary.collectionsJson,
-    summary.selectedCollections,
-    summary.selectedCollectionsJson,
-    summary.collection,
-    summary.collectionIds,
-    summary.collectionIdsJson,
-    summary.collectionGids,
-    summary.collectionGidsJson,
-    summary.selectedCollectionIds,
-    summary.selectedCollectionIdsJson,
-    summary.selectedCollectionGids,
-    summary.selectedCollectionGidsJson,
-    summary.applyCollections,
-    summary.applyCollectionsJson,
-    summary.appliedCollections,
-    summary.appliedCollectionsJson,
-    summary.targetCollections,
-    summary.targetCollectionsJson,
-    summary.resources,
-    summary.resourcesJson,
-    summary.selectedResources,
-    summary.selectedResourcesJson,
-    summary.targets,
-    summary.targetsJson,
-    summary.applyTargets?.collections,
-    summary.applyTargets?.selectedCollections,
-    summary.applyTargets?.collectionIds,
-    summary.applyTo?.collections,
-    summary.applyTo?.selectedCollections,
-    summary.applyTo?.collectionIds,
-    summary.selection?.collections,
-    summary.selection?.selectedCollections,
-    summary.selection?.collectionIds,
-    summary.target?.collections,
-    summary.target?.selectedCollections,
-    summary.target?.collectionIds,
-    summary.input?.collections,
-    summary.input?.selectedCollections,
-    summary.input?.collectionIds,
-    summary.form?.collections,
-    summary.form?.selectedCollections,
-    summary.form?.collectionIds,
-    summary.payload?.collections,
-    summary.payload?.selectedCollections,
-    summary.payload?.collectionIds,
-    summary.request?.collections,
-    summary.request?.selectedCollections,
-    summary.request?.collectionIds,
-  ];
+  const summaryApplyResources = summary.applyResources || summary.input?.applyResources || {};
+  const summaryConfiguration = summary.configuration || summary.input?.configuration || {};
 
-  let records = candidateValues
-    .flatMap((value) => parsePossibleArray(readJsonField(value)))
-    .filter(Boolean);
-
-  if (!records.length) {
-    records = collectCollectionRecordsFromObject({ ...task, executionSummary: summary });
-  }
+  const records = [
+    ...getArrayValue(applyResources.collections),
+    ...getArrayValue(applyResources.selectedCollections),
+    ...buildCollectionRecordsFromIds(
+      applyResources.collectionIds,
+      applyResources.collectionTitles,
+      applyResources.collectionHandles,
+      applyResources.collectionProductsCounts,
+      applyResources.collectionImageUrls,
+    ),
+    ...getArrayValue(summaryApplyResources.collections),
+    ...getArrayValue(summaryApplyResources.selectedCollections),
+    ...buildCollectionRecordsFromIds(
+      summaryApplyResources.collectionIds,
+      summaryApplyResources.collectionTitles,
+      summaryApplyResources.collectionHandles,
+      summaryApplyResources.collectionProductsCounts,
+      summaryApplyResources.collectionImageUrls,
+    ),
+    ...buildCollectionRecordsFromIds(
+      getConfigArray(configuration, "apply_collection_ids[]"),
+      getConfigArray(configuration, "apply_collection_titles[]"),
+      getConfigArray(configuration, "apply_collection_handles[]"),
+      getConfigArray(configuration, "apply_collection_products_counts[]"),
+      getConfigArray(configuration, "apply_collection_image_urls[]"),
+    ),
+    ...buildCollectionRecordsFromIds(
+      getConfigArray(summaryConfiguration, "apply_collection_ids[]"),
+      getConfigArray(summaryConfiguration, "apply_collection_titles[]"),
+      getConfigArray(summaryConfiguration, "apply_collection_handles[]"),
+      getConfigArray(summaryConfiguration, "apply_collection_products_counts[]"),
+      getConfigArray(summaryConfiguration, "apply_collection_image_urls[]"),
+    ),
+  ].filter(Boolean);
 
   const unique = new Map();
 
   records.forEach((record, index) => {
     const collection = normalizeCollectionRecord(record, index);
-    const key = collection.key;
+    const rawRecord = collection.raw;
+    const rawType =
+      typeof rawRecord === "object" && rawRecord
+        ? String(rawRecord.type || rawRecord.resourceType || rawRecord.targetType || "").toLowerCase()
+        : "";
+
+    if (
+      rawType &&
+      !rawType.includes("collection") &&
+      (rawType.includes("product") ||
+        rawType.includes("variant") ||
+        rawType.includes("inventory"))
+    ) {
+      return;
+    }
+
+    const hasRealTitle = !isPlaceholderCollectionTitle(
+      collection.title,
+      collection.id,
+    );
+
+    if (!collection.id && !collection.gid && !collection.handle && !hasRealTitle) {
+      return;
+    }
+
+    const key = collection.gid || collection.id || collection.handle || collection.title;
 
     if (!unique.has(key)) {
       unique.set(key, collection.raw);
@@ -1067,16 +1084,23 @@ async function getSelectedCollectionDetails(admin, task, shopifyStoreHandle) {
 
   records.forEach((record, index) => {
     const collection = normalizeCollectionRecord(record, index);
+    const hasRealTitle = !isPlaceholderCollectionTitle(collection.title, collection.id);
 
     collectionMap.set(collection.key, {
       ...collection,
+      title: hasRealTitle ? collection.title : "",
+      verified: false,
       adminUrl: getCollectionAdminUrl(shopifyStoreHandle, collection.id),
     });
   });
 
-  const idsToFetch = Array.from(collectionMap.values())
-    .filter((collection) => collection.gid)
-    .map((collection) => collection.gid);
+  const idsToFetch = Array.from(
+    new Set(
+      Array.from(collectionMap.values())
+        .filter((collection) => collection.gid)
+        .map((collection) => collection.gid),
+    ),
+  );
 
   if (idsToFetch.length && admin?.graphql) {
     try {
@@ -1096,9 +1120,12 @@ async function getSelectedCollectionDetails(admin, task, shopifyStoreHandle) {
       );
       const payload = await response.json();
       const nodes = payload?.data?.nodes || [];
+      const foundGids = new Set();
 
       nodes.forEach((node) => {
         if (!node?.id) return;
+
+        foundGids.add(node.id);
 
         const collectionId = getShopifyNumericId(node.legacyResourceId || node.id);
         const existingKey = node.id || collectionId;
@@ -1114,8 +1141,9 @@ async function getSelectedCollectionDetails(admin, task, shopifyStoreHandle) {
           key: existingKey,
           id: collectionId,
           gid: node.id,
-          title: node.title || current.title || node.handle || `Collection ${collectionId}`,
+          title: node.title || node.handle || `Collection ${collectionId}`,
           handle: node.handle || current.handle || "",
+          verified: true,
           adminUrl: getCollectionAdminUrl(shopifyStoreHandle, collectionId),
         });
 
@@ -1126,16 +1154,31 @@ async function getSelectedCollectionDetails(admin, task, shopifyStoreHandle) {
           collectionMap.delete(gidKey);
         }
       });
+
+      Array.from(collectionMap.entries()).forEach(([key, collection]) => {
+        if (collection.gid && !foundGids.has(collection.gid) && !collection.title && !collection.handle) {
+          collectionMap.delete(key);
+        }
+      });
     } catch (error) {
       console.error("Failed to load selected collection details:", error);
     }
   }
 
   for (const [key, collection] of Array.from(collectionMap.entries())) {
-    if (collection.id || !admin?.graphql) continue;
+    if (collection.verified || collection.id || !admin?.graphql) continue;
+    if (!collection.title && !collection.handle) {
+      collectionMap.delete(key);
+      continue;
+    }
 
     const node = await fetchCollectionByText(admin, collection);
-    if (!node?.id) continue;
+    if (!node?.id) {
+      if (!collection.title || isPlaceholderCollectionTitle(collection.title, collection.id)) {
+        collectionMap.delete(key);
+      }
+      continue;
+    }
 
     const collectionId = getShopifyNumericId(node.legacyResourceId || node.id);
     collectionMap.set(key, {
@@ -1144,13 +1187,19 @@ async function getSelectedCollectionDetails(admin, task, shopifyStoreHandle) {
       gid: node.id,
       title: node.title || collection.title || node.handle || `Collection ${collectionId}`,
       handle: node.handle || collection.handle || "",
+      verified: true,
       adminUrl: getCollectionAdminUrl(shopifyStoreHandle, collectionId),
     });
   }
 
-  return Array.from(collectionMap.values()).filter(
-    (collection) => collection.title || collection.id,
-  );
+  return Array.from(collectionMap.values()).filter((collection) => {
+    const hasRealTitle = !isPlaceholderCollectionTitle(collection.title, collection.id);
+
+    if (collection.verified) return true;
+    if (collection.handle) return true;
+
+    return hasRealTitle;
+  });
 }
 
 function AdminLink({ url, children }) {
@@ -1653,7 +1702,7 @@ function ApplyToDetails({ task, selectedCollections }) {
 
             <Text as="p" fontWeight="regular">
               <AdminLink url={collection.adminUrl}>
-                {collection.title || "Collection"}
+                {collection.title || collection.handle || "Collection"}
               </AdminLink>
             </Text>
           </InlineStack>
