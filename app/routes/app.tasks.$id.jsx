@@ -29,6 +29,11 @@ import { authenticate } from "../shopify.server";
 
 const LOGS_PER_PAGE = 4;
 const TASK_EXECUTION_TIMEOUT_MS = 10 * 60 * 1000;
+const POLL_INTERVAL_MS = 800;
+const TASK_PROGRESS_SPEED_PER_SECOND = 2;
+const ROLLBACK_PROGRESS_SPEED_PER_SECOND = 7;
+const TASK_PROGRESS_CAP = 95;
+const ROLLBACK_PROGRESS_CAP = 98;
 const ACTIVE_TASK_STATUSES = [
   "Pending",
   "Processing",
@@ -40,7 +45,7 @@ const ACTIVE_TASK_STATUSES = [
 ];
 
 export const loader = async ({ request, params }) => {
-  const { session } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
   const taskId = Number(params.id);
   const url = new URL(request.url);
   const selectedProductId = getShopifyNumericId(
@@ -83,22 +88,34 @@ export const loader = async ({ request, params }) => {
   }
 
   const shopifyStoreHandle = getShopifyStoreHandle(session.shop);
+  const shopCurrency =
+    (
+      await db.shop.findUnique({
+        where: { shop: session.shop },
+        select: { currency: true },
+      })
+    )?.currency || "";
+  const selectedCollections = await getSelectedCollectionDetails(
+    admin,
+    task,
+    shopifyStoreHandle,
+  );
 
   return json({
     task,
     shop: session.shop,
     shopifyStoreHandle,
     selectedProductId,
+    selectedCollections,
     productDetails: selectedProductId
-      ? getProductDetails(task, selectedProductId, shopifyStoreHandle)
+      ? getProductDetails(
+          task,
+          selectedProductId,
+          shopifyStoreHandle,
+          shopCurrency,
+        )
       : null,
-    shopCurrency:
-      (
-        await db.shop.findUnique({
-          where: { shop: session.shop },
-          select: { currency: true },
-        })
-      )?.currency || "",
+    shopCurrency,
   });
 };
 
@@ -397,7 +414,13 @@ function getTaskStartedAt(task) {
   );
 }
 
-function getEstimatedProgress(baseProgress, startedAt, now) {
+function getEstimatedProgress(
+  baseProgress,
+  startedAt,
+  now,
+  speedPerSecond = 1,
+  progressCap = 95,
+) {
   const startedAtMs = getDateMs(startedAt);
 
   if (!startedAtMs) {
@@ -405,7 +428,10 @@ function getEstimatedProgress(baseProgress, startedAt, now) {
   }
 
   const elapsedSeconds = Math.max(0, Math.floor((now - startedAtMs) / 1000));
-  const estimatedProgress = Math.min(95, baseProgress + elapsedSeconds);
+  const estimatedProgress = Math.min(
+    progressCap,
+    baseProgress + elapsedSeconds * speedPerSecond,
+  );
 
   return Math.max(baseProgress, estimatedProgress, 1);
 }
@@ -647,6 +673,486 @@ function getVariantAdminUrl(shopifyStoreHandle, productId, variantId) {
   return `https://admin.shopify.com/store/${shopifyStoreHandle}/products/${productId}/variants/${variantId}`;
 }
 
+function getCollectionAdminUrl(shopifyStoreHandle, collectionId) {
+  if (!shopifyStoreHandle || !collectionId) return "";
+
+  return `https://admin.shopify.com/store/${shopifyStoreHandle}/collections/${collectionId}`;
+}
+
+function parsePossibleArray(value) {
+  if (!value) return [];
+
+  if (Array.isArray(value)) return value;
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+
+    try {
+      const parsed = JSON.parse(trimmed);
+      return parsePossibleArray(parsed);
+    } catch {
+      return trimmed
+        .split(/[\n,]+/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+    }
+  }
+
+  if (typeof value === "object") {
+    if (Array.isArray(value.edges)) {
+      return value.edges.map((edge) => edge?.node || edge).filter(Boolean);
+    }
+
+    if (Array.isArray(value.nodes)) return value.nodes;
+    if (Array.isArray(value.items)) return value.items;
+    if (Array.isArray(value.collections)) return value.collections;
+    if (Array.isArray(value.selectedCollections)) return value.selectedCollections;
+    if (Array.isArray(value.selectedCollectionIds)) return value.selectedCollectionIds;
+    if (Array.isArray(value.collectionIds)) return value.collectionIds;
+    if (Array.isArray(value.selectedCollectionGids)) return value.selectedCollectionGids;
+    if (Array.isArray(value.collectionGids)) return value.collectionGids;
+    if (Array.isArray(value.resources)) return value.resources;
+    if (Array.isArray(value.selectedResources)) return value.selectedResources;
+    if (Array.isArray(value.targets)) return value.targets;
+    if (Array.isArray(value.data)) return value.data;
+
+    return [value];
+  }
+
+  return [value];
+}
+
+function readJsonField(value) {
+  if (!value || typeof value !== "string") return value;
+
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
+function getCollectionRecordId(record) {
+  if (!record) return "";
+
+  if (typeof record === "string" || typeof record === "number") {
+    return getShopifyNumericId(record);
+  }
+
+  return getShopifyNumericId(
+    record?.collectionId ??
+      record?.collection_id ??
+      record?.legacyResourceId ??
+      record?.legacy_resource_id ??
+      record?.legacyCollectionId ??
+      record?.collectionLegacyResourceId ??
+      record?.admin_graphql_api_id ??
+      record?.collectionGid ??
+      record?.gid ??
+      record?.resourceId ??
+      record?.resource_id ??
+      record?.targetId ??
+      record?.target_id ??
+      record?.value ??
+      record?.id,
+  );
+}
+
+function getCollectionRecordGid(record) {
+  const rawValue =
+    typeof record === "object" && record
+      ? record.collectionGid ||
+        record.gid ||
+        record.admin_graphql_api_id ||
+        record.resourceId ||
+        record.targetId ||
+        record.value ||
+        record.id
+      : record;
+
+  const stringValue = String(rawValue || "");
+  if (stringValue.includes("gid://shopify/Collection/")) return stringValue;
+
+  const collectionId = getCollectionRecordId(record);
+  return collectionId ? `gid://shopify/Collection/${collectionId}` : "";
+}
+
+function getCollectionRecordHandle(record) {
+  if (!record || typeof record !== "object") return "";
+
+  return (
+    record?.handle ||
+    record?.collectionHandle ||
+    record?.collection_handle ||
+    record?.resourceHandle ||
+    record?.targetHandle ||
+    ""
+  );
+}
+
+function getCollectionRecordTitle(record, collectionId = "") {
+  if (!record) return collectionId ? `Collection ${collectionId}` : "Collection";
+
+  if (typeof record === "string") {
+    const trimmed = record.trim();
+    const numericId = getShopifyNumericId(trimmed);
+
+    if (
+      trimmed.includes("gid://shopify/Collection/") ||
+      trimmed === numericId
+    ) {
+      return numericId ? `Collection ${numericId}` : "Collection";
+    }
+
+    return trimmed;
+  }
+
+  return (
+    record?.title ||
+    record?.name ||
+    record?.collectionTitle ||
+    record?.collection_title ||
+    record?.displayName ||
+    record?.label ||
+    record?.text ||
+    record?.handle ||
+    record?.collectionHandle ||
+    (collectionId ? `Collection ${collectionId}` : "Collection")
+  );
+}
+
+function normalizeCollectionRecord(record, index = 0) {
+  const parsedRecord = readJsonField(record);
+  const collectionId = getCollectionRecordId(parsedRecord);
+  const gid = getCollectionRecordGid(parsedRecord);
+  const title = getCollectionRecordTitle(parsedRecord, collectionId);
+  const handle = getCollectionRecordHandle(parsedRecord);
+
+  return {
+    key: gid || collectionId || handle || title || `collection-${index}`,
+    id: collectionId,
+    gid,
+    title,
+    handle,
+    raw: parsedRecord,
+  };
+}
+
+function collectCollectionRecordsFromObject(value, depth = 0) {
+  if (!value || depth > 4) return [];
+
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => collectCollectionRecordsFromObject(item, depth + 1));
+  }
+
+  if (typeof value === "string") {
+    const parsed = readJsonField(value);
+    if (parsed !== value) return collectCollectionRecordsFromObject(parsed, depth + 1);
+    return value.includes("gid://shopify/Collection/") ? [value] : [];
+  }
+
+  if (typeof value !== "object") return [];
+
+  const directId = getCollectionRecordId(value);
+  const directGid = getCollectionRecordGid(value);
+  const directType = String(value.type || value.resourceType || value.targetType || "").toLowerCase();
+  const looksLikeCollection =
+    directGid.includes("gid://shopify/Collection/") ||
+    directType.includes("collection") ||
+    Boolean(value.collectionId || value.collectionGid || value.collectionTitle || value.collectionHandle);
+
+  const found = looksLikeCollection && (directId || directGid || value.title || value.collectionTitle)
+    ? [value]
+    : [];
+
+  Object.entries(value).forEach(([key, child]) => {
+    const normalizedKey = key.toLowerCase();
+
+    if (
+      normalizedKey.includes("originalvariant") ||
+      normalizedKey.includes("inventoryitem") ||
+      normalizedKey.includes("log")
+    ) {
+      return;
+    }
+
+    if (normalizedKey.includes("collection") || normalizedKey.includes("resource") || normalizedKey.includes("target")) {
+      found.push(...parsePossibleArray(child));
+      return;
+    }
+
+    if (typeof child === "object" && child) {
+      found.push(...collectCollectionRecordsFromObject(child, depth + 1));
+    }
+  });
+
+  return found;
+}
+
+function getSelectedCollectionRecords(task) {
+  const summary = task.executionSummary || {};
+  const candidateValues = [
+    task.selectedCollections,
+    task.selectedCollectionsJson,
+    task.selectedCollection,
+    task.collections,
+    task.collectionsJson,
+    task.collection,
+    task.collectionIds,
+    task.collectionIdsJson,
+    task.collectionId,
+    task.collectionGids,
+    task.collectionGidsJson,
+    task.selectedCollectionIds,
+    task.selectedCollectionIdsJson,
+    task.selectedCollectionGids,
+    task.selectedCollectionGidsJson,
+    task.applyCollections,
+    task.applyCollectionsJson,
+    task.appliedCollections,
+    task.appliedCollectionsJson,
+    task.targetCollections,
+    task.targetCollectionsJson,
+    task.resources,
+    task.resourcesJson,
+    task.selectedResources,
+    task.selectedResourcesJson,
+    task.targets,
+    task.targetsJson,
+    task.applyTargets?.collections,
+    task.applyTargets?.selectedCollections,
+    task.applyTargets?.collectionIds,
+    task.applyTo?.collections,
+    task.applyTo?.selectedCollections,
+    task.applyTo?.collectionIds,
+    task.selection?.collections,
+    task.selection?.selectedCollections,
+    task.selection?.collectionIds,
+    task.target?.collections,
+    task.target?.selectedCollections,
+    task.target?.collectionIds,
+    task.metadata?.collections,
+    task.metadata?.selectedCollections,
+    task.metadata?.collectionIds,
+    task.meta?.collections,
+    task.meta?.selectedCollections,
+    task.meta?.collectionIds,
+    task.configuration?.collections,
+    task.configuration?.selectedCollections,
+    task.configuration?.collectionIds,
+    summary.collections,
+    summary.collectionsJson,
+    summary.selectedCollections,
+    summary.selectedCollectionsJson,
+    summary.collection,
+    summary.collectionIds,
+    summary.collectionIdsJson,
+    summary.collectionGids,
+    summary.collectionGidsJson,
+    summary.selectedCollectionIds,
+    summary.selectedCollectionIdsJson,
+    summary.selectedCollectionGids,
+    summary.selectedCollectionGidsJson,
+    summary.applyCollections,
+    summary.applyCollectionsJson,
+    summary.appliedCollections,
+    summary.appliedCollectionsJson,
+    summary.targetCollections,
+    summary.targetCollectionsJson,
+    summary.resources,
+    summary.resourcesJson,
+    summary.selectedResources,
+    summary.selectedResourcesJson,
+    summary.targets,
+    summary.targetsJson,
+    summary.applyTargets?.collections,
+    summary.applyTargets?.selectedCollections,
+    summary.applyTargets?.collectionIds,
+    summary.applyTo?.collections,
+    summary.applyTo?.selectedCollections,
+    summary.applyTo?.collectionIds,
+    summary.selection?.collections,
+    summary.selection?.selectedCollections,
+    summary.selection?.collectionIds,
+    summary.target?.collections,
+    summary.target?.selectedCollections,
+    summary.target?.collectionIds,
+    summary.input?.collections,
+    summary.input?.selectedCollections,
+    summary.input?.collectionIds,
+    summary.form?.collections,
+    summary.form?.selectedCollections,
+    summary.form?.collectionIds,
+    summary.payload?.collections,
+    summary.payload?.selectedCollections,
+    summary.payload?.collectionIds,
+    summary.request?.collections,
+    summary.request?.selectedCollections,
+    summary.request?.collectionIds,
+  ];
+
+  let records = candidateValues
+    .flatMap((value) => parsePossibleArray(readJsonField(value)))
+    .filter(Boolean);
+
+  if (!records.length) {
+    records = collectCollectionRecordsFromObject({ ...task, executionSummary: summary });
+  }
+
+  const unique = new Map();
+
+  records.forEach((record, index) => {
+    const collection = normalizeCollectionRecord(record, index);
+    const key = collection.key;
+
+    if (!unique.has(key)) {
+      unique.set(key, collection.raw);
+    }
+  });
+
+  return Array.from(unique.values());
+}
+
+function escapeShopifySearchValue(value) {
+  return String(value || "")
+    .replace(/\\/g, "\\\\")
+    .replace(/'/g, "\\'")
+    .trim();
+}
+
+async function fetchCollectionByText(admin, collection) {
+  if (!admin?.graphql) return null;
+
+  const title = collection.title && !collection.title.startsWith("Collection ")
+    ? collection.title
+    : "";
+  const handle = collection.handle || "";
+
+  if (!title && !handle) return null;
+
+  const queryText = handle
+    ? `handle:${escapeShopifySearchValue(handle)}`
+    : `title:'${escapeShopifySearchValue(title)}'`;
+
+  try {
+    const response = await admin.graphql(
+      `#graphql
+      query CollectionByText($query: String!) {
+        collections(first: 1, query: $query) {
+          nodes {
+            id
+            title
+            handle
+            legacyResourceId
+          }
+        }
+      }`,
+      { variables: { query: queryText } },
+    );
+    const payload = await response.json();
+    return payload?.data?.collections?.nodes?.[0] || null;
+  } catch (error) {
+    console.error("Failed to search selected collection:", error);
+    return null;
+  }
+}
+
+async function getSelectedCollectionDetails(admin, task, shopifyStoreHandle) {
+  const records = getSelectedCollectionRecords(task);
+
+  if (!records.length) return [];
+
+  const collectionMap = new Map();
+
+  records.forEach((record, index) => {
+    const collection = normalizeCollectionRecord(record, index);
+
+    collectionMap.set(collection.key, {
+      ...collection,
+      adminUrl: getCollectionAdminUrl(shopifyStoreHandle, collection.id),
+    });
+  });
+
+  const idsToFetch = Array.from(collectionMap.values())
+    .filter((collection) => collection.gid)
+    .map((collection) => collection.gid);
+
+  if (idsToFetch.length && admin?.graphql) {
+    try {
+      const response = await admin.graphql(
+        `#graphql
+        query SelectedCollections($ids: [ID!]!) {
+          nodes(ids: $ids) {
+            ... on Collection {
+              id
+              title
+              handle
+              legacyResourceId
+            }
+          }
+        }`,
+        { variables: { ids: idsToFetch } },
+      );
+      const payload = await response.json();
+      const nodes = payload?.data?.nodes || [];
+
+      nodes.forEach((node) => {
+        if (!node?.id) return;
+
+        const collectionId = getShopifyNumericId(node.legacyResourceId || node.id);
+        const existingKey = node.id || collectionId;
+        const gidKey = `gid://shopify/Collection/${collectionId}`;
+        const current =
+          collectionMap.get(existingKey) ||
+          collectionMap.get(collectionId) ||
+          collectionMap.get(gidKey) ||
+          {};
+
+        collectionMap.set(existingKey, {
+          ...current,
+          key: existingKey,
+          id: collectionId,
+          gid: node.id,
+          title: node.title || current.title || node.handle || `Collection ${collectionId}`,
+          handle: node.handle || current.handle || "",
+          adminUrl: getCollectionAdminUrl(shopifyStoreHandle, collectionId),
+        });
+
+        if (collectionId && collectionMap.has(collectionId)) {
+          collectionMap.delete(collectionId);
+        }
+        if (gidKey !== existingKey && collectionMap.has(gidKey)) {
+          collectionMap.delete(gidKey);
+        }
+      });
+    } catch (error) {
+      console.error("Failed to load selected collection details:", error);
+    }
+  }
+
+  for (const [key, collection] of Array.from(collectionMap.entries())) {
+    if (collection.id || !admin?.graphql) continue;
+
+    const node = await fetchCollectionByText(admin, collection);
+    if (!node?.id) continue;
+
+    const collectionId = getShopifyNumericId(node.legacyResourceId || node.id);
+    collectionMap.set(key, {
+      ...collection,
+      id: collectionId,
+      gid: node.id,
+      title: node.title || collection.title || node.handle || `Collection ${collectionId}`,
+      handle: node.handle || collection.handle || "",
+      adminUrl: getCollectionAdminUrl(shopifyStoreHandle, collectionId),
+    });
+  }
+
+  return Array.from(collectionMap.values()).filter(
+    (collection) => collection.title || collection.id,
+  );
+}
+
 function AdminLink({ url, children }) {
   if (!url) return children;
 
@@ -657,14 +1163,8 @@ function AdminLink({ url, children }) {
   );
 }
 
-function buildVariantChanges(record) {
-  const changes = [];
-
-  if (record?.cost !== record?.nextCost) {
-    changes.push(`Cost: ${record?.cost ?? "-"} -> ${record?.nextCost ?? "-"}`);
-  }
-
-  return changes;
+function buildVariantChanges(record, currencyCode) {
+  return buildVariantChangeItems(record, currencyCode).map((change) => change.text);
 }
 
 function formatPriceValue(value) {
@@ -816,7 +1316,7 @@ function createProductGroups(task, shopifyStoreHandle, shopCurrency) {
       price: record?.price,
       compareAtPrice: record?.compareAtPrice,
       newSetPrice: record?.nextPrice,
-      changes: buildVariantChanges(record),
+      changes: buildVariantChanges(record, shopCurrency),
       adminUrl: getVariantAdminUrl(shopifyStoreHandle, productId, variantId),
       type,
     });
@@ -995,7 +1495,7 @@ function getAppliedAt(task) {
   );
 }
 
-function getProductDetails(task, productId, shopifyStoreHandle) {
+function getProductDetails(task, productId, shopifyStoreHandle, shopCurrency = "") {
   const originalVariants = task.executionSummary?.originalVariants || [];
   const originalInventoryItems =
     task.executionSummary?.originalInventoryItems || [];
@@ -1013,7 +1513,7 @@ function getProductDetails(task, productId, shopifyStoreHandle) {
         price: variant.price,
         compareAtPrice: variant.compareAtPrice,
         newSetPrice: variant.nextPrice,
-        changes: buildVariantChanges(variant),
+        changes: buildVariantChanges(variant, shopCurrency),
         adminUrl: getVariantAdminUrl(shopifyStoreHandle, productId, variantId),
       };
     });
@@ -1031,7 +1531,7 @@ function getProductDetails(task, productId, shopifyStoreHandle) {
         price: item.price,
         compareAtPrice: item.compareAtPrice,
         newSetPrice: item.nextPrice,
-        changes: buildVariantChanges(item),
+        changes: buildVariantChanges(item, shopCurrency),
         adminUrl: getVariantAdminUrl(shopifyStoreHandle, productId, variantId),
       };
     });
@@ -1106,6 +1606,60 @@ function DetailRow({ label, value, children }) {
         )}
       </InlineStack>
     </Box>
+  );
+}
+
+function ApplyToDetails({ task, selectedCollections }) {
+  const applyScopeLabel = humanize(task.applyScope);
+
+  if (!selectedCollections?.length) {
+    return (
+      <Text as="p" fontWeight="regular">
+        {applyScopeLabel}
+      </Text>
+    );
+  }
+
+  return (
+    <BlockStack gap="200">
+      <Text as="p" fontWeight="semibold">
+        {applyScopeLabel}
+      </Text>
+
+      <BlockStack gap="150">
+        {selectedCollections.map((collection, index) => (
+          <InlineStack
+            key={collection.key || collection.id || index}
+            gap="300"
+            blockAlign="center"
+            wrap={false}
+          >
+            <span
+              aria-hidden="true"
+              style={{
+                alignItems: "center",
+                border: "1px solid #D9D9D9",
+                borderRadius: 8,
+                color: "#6D7175",
+                display: "inline-flex",
+                flex: "0 0 48px",
+                height: 48,
+                justifyContent: "center",
+                width: 48,
+              }}
+            >
+              ◇
+            </span>
+
+            <Text as="p" fontWeight="regular">
+              <AdminLink url={collection.adminUrl}>
+                {collection.title || "Collection"}
+              </AdminLink>
+            </Text>
+          </InlineStack>
+        ))}
+      </BlockStack>
+    </BlockStack>
   );
 }
 
@@ -1204,8 +1758,14 @@ function ProductDetailsView({ task, productDetails, navigate }) {
 }
 
 export default function TaskDetailsPage() {
-  const { task, shopifyStoreHandle, selectedProductId, productDetails, shopCurrency } =
-    useLoaderData();
+  const {
+    task,
+    shopifyStoreHandle,
+    selectedProductId,
+    productDetails,
+    selectedCollections,
+    shopCurrency,
+  } = useLoaderData();
 
   const navigate = useNavigate();
   const revalidator = useRevalidator();
@@ -1218,6 +1778,7 @@ export default function TaskDetailsPage() {
 
   const [rollbackModalOpen, setRollbackModalOpen] = useState(false);
   const [clientRollbackStarted, setClientRollbackStarted] = useState(false);
+  const [clientRollbackStartedAt, setClientRollbackStartedAt] = useState(null);
   const [progressTick, setProgressTick] = useState(Date.now());
 
   const rollbackCompleted = rollbackState.isCompleted;
@@ -1232,7 +1793,7 @@ export default function TaskDetailsPage() {
 
   const statusDisplay = rollbackProcessing
     ? {
-        label: "Cancel",
+        label: "Rolling Back",
         tone: "attention",
         background: "#FEDF89",
         showProgress: true,
@@ -1255,9 +1816,25 @@ export default function TaskDetailsPage() {
   const rawServerProgress = rollbackProcessing
     ? Math.max(rollbackState.progress || 1, 1)
     : getTaskProgress(task);
-  const serverProgress = taskProcessing
-    ? getEstimatedProgress(rawServerProgress, getTaskStartedAt(task), progressTick)
-    : rawServerProgress;
+  const rollbackStartedAt =
+    getRollbackStartedValue(task) || clientRollbackStartedAt || getTaskStartedAt(task);
+  const serverProgress = rollbackProcessing
+    ? getEstimatedProgress(
+        rawServerProgress,
+        rollbackStartedAt,
+        progressTick,
+        ROLLBACK_PROGRESS_SPEED_PER_SECOND,
+        ROLLBACK_PROGRESS_CAP,
+      )
+    : taskProcessing
+      ? getEstimatedProgress(
+          rawServerProgress,
+          getTaskStartedAt(task),
+          progressTick,
+          TASK_PROGRESS_SPEED_PER_SECOND,
+          TASK_PROGRESS_CAP,
+        )
+      : rawServerProgress;
 
   const [visibleProgress, setVisibleProgress] = useState(serverProgress);
 
@@ -1302,6 +1879,8 @@ export default function TaskDetailsPage() {
   const confirmRollback = () => {
     setRollbackModalOpen(false);
     setClientRollbackStarted(true);
+    setClientRollbackStartedAt(Date.now());
+    setProgressTick(Date.now());
     setVisibleProgress(1);
     submit(null, {
       method: "post",
@@ -1319,9 +1898,9 @@ export default function TaskDetailsPage() {
     );
   };
 
-  const pageSecondaryActions = rollbackProcessing
+  const pageSecondaryActions = rollbackProcessing || rollbackFailed
     ? []
-    : rollbackCompleted || rollbackFailed
+    : rollbackCompleted
       ? [
           {
             content: deleteFetcher.state === "idle" ? "Delete" : "Deleting...",
@@ -1347,6 +1926,7 @@ export default function TaskDetailsPage() {
   useEffect(() => {
     if (rollbackCompleted || rollbackFailed) {
       setClientRollbackStarted(false);
+      setClientRollbackStartedAt(null);
       setRollbackModalOpen(false);
     }
   }, [rollbackCompleted, rollbackFailed]);
@@ -1387,7 +1967,7 @@ export default function TaskDetailsPage() {
     const timer = setInterval(() => {
       setProgressTick(Date.now());
       revalidator.revalidate();
-    }, 2000);
+    }, POLL_INTERVAL_MS);
 
     return () => clearInterval(timer);
   }, [revalidator, shouldPoll]);
@@ -1454,7 +2034,12 @@ export default function TaskDetailsPage() {
                 value={humanize(task.applyChangesTo || "products")}
               />
 
-              <DetailRow label="Apply to" value={humanize(task.applyScope)} />
+              <DetailRow label="Apply to">
+                <ApplyToDetails
+                  task={task}
+                  selectedCollections={selectedCollections}
+                />
+              </DetailRow>
 
               <DetailRow label="Exclude" value={humanize(task.excludeScope)} />
 
@@ -1464,7 +2049,7 @@ export default function TaskDetailsPage() {
 
                   {statusDisplay.showProgress ? (
                     <BlockStack gap="100">
-                      <Box maxWidth="320px">
+                      <Box maxWidth="320px" style={{ display: "none" }}>
                         <ProgressBar
                           progress={visibleProgress}
                           size="small"

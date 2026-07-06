@@ -448,7 +448,7 @@ function isTaskProcessing(task) {
 function getTaskListStatus(task) {
   if (isRollbackProcessing(task)) {
     return {
-      label: "Rolling Back",
+      label: "Canceled",
       tone: "subdued",
       progress: getRollbackProgress(task),
       showProgress: true,
