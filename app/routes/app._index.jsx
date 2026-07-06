@@ -104,7 +104,7 @@ function StatsCard({
           ))}
         </BlockStack>
 
-        <Box paddingBlockStart="200">
+        <Box>
           <Button url={learnMoreUrl} external>
             Learn more
           </Button>
@@ -134,7 +134,7 @@ function WhatsNewCard() {
           ))}
         </List>
 
-        <Box paddingBlockStart="200">
+        <Box>
           <Button url="https://app.bulkpriceeditor.com/changelog" external>
             View full changelog
           </Button>
