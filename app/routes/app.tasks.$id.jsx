@@ -141,6 +141,20 @@ function normalizeStatus(status) {
   return String(status || "").toLowerCase().trim();
 }
 
+function isFailedOrCanceledStatus(status) {
+  const normalized = normalizeStatus(status);
+
+  return (
+    normalized.includes("failed") ||
+    normalized.includes("error") ||
+    normalized.includes("cancel")
+  );
+}
+
+function getCanceledStatusLabel(status) {
+  return normalizeStatus(status).includes("cancel") ? "Cancel" : humanize(status);
+}
+
 function formatDate(value) {
   if (!value) return "-";
 
@@ -258,6 +272,9 @@ function getTaskStatusValue(task) {
 
 function isTaskCompleted(task) {
   const status = normalizeStatus(getTaskStatusValue(task));
+
+  if (isFailedOrCanceledStatus(status)) return false;
+
   const executionProgress = getExecutionProgress(task);
   const completedValue = getTaskCompletedValue(task);
 
@@ -274,13 +291,7 @@ function isTaskCompleted(task) {
 }
 
 function isTaskFailed(task) {
-  const status = normalizeStatus(getTaskStatusValue(task));
-
-  return (
-    status.includes("failed") ||
-    status.includes("error") ||
-    status.includes("cancel")
-  );
+  return isFailedOrCanceledStatus(getTaskStatusValue(task));
 }
 
 function isTaskProcessing(task) {
@@ -302,17 +313,29 @@ function getBaseTaskDisplay(task) {
   const status = getTaskStatusValue(task);
   const normalized = normalizeStatus(status);
 
-if (isTaskCompleted(task)) {
-  return {
-    label: "Completed",
-    tone: "success",
-    background: "#D1FADF",
-    showProgress: false,
-    style: {
+  if (isTaskFailed(task)) {
+    return {
+      label: getCanceledStatusLabel(status),
+      tone: "critical",
+      background: "#FEE4E2",
+      showProgress: false,
+       style: {
       width: "fit-content",
     },
-  };
-}
+    };
+  }
+
+  if (isTaskCompleted(task)) {
+    return {
+      label: "Completed",
+      tone: "success",
+      background: "#D1FADF",
+      showProgress: false,
+      style: {
+        width: "fit-content",
+      },
+    };
+  }
 
   if (isTaskProcessing(task)) {
     return {
@@ -331,18 +354,6 @@ if (isTaskCompleted(task)) {
       label: "Pending",
       tone: "attention",
       background: "#FEDF89",
-      showProgress: false,
-       style: {
-      width: "fit-content",
-    },
-    };
-  }
-
-  if (isTaskFailed(task)) {
-    return {
-      label: humanize(status),
-      tone: "critical",
-      background: "#FEE4E2",
       showProgress: false,
        style: {
       width: "fit-content",
@@ -495,17 +506,18 @@ function getRollbackState(task) {
 
   const failedStatuses = ["failed", "error", "cancelled", "canceled"];
 
-  const isCompleted =
-    hasCompletedAt ||
-    completedStatuses.includes(rollbackStatus) ||
-    taskStatus === "rolled_back" ||
-    taskStatus === "rolledback" ||
-    taskStatus === "rollback_complete" ||
-    taskStatus === "rollback_completed";
-
   const isFailed =
     failedStatuses.some((status) => rollbackStatus.includes(status)) ||
     failedStatuses.some((status) => taskStatus.includes(`rollback_${status}`));
+
+  const isCompleted =
+    !isFailed &&
+    (hasCompletedAt ||
+      completedStatuses.includes(rollbackStatus) ||
+      taskStatus === "rolled_back" ||
+      taskStatus === "rolledback" ||
+      taskStatus === "rollback_complete" ||
+      taskStatus === "rollback_completed");
 
   const hasRealRollbackStart =
     hasStartedAt ||
@@ -540,6 +552,7 @@ function getStatusToneFromDisplay(display) {
 }
 
 function getAppliedLabel(task) {
+  if (isTaskFailed(task)) return getCanceledStatusLabel(getTaskStatusValue(task));
   if (isTaskCompleted(task)) return "Applied";
   if (isTaskProcessing(task)) return "Applying";
 
@@ -854,6 +867,89 @@ function createProductGroups(task, shopifyStoreHandle, shopCurrency) {
   });
 }
 
+function parseLogList(value) {
+  if (!value) return [];
+
+  if (Array.isArray(value)) return value;
+
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : parsed ? [parsed] : [];
+    } catch {
+      return value.trim() ? [{ message: value }] : [];
+    }
+  }
+
+  return typeof value === "object" ? [value] : [];
+}
+
+function getTaskLogRecords(task) {
+  return [
+    task.logs,
+    task.log,
+    task.taskLogs,
+    task.executionLogs,
+    task.rollbackLogs,
+    task.rollbackLog,
+    task.rollback?.logs,
+    task.rollback?.log,
+    task.rollbackSummary?.logs,
+    task.rollbackSummary?.log,
+    task.executionSummary?.logs,
+    task.executionSummary?.log,
+    task.executionSummary?.taskLogs,
+    task.executionSummary?.executionLogs,
+    task.executionSummary?.rollbackLogs,
+    task.executionSummary?.rollbackLog,
+    task.executionSummary?.rollback?.logs,
+    task.executionSummary?.rollback?.log,
+    task.executionSummary?.rollbackSummary?.logs,
+    task.executionSummary?.rollbackSummary?.log,
+  ].flatMap(parseLogList);
+}
+
+function getLogMessage(record) {
+  const changes = Array.isArray(record?.changes)
+    ? record.changes.filter(Boolean).join(", ")
+    : record?.changes;
+
+  return (
+    record?.message ||
+    record?.log ||
+    record?.description ||
+    record?.summary ||
+    record?.action ||
+    changes ||
+    "Log recorded"
+  );
+}
+
+function createFallbackLogGroups(task, shopifyStoreHandle) {
+  return getTaskLogRecords(task).map((record, index) => {
+    const productId = getProductId(record);
+
+    return {
+      rowId: `raw-log-${record?.id || productId || index}`,
+      productId,
+      productTitle: getProductTitle(record),
+      adminUrl: getProductAdminUrl(shopifyStoreHandle, productId),
+      changes: [getLogMessage(record)],
+      otherChanges: [],
+      changeSummary: {
+        primary: getLogMessage(record),
+        moreCount: 0,
+      },
+      price: formatPriceValue(record?.price),
+      compareAtPrice: formatPriceValue(record?.compareAtPrice),
+      newSetPrice: formatPriceValue(record?.nextPrice || record?.newSetPrice),
+      variantCount: Number(record?.variantCount || 0),
+      variants: [],
+      status: getCanceledStatusLabel(record?.status || getTaskStatusValue(task)),
+    };
+  });
+}
+
 function filterLogs(logs, searchQuery) {
   const query = searchQuery.trim().toLowerCase();
 
@@ -1136,16 +1232,23 @@ export default function TaskDetailsPage() {
 
   const statusDisplay = rollbackProcessing
     ? {
-        label: "Canceling",
+        label: "Cancel",
         tone: "attention",
         background: "#FEDF89",
         showProgress: true,
       }
-    : baseStatusDisplay;
+    : rollbackFailed
+      ? {
+          label: getCanceledStatusLabel(getRollbackStatusValue(task) || getTaskStatusValue(task) || "Cancel"),
+          tone: "critical",
+          background: "#FEE4E2",
+          showProgress: false,
+        }
+      : baseStatusDisplay;
 
   const statusTone = getStatusToneFromDisplay(statusDisplay);
   const logStatusLabel =
-    taskProcessing || rollbackProcessing
+    taskProcessing || rollbackProcessing || rollbackFailed
       ? statusDisplay.label
       : getAppliedLabel(task);
 
@@ -1158,10 +1261,12 @@ export default function TaskDetailsPage() {
 
   const [visibleProgress, setVisibleProgress] = useState(serverProgress);
 
-  const logs = useMemo(
-    () => createProductGroups(task, shopifyStoreHandle, shopCurrency),
-    [task, shopifyStoreHandle, shopCurrency],
-  );
+  const logs = useMemo(() => {
+    const productLogs = createProductGroups(task, shopifyStoreHandle, shopCurrency);
+    const fallbackLogs = createFallbackLogGroups(task, shopifyStoreHandle);
+
+    return productLogs.length ? productLogs : fallbackLogs;
+  }, [task, shopifyStoreHandle, shopCurrency]);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
@@ -1214,22 +1319,24 @@ export default function TaskDetailsPage() {
     );
   };
 
-  const pageSecondaryActions = rollbackCompleted
-    ? [
-        {
-          content: deleteFetcher.state === "idle" ? "Delete" : "Deleting...",
-          destructive: true,
-          disabled: deleteFetcher.state !== "idle",
-          onAction: handleDelete,
-        },
-      ]
-    : [
-        {
-          content: rollbackProcessing ? "Rollback processing..." : "Rollback",
-          disabled: rollbackProcessing || !taskCompleted,
-          onAction: openRollbackModal,
-        },
-      ];
+  const pageSecondaryActions = rollbackProcessing
+    ? []
+    : rollbackCompleted || rollbackFailed
+      ? [
+          {
+            content: deleteFetcher.state === "idle" ? "Delete" : "Deleting...",
+            destructive: true,
+            disabled: deleteFetcher.state !== "idle",
+            onAction: handleDelete,
+          },
+        ]
+      : [
+          {
+            content: "Rollback",
+            disabled: !taskCompleted,
+            onAction: openRollbackModal,
+          },
+        ];
 
   useEffect(() => {
     if (deleteFetcher.data?.deleted) {
