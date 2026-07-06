@@ -1546,7 +1546,11 @@ function ResourcePickerModal({
                                   {item.productTitle}
                                 </Text>
                               ) : null}
-
+                              <style>
+                                `.Polaris-Badge.Polaris-Badge--toneSuccess {
+                                      width= "fit-content"
+                                  }`
+                              </style>
                               {item.status ? (
                                 <Box paddingBlockStart="050">
                                   <Badge
