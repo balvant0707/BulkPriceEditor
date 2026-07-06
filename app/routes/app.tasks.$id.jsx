@@ -27,7 +27,7 @@ import { TitleBar } from "@shopify/app-bridge-react";
 import db from "../db.server";
 import { authenticate } from "../shopify.server";
 
-const LOGS_PER_PAGE = 4;
+const LOGS_PER_PAGE = 10;
 const TASK_EXECUTION_TIMEOUT_MS = 10 * 60 * 1000;
 const POLL_INTERVAL_MS = 800;
 const TASK_PROGRESS_SPEED_PER_SECOND = 2;
