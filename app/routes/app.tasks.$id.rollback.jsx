@@ -14,7 +14,9 @@ import { TitleBar } from "@shopify/app-bridge-react";
 import db from "../db.server";
 import { authenticate } from "../shopify.server";
 
-const ROLLBACK_UPDATE_CONCURRENCY = 4;
+const ROLLBACK_UPDATE_CONCURRENCY = 12;
+const ROLLBACK_VARIANT_BATCH_SIZE = 200;
+const ROLLBACK_PROGRESS_WRITE_INTERVAL_MS = 800;
 
 const TASK_PRODUCT_VARIANTS_BULK_UPDATE = `#graphql
   mutation TaskRollbackProductVariantsBulkUpdate(
@@ -63,26 +65,42 @@ export const loader = async ({ request, params }) => {
 
 export const action = async ({ request, params }) => {
   const { admin, session } = await authenticate.admin(request);
+  const formData = await request.formData();
   const task = await loadTask(params.id, session.shop);
   const rollbackStartedAt = new Date().toISOString();
+  const redirectTo = getSafeRedirectTo(
+    request,
+    formData.get("redirectTo"),
+    `/app/tasks/${task.id}`,
+  );
+
+  if (isRollbackProcessing(task)) {
+    return redirect(withMessage(redirectTo, "Rollback is already running."));
+  }
+
+  if (isRollbackCompleted(task)) {
+    return redirect(withMessage(redirectTo, "Rollback is already complete."));
+  }
 
   if (!canRollbackTask(task)) {
     return redirect(
-      `/app/tasks?message=${encodeURIComponent(
+      withMessage(
+        redirectTo,
         "Task can be rolled back only after it is complete.",
-      )}`,
+      ),
     );
   }
 
   await db.task.update({
     where: { id: task.id },
     data: {
-      status: "Canceled",
+      status: "Rolling Back",
       executionSummary: {
         ...(task.executionSummary || {}),
         rollback: {
+          ok: null,
           status: "processing",
-          progress: 0,
+          progress: 1,
           startedAt: rollbackStartedAt,
         },
       },
@@ -91,36 +109,30 @@ export const action = async ({ request, params }) => {
 
   scheduleRollbackExecution(admin, task, rollbackStartedAt);
 
-  return redirect(
-    `/app/tasks?message=${encodeURIComponent("Rollback started")}`,
-  );
+  return redirect(withMessage(redirectTo, "Rollback started"));
 };
 
 function scheduleRollbackExecution(admin, task, rollbackStartedAt) {
   setTimeout(() => {
     void runRollbackExecution(admin, task, rollbackStartedAt);
-  }, 100);
+  }, 10);
 }
 
 async function runRollbackExecution(admin, task, rollbackStartedAt) {
-  const updateRollbackProgress = async (progress, summary = {}) => {
-    await db.task.update({
-      where: { id: task.id },
-      data: {
-        executionSummary: {
-          ...(task.executionSummary || {}),
-          rollback: {
-            status: "processing",
-            startedAt: rollbackStartedAt,
-            ...summary,
-            progress,
-          },
-        },
-      },
-    });
-  };
+  const executionSummary = task.executionSummary || {};
+  const updateRollbackProgress = createRollbackProgressReporter(
+    task.id,
+    executionSummary,
+    rollbackStartedAt,
+  );
 
   try {
+    await updateRollbackProgress(
+      10,
+      { message: "Preparing rollback." },
+      { force: true },
+    );
+
     const rollback = await rollbackTask(
       admin,
       task,
@@ -133,7 +145,7 @@ async function runRollbackExecution(admin, task, rollbackStartedAt) {
       data: {
         status: rollback.ok ? "Canceled" : "Rollback failed",
         executionSummary: {
-          ...(task.executionSummary || {}),
+          ...executionSummary,
           rollback,
         },
       },
@@ -144,7 +156,7 @@ async function runRollbackExecution(admin, task, rollbackStartedAt) {
       data: {
         status: "Rollback failed",
         executionSummary: {
-          ...(task.executionSummary || {}),
+          ...executionSummary,
           rollback: {
             ok: false,
             status: "failed",
@@ -160,6 +172,50 @@ async function runRollbackExecution(admin, task, rollbackStartedAt) {
       },
     });
   }
+}
+
+function createRollbackProgressReporter(taskId, baseExecutionSummary, startedAt) {
+  let lastWriteAt = 0;
+  let latestSummary = {};
+
+  return async function updateRollbackProgress(
+    progress,
+    summary = {},
+    options = {},
+  ) {
+    latestSummary = {
+      ...latestSummary,
+      ...summary,
+      progress,
+    };
+
+    const now = Date.now();
+    const shouldWrite =
+      options.force ||
+      progress >= 95 ||
+      now - lastWriteAt >= ROLLBACK_PROGRESS_WRITE_INTERVAL_MS;
+
+    if (!shouldWrite) return;
+
+    lastWriteAt = now;
+
+    await db.task.update({
+      where: { id: taskId },
+      data: {
+        status: "Rolling Back",
+        executionSummary: {
+          ...baseExecutionSummary,
+          rollback: {
+            ok: null,
+            status: "processing",
+            startedAt,
+            ...latestSummary,
+            progress,
+          },
+        },
+      },
+    });
+  };
 }
 
 async function loadTask(id, shop) {
@@ -187,13 +243,81 @@ function normalizeStatus(status) {
   return String(status || "").toLowerCase().trim();
 }
 
+function normalizeStatusKey(status) {
+  return normalizeStatus(status).replace(/[\s-]+/g, "_");
+}
+
+function getRollbackSummary(task) {
+  return (
+    task?.rollback ||
+    task?.rollbackSummary ||
+    task?.executionSummary?.rollback ||
+    task?.executionSummary?.rollbackSummary ||
+    {}
+  );
+}
+
+function getRollbackStatus(task) {
+  return normalizeStatusKey(
+    task?.rollbackStatus ||
+      task?.rollback?.status ||
+      task?.rollbackSummary?.status ||
+      task?.executionSummary?.rollbackStatus ||
+      task?.executionSummary?.rollback?.status ||
+      task?.executionSummary?.rollbackSummary?.status ||
+      "",
+  );
+}
+
+function isRollbackProcessing(task) {
+  const taskStatus = normalizeStatusKey(task?.status);
+  const rollbackStatus = getRollbackStatus(task);
+  const rollback = getRollbackSummary(task);
+
+  return (
+    rollbackStatus === "processing" ||
+    rollbackStatus === "started" ||
+    rollbackStatus === "running" ||
+    rollbackStatus === "in_progress" ||
+    rollbackStatus === "rollback_processing" ||
+    rollbackStatus === "rollback_started" ||
+    rollbackStatus === "rollback_running" ||
+    rollbackStatus === "rollback_in_progress" ||
+    taskStatus === "rolling_back" ||
+    taskStatus === "rollback_processing" ||
+    (Boolean(rollback.startedAt) && !rollback.completedAt && rollback.progress < 100)
+  );
+}
+
+function isRollbackCompleted(task) {
+  const taskStatus = normalizeStatusKey(task?.status);
+  const rollbackStatus = getRollbackStatus(task);
+  const rollback = getRollbackSummary(task);
+
+  return (
+    rollbackStatus === "complete" ||
+    rollbackStatus === "completed" ||
+    rollbackStatus === "rolled_back" ||
+    rollbackStatus === "rollback_complete" ||
+    rollbackStatus === "rollback_completed" ||
+    taskStatus === "rolled_back" ||
+    taskStatus === "rollback_complete" ||
+    taskStatus === "rollback_completed" ||
+    Boolean(rollback.completedAt) ||
+    Boolean(rollback.rolledBackAt) ||
+    rollback.progress >= 100 && rollback.ok === true
+  );
+}
+
 function canRollbackTask(task) {
-  const status = normalizeStatus(task.status);
+  const status = normalizeStatusKey(task.status);
 
   if (
+    isRollbackProcessing(task) ||
+    isRollbackCompleted(task) ||
     status.includes("cancel") ||
-    status.includes("rolling back") ||
     status.includes("rollback") ||
+    status.includes("rolled_back") ||
     status.includes("failed") ||
     status.includes("error")
   ) {
@@ -210,6 +334,32 @@ function canRollbackTask(task) {
     Boolean(task.completedAt) ||
     Boolean(task.executionSummary?.completedAt)
   );
+}
+
+function getSafeRedirectTo(request, requestedRedirect, fallback) {
+  const url = new URL(request.url);
+  const fallbackPath = fallback || "/app/tasks";
+  const rawRedirect = String(requestedRedirect || request.headers.get("referer") || "");
+
+  if (!rawRedirect) return fallbackPath;
+
+  try {
+    const redirectUrl = rawRedirect.startsWith("/")
+      ? new URL(rawRedirect, url.origin)
+      : new URL(rawRedirect);
+
+    if (redirectUrl.origin !== url.origin) return fallbackPath;
+
+    return `${redirectUrl.pathname}${redirectUrl.search}`;
+  } catch {
+    return fallbackPath;
+  }
+}
+
+function withMessage(path, message) {
+  const url = new URL(path, "https://app.local");
+  url.searchParams.set("message", message);
+  return `${url.pathname}${url.search}`;
 }
 
 async function shopifyGraphql(admin, query, variables = {}) {
@@ -239,9 +389,13 @@ async function rollbackTask(
   if (!originalVariants.length && !originalInventoryItems.length) {
     return {
       ok: false,
+      status: "failed",
+      progress: 100,
       error: "Rollback data is not available for this task.",
       updatedVariants,
       updatedInventoryItems,
+      startedAt,
+      completedAt: new Date().toISOString(),
     };
   }
 
@@ -250,7 +404,7 @@ async function rollbackTask(
   for (const original of originalVariants) {
     if (!original.productId || !original.id) {
       errors.push(
-        `Rollback skipped a variant because its product or variant ID was not recorded.`,
+        "Rollback skipped a variant because its product or variant ID was not recorded.",
       );
       continue;
     }
@@ -280,20 +434,28 @@ async function rollbackTask(
     variantsByProduct.get(original.productId).push(rollbackVariant);
   }
 
-  const totalUpdateSteps = variantsByProduct.size + originalInventoryItems.length;
+  const productUpdates = createProductRollbackBatches(variantsByProduct);
+  const inventoryUpdates = originalInventoryItems.filter((original) => original?.id);
+
+  const totalUpdateSteps = productUpdates.length + inventoryUpdates.length;
   let completedUpdateSteps = 0;
-  await onProgress(25, {
-    variantUpdateSteps: variantsByProduct.size,
-    inventoryUpdateSteps: originalInventoryItems.length,
-    updatedVariants,
-    updatedInventoryItems,
-  });
+
+  await onProgress(
+    20,
+    {
+      variantUpdateSteps: productUpdates.length,
+      inventoryUpdateSteps: inventoryUpdates.length,
+      updatedVariants,
+      updatedInventoryItems,
+    },
+    { force: true },
+  );
 
   const reportUpdateProgress = async () => {
     completedUpdateSteps += 1;
     const progress =
       totalUpdateSteps > 0
-        ? 25 + Math.round((completedUpdateSteps / totalUpdateSteps) * 70)
+        ? 20 + Math.round((completedUpdateSteps / totalUpdateSteps) * 75)
         : 95;
 
     await onProgress(Math.min(progress, 95), {
@@ -305,31 +467,44 @@ async function rollbackTask(
   };
 
   if (totalUpdateSteps === 0) {
-    await onProgress(95, {
-      updateSteps: 0,
-      completedUpdateSteps: 0,
-      updatedVariants,
-      updatedInventoryItems,
-    });
+    await onProgress(
+      95,
+      {
+        updateSteps: 0,
+        completedUpdateSteps: 0,
+        updatedVariants,
+        updatedInventoryItems,
+      },
+      { force: true },
+    );
   }
-
-  const productUpdates = Array.from(variantsByProduct, ([productId, variants]) => ({
-    productId,
-    variants,
-  }));
 
   for (const batch of chunkArray(productUpdates, ROLLBACK_UPDATE_CONCURRENCY)) {
     const results = await Promise.all(
       batch.map(async ({ productId, variants }) => {
-        const data = await shopifyGraphql(admin, TASK_PRODUCT_VARIANTS_BULK_UPDATE, {
-          productId,
-          variants,
-        });
-        return data.productVariantsBulkUpdate;
+        try {
+          const data = await shopifyGraphql(admin, TASK_PRODUCT_VARIANTS_BULK_UPDATE, {
+            productId,
+            variants,
+          });
+          return { ok: true, result: data.productVariantsBulkUpdate };
+        } catch (error) {
+          return {
+            ok: false,
+            error: error instanceof Error ? error.message : "Variant rollback failed.",
+          };
+        }
       }),
     );
 
-    for (const result of results) {
+    for (const item of results) {
+      if (!item.ok) {
+        errors.push(item.error);
+        await reportUpdateProgress();
+        continue;
+      }
+
+      const result = item.result;
       const userErrors = result?.userErrors || [];
 
       if (userErrors.length) {
@@ -342,18 +517,32 @@ async function rollbackTask(
     }
   }
 
-  for (const batch of chunkArray(originalInventoryItems, ROLLBACK_UPDATE_CONCURRENCY)) {
+  for (const batch of chunkArray(inventoryUpdates, ROLLBACK_UPDATE_CONCURRENCY)) {
     const results = await Promise.all(
       batch.map(async (original) => {
-        const data = await shopifyGraphql(admin, TASK_INVENTORY_ITEM_UPDATE, {
-          id: original.id,
-          input: { cost: original.cost },
-        });
-        return data.inventoryItemUpdate;
+        try {
+          const data = await shopifyGraphql(admin, TASK_INVENTORY_ITEM_UPDATE, {
+            id: original.id,
+            input: { cost: normalizeNullableMoneyInput(original.cost) },
+          });
+          return { ok: true, result: data.inventoryItemUpdate };
+        } catch (error) {
+          return {
+            ok: false,
+            error: error instanceof Error ? error.message : "Inventory rollback failed.",
+          };
+        }
       }),
     );
 
-    for (const result of results) {
+    for (const item of results) {
+      if (!item.ok) {
+        errors.push(item.error);
+        await reportUpdateProgress();
+        continue;
+      }
+
+      const result = item.result;
       const userErrors = result?.userErrors || [];
 
       if (userErrors.length) {
@@ -366,6 +555,8 @@ async function rollbackTask(
     }
   }
 
+  const completedAt = new Date().toISOString();
+
   return {
     ok: errors.length === 0,
     status: errors.length === 0 ? "complete" : "failed",
@@ -374,9 +565,21 @@ async function rollbackTask(
     updatedInventoryItems,
     errors,
     startedAt,
-    completedAt: new Date().toISOString(),
-    rolledBackAt: new Date().toISOString(),
+    completedAt,
+    rolledBackAt: errors.length === 0 ? completedAt : null,
   };
+}
+
+function createProductRollbackBatches(variantsByProduct) {
+  const batches = [];
+
+  for (const [productId, variants] of variantsByProduct) {
+    for (const variantBatch of chunkArray(variants, ROLLBACK_VARIANT_BATCH_SIZE)) {
+      batches.push({ productId, variants: variantBatch });
+    }
+  }
+
+  return batches;
 }
 
 function chunkArray(items, size) {
@@ -406,6 +609,8 @@ function normalizeNullableMoneyInput(value) {
 export default function RollbackTaskPage() {
   const { task } = useLoaderData();
   const canRollback = canRollbackTask(task);
+  const rollbackProcessing = isRollbackProcessing(task);
+  const rollbackCompleted = isRollbackCompleted(task);
 
   return (
     <Page
@@ -418,7 +623,20 @@ export default function RollbackTaskPage() {
         <Layout.Section>
           <Card>
             <BlockStack gap="400">
-              {!canRollback ? (
+              {rollbackProcessing ? (
+                <Banner tone="info">
+                  Rollback is already running. Please wait until it is complete.
+                </Banner>
+              ) : null}
+
+              {rollbackCompleted ? (
+                <Banner tone="success">
+                  Rollback is complete. You can delete this task from the task
+                  details page or task list.
+                </Banner>
+              ) : null}
+
+              {!canRollback && !rollbackProcessing && !rollbackCompleted ? (
                 <Banner tone="warning">
                   Task can be rolled back only after it is complete.
                 </Banner>
@@ -430,12 +648,25 @@ export default function RollbackTaskPage() {
               </Text>
 
               <InlineStack gap="200">
-                <Button url={`/app/tasks/${task.id}`}>Cancel</Button>
-                <Form method="post">
-                  <Button submit variant="primary" disabled={!canRollback}>
-                    Rollback
-                  </Button>
-                </Form>
+                <Button url={`/app/tasks/${task.id}`}>Back to task</Button>
+
+                {!rollbackCompleted ? (
+                  <Form method="post">
+                    <input
+                      type="hidden"
+                      name="redirectTo"
+                      value={`/app/tasks/${task.id}`}
+                    />
+                    <Button
+                      submit
+                      variant="primary"
+                      disabled={!canRollback || rollbackProcessing}
+                      loading={rollbackProcessing}
+                    >
+                      {rollbackProcessing ? "Rolling back..." : "Rollback"}
+                    </Button>
+                  </Form>
+                ) : null}
               </InlineStack>
             </BlockStack>
           </Card>
