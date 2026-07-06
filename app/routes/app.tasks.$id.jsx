@@ -27,11 +27,11 @@ import { TitleBar } from "@shopify/app-bridge-react";
 import db from "../db.server";
 import { authenticate } from "../shopify.server";
 
-const LOGS_PER_PAGE = 4;
+const LOGS_PER_PAGE = 10;
 const TASK_EXECUTION_TIMEOUT_MS = 10 * 60 * 1000;
-const POLL_INTERVAL_MS = 500;
+const POLL_INTERVAL_MS = 800;
 const TASK_PROGRESS_SPEED_PER_SECOND = 2;
-const ROLLBACK_PROGRESS_SPEED_PER_SECOND = 12;
+const ROLLBACK_PROGRESS_SPEED_PER_SECOND = 7;
 const TASK_PROGRESS_CAP = 95;
 const ROLLBACK_PROGRESS_CAP = 98;
 const ACTIVE_TASK_STATUSES = [
@@ -154,10 +154,6 @@ function humanize(value) {
 
 function normalizeStatus(status) {
   return String(status || "").toLowerCase().trim();
-}
-
-function normalizeStatusKey(status) {
-  return normalizeStatus(status).replace(/[\s-]+/g, "_");
 }
 
 function isFailedOrCanceledStatus(status) {
@@ -506,8 +502,6 @@ function getRollbackProgress(task) {
 function getRollbackState(task) {
   const taskStatus = normalizeStatus(getTaskStatusValue(task));
   const rollbackStatus = normalizeStatus(getRollbackStatusValue(task));
-  const taskStatusKey = normalizeStatusKey(getTaskStatusValue(task));
-  const rollbackStatusKey = normalizeStatusKey(getRollbackStatusValue(task));
   const rollbackProgress = getRollbackProgress(task);
 
   const hasStartedAt = Boolean(getRollbackStartedValue(task));
@@ -528,7 +522,6 @@ function getRollbackState(task) {
     "started",
     "running",
     "in_progress",
-    "rolling_back",
     "rollback_processing",
     "rollback_started",
     "rollback_running",
@@ -537,35 +530,38 @@ function getRollbackState(task) {
 
   const failedStatuses = ["failed", "error", "cancelled", "canceled"];
 
-  const isCompleted =
-    hasCompletedAt ||
-    completedStatuses.includes(rollbackStatusKey) ||
-    completedStatuses.includes(taskStatusKey) ||
-    taskStatus.includes("rolled back") ||
-    taskStatus.includes("rollback complete");
-
   const isFailed =
-    !isCompleted &&
-    (failedStatuses.some((status) => rollbackStatus.includes(status)) ||
-      failedStatuses.some((status) => rollbackStatusKey.includes(status)) ||
-      taskStatusKey.includes("rollback_failed") ||
-      taskStatus.includes("rollback failed"));
+    failedStatuses.some((status) => rollbackStatus.includes(status)) ||
+    failedStatuses.some((status) => taskStatus.includes(`rollback_${status}`));
+
+  const isCompleted =
+    !isFailed &&
+    (hasCompletedAt ||
+      completedStatuses.includes(rollbackStatus) ||
+      taskStatus === "rolled_back" ||
+      taskStatus === "rolledback" ||
+      taskStatus === "rollback_complete" ||
+      taskStatus === "rollback_completed");
 
   const hasRealRollbackStart =
     hasStartedAt ||
     rollbackProgress > 0 ||
-    processingStatuses.includes(rollbackStatusKey) ||
-    processingStatuses.includes(taskStatusKey) ||
-    taskStatus.includes("rolling back");
+    processingStatuses.includes(rollbackStatus) ||
+    taskStatus === "rollback_processing" ||
+    taskStatus === "rollback_started" ||
+    taskStatus === "rollback_running" ||
+    taskStatus === "rollback_in_progress";
 
   const isProcessing =
     !isCompleted &&
     !isFailed &&
     hasRealRollbackStart &&
-    (processingStatuses.includes(rollbackStatusKey) ||
-      rollbackStatusKey === "pending" ||
-      processingStatuses.includes(taskStatusKey) ||
-      taskStatus.includes("rolling back"));
+    (processingStatuses.includes(rollbackStatus) ||
+      rollbackStatus === "pending" ||
+      taskStatus === "rollback_processing" ||
+      taskStatus === "rollback_started" ||
+      taskStatus === "rollback_running" ||
+      taskStatus === "rollback_in_progress");
 
   return {
     isCompleted,
@@ -1717,11 +1713,8 @@ function ApplyToDetails({ task, selectedCollections }) {
 }
 
 function ProductDetailsView({ task, productDetails, navigate }) {
-  const rollbackState = getRollbackState(task);
-  const statusLabel = rollbackState.isCompleted ? "Rolled Back" : getAppliedLabel(task);
-  const statusTone = rollbackState.isCompleted
-    ? "success"
-    : getStatusToneFromDisplay(getBaseTaskDisplay(task));
+  const statusLabel = getAppliedLabel(task);
+  const statusTone = getStatusToneFromDisplay(getBaseTaskDisplay(task));
 
   return (
     <Page
@@ -1854,25 +1847,18 @@ export default function TaskDetailsPage() {
         background: "#FEDF89",
         showProgress: true,
       }
-    : rollbackCompleted
+    : rollbackFailed
       ? {
-          label: "Rolled Back",
-          tone: "success",
-          background: "#D1FADF",
+          label: getCanceledStatusLabel(getRollbackStatusValue(task) || getTaskStatusValue(task) || "Cancel"),
+          tone: "critical",
+          background: "#FEE4E2",
           showProgress: false,
         }
-      : rollbackFailed
-        ? {
-            label: getCanceledStatusLabel(getRollbackStatusValue(task) || getTaskStatusValue(task) || "Cancel"),
-            tone: "critical",
-            background: "#FEE4E2",
-            showProgress: false,
-          }
-        : baseStatusDisplay;
+      : baseStatusDisplay;
 
   const statusTone = getStatusToneFromDisplay(statusDisplay);
   const logStatusLabel =
-    rollbackCompleted || taskProcessing || rollbackProcessing || rollbackFailed
+    taskProcessing || rollbackProcessing || rollbackFailed
       ? statusDisplay.label
       : getAppliedLabel(task);
 
@@ -1945,9 +1931,7 @@ export default function TaskDetailsPage() {
     setClientRollbackStartedAt(Date.now());
     setProgressTick(Date.now());
     setVisibleProgress(1);
-    const formData = new FormData();
-    formData.set("redirectTo", `/app/tasks/${task.id}`);
-    submit(formData, {
+    submit(null, {
       method: "post",
       action: `/app/tasks/${task.id}/rollback`,
     });
