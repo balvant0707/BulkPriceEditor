@@ -1328,7 +1328,7 @@ export default function TaskDetailsPage() {
 
                   {statusDisplay.showProgress ? (
                     <BlockStack gap="100">
-                      <Box maxWidth="320px" display="none">
+                      <Box maxWidth="320px" style={{ display:"none"}}>
                         <ProgressBar
                           progress={visibleProgress}
                           size="small"

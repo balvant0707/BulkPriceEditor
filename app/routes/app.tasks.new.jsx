@@ -858,17 +858,18 @@ function calculateFieldValue(currentValue, variant, change, options = {}) {
   if (action === "set_to_compare_at_price") {
     return variant.compareAtPrice == null ? undefined : formatPrice(variant.compareAtPrice);
   }
-  if (action === "set_new_value") return formatPrice(change.amount);
 
   let nextValue = current ?? toNumber(options.fallbackBase);
-  if (nextValue == null) return undefined;
 
-  if (action === "set_margin") {
+  if (action === "set_new_value") {
+    nextValue = toNumber(change.amount);
+  } else if (action === "set_margin") {
     const cost = toNumber(variant.inventoryItem?.unitCost?.amount);
     const margin = toNumber(change.percent);
     if (cost == null || margin == null || margin >= 100) return undefined;
     nextValue = cost / (1 - margin / 100);
   } else if (action === "increase" || action === "decrease") {
+    if (nextValue == null) return undefined;
     const direction = action === "increase" ? 1 : -1;
     if (change.type === "by_amount") {
       const amount = toNumber(change.amount);
@@ -880,6 +881,8 @@ function calculateFieldValue(currentValue, variant, change, options = {}) {
       nextValue += direction * nextValue * (percent / 100);
     }
   }
+
+  if (nextValue == null) return undefined;
 
   nextValue = applyRounding(nextValue, change.rounding);
   return formatPrice(Math.max(0, nextValue));
