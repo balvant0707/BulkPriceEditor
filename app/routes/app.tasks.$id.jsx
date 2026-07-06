@@ -27,6 +27,7 @@ import { TitleBar } from "@shopify/app-bridge-react";
 import db from "../db.server";
 import { authenticate } from "../shopify.server";
 
+const LOGS_PER_PAGE = 4;
 const TASK_EXECUTION_TIMEOUT_MS = 10 * 60 * 1000;
 const ACTIVE_TASK_STATUSES = [
   "Pending",
@@ -1132,10 +1133,22 @@ export default function TaskDetailsPage() {
   );
 
   const [searchQuery, setSearchQuery] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
 
   const filteredLogs = useMemo(
     () => filterLogs(logs, searchQuery),
     [logs, searchQuery],
+  );
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredLogs.length / LOGS_PER_PAGE),
+  );
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const pageStart = (safeCurrentPage - 1) * LOGS_PER_PAGE;
+  const paginatedLogs = filteredLogs.slice(
+    pageStart,
+    pageStart + LOGS_PER_PAGE,
   );
 
   const shouldPoll =
@@ -1199,6 +1212,14 @@ export default function TaskDetailsPage() {
       setRollbackModalOpen(false);
     }
   }, [rollbackCompleted, rollbackFailed]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(page, totalPages));
+  }, [totalPages]);
 
   useEffect(() => {
     setVisibleProgress((currentProgress) => {
@@ -1342,7 +1363,7 @@ export default function TaskDetailsPage() {
 
                 <IndexTable
                   resourceName={{ singular: "log", plural: "logs" }}
-                  itemCount={filteredLogs.length}
+                  itemCount={paginatedLogs.length}
                   selectable={false}
                   headings={[
                     { title: "Product" },
@@ -1351,7 +1372,7 @@ export default function TaskDetailsPage() {
                     { title: "" },
                   ]}
                 >
-                  {filteredLogs.map((log, index) => (
+                  {paginatedLogs.map((log, index) => (
                     <IndexTable.Row
                       id={log.rowId}
                       key={log.rowId}
@@ -1405,6 +1426,23 @@ export default function TaskDetailsPage() {
                         : "No product changes were recorded for this task."}
                     </Text>
                   </Box>
+                ) : null}
+
+                {filteredLogs.length > LOGS_PER_PAGE ? (
+                  <InlineStack align="center">
+                    <Pagination
+                      hasPrevious={safeCurrentPage > 1}
+                      onPrevious={() =>
+                        setCurrentPage((page) => Math.max(1, page - 1))
+                      }
+                      hasNext={safeCurrentPage < totalPages}
+                      onNext={() =>
+                        setCurrentPage((page) =>
+                          Math.min(totalPages, page + 1),
+                        )
+                      }
+                    />
+                  </InlineStack>
                 ) : null}
 
               </BlockStack>

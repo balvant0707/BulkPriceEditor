@@ -4,7 +4,6 @@ import {
   Outlet,
   useLoaderData,
   useLocation,
-  useNavigate,
   useNavigation,
   useSearchParams,
   useSubmit,
