@@ -1546,21 +1546,9 @@ function ResourcePickerModal({
                                   {item.productTitle}
                                 </Text>
                               ) : null}
-                              <style>
-                                `.Polaris-Badge {
-                                      width= "fit-content !important",
-                                      height= "fit-content !important"
-                                  }`
-                              </style>
                               {item.status ? (
                                 <Box paddingBlockStart="050">
-                                  <Badge
-                                    tone={
-                                      item.status === "Active"
-                                        ? "success"
-                                        : "attention"
-                                    }
-                                  >
+                                  <Badge tone={item.status === "Active" ? "success" : "attention"}>
                                     {item.status}
                                   </Badge>
                                 </Box>
