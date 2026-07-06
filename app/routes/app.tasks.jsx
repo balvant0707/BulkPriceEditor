@@ -38,6 +38,16 @@ const TASK_HELP_URL = "#";
 const NEW_TASK_URL = "/app/tasks/new";
 const TASKS_URL = "/app/tasks";
 const PAGE_SIZE = 10;
+const TASK_EXECUTION_TIMEOUT_MS = 10 * 60 * 1000;
+const ACTIVE_TASK_STATUSES = [
+  "Pending",
+  "Processing",
+  "Applying",
+  "Running",
+  "Started",
+  "In progress",
+  "in_progress",
+];
 
 const TASK_TABS = [
   {
@@ -60,6 +70,28 @@ const TASK_TABS = [
 
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
+  const staleTaskCutoff = new Date(Date.now() - TASK_EXECUTION_TIMEOUT_MS);
+
+  await db.task.updateMany({
+    where: {
+      shop: session.shop,
+      status: {
+        in: ACTIVE_TASK_STATUSES,
+      },
+      updatedAt: {
+        lt: staleTaskCutoff,
+      },
+    },
+    data: {
+      status: "Failed",
+      executionSummary: {
+        ok: false,
+        progress: 100,
+        error: "Task execution timed out before Shopify finished responding.",
+      },
+      completedAt: new Date(),
+    },
+  });
 
   const tasks = await db.task.findMany({
     where: {
@@ -400,6 +432,46 @@ function getTaskProgress(task) {
   return 0;
 }
 
+function getDateMs(value) {
+  if (!value) return null;
+
+  const date = new Date(value);
+  const time = date.getTime();
+
+  return Number.isNaN(time) ? null : time;
+}
+
+function getTaskStartedAt(task) {
+  return (
+    task.startedAt ||
+    task.executionSummary?.startedAt ||
+    task.executionSummary?.taskStartedAt ||
+    task.createdAt
+  );
+}
+
+function getRollbackStartedAt(task) {
+  return (
+    task.executionSummary?.rollback?.startedAt ||
+    task.rollbackStartedAt ||
+    task.executionSummary?.rollbackStartedAt ||
+    task.updatedAt
+  );
+}
+
+function getEstimatedProgress(baseProgress, startedAt, now) {
+  const startedAtMs = getDateMs(startedAt);
+
+  if (!startedAtMs) {
+    return Math.max(baseProgress, 1);
+  }
+
+  const elapsedSeconds = Math.max(0, Math.floor((now - startedAtMs) / 1000));
+  const estimatedProgress = Math.min(95, baseProgress + elapsedSeconds);
+
+  return Math.max(baseProgress, estimatedProgress, 1);
+}
+
 function isTaskApplying(task) {
   const status = String(task.status || "").toLowerCase();
 
@@ -465,21 +537,25 @@ function isTaskDeletable(task) {
   );
 }
 
-function getTaskStatusDisplay(task) {
+function getTaskStatusDisplay(task, now = Date.now()) {
   if (isRollbackProcessing(task)) {
+    const progress = getRollbackProgress(task);
+
     return {
       label: "Canceling",
       tone: "attention",
-      progress: getRollbackProgress(task),
+      progress: getEstimatedProgress(progress, getRollbackStartedAt(task), now),
       showProgress: true,
     };
   }
 
   if (isTaskApplying(task)) {
+    const progress = getTaskProgress(task);
+
     return {
       label: "Applying",
       tone: "attention",
-      progress: Math.max(getTaskProgress(task), 1),
+      progress: getEstimatedProgress(progress, getTaskStartedAt(task), now),
       showProgress: true,
     };
   }
@@ -617,6 +693,7 @@ function TasksListPage({ tasks }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [rollbackTask, setRollbackTask] = useState(null);
   const [deleteTask, setDeleteTask] = useState(null);
+  const [progressTick, setProgressTick] = useState(Date.now());
 
   const isOpeningNewTask = navigation.location?.pathname === NEW_TASK_URL;
 
@@ -740,6 +817,7 @@ function TasksListPage({ tasks }) {
     if (!hasActiveTasks) return undefined;
 
     const timer = setInterval(() => {
+      setProgressTick(Date.now());
       revalidator.revalidate();
     }, 2000);
 
@@ -747,7 +825,7 @@ function TasksListPage({ tasks }) {
   }, [hasActiveTasks, revalidator]);
 
   const rowMarkup = paginatedTasks.map((task, index) => {
-    const statusDisplay = getTaskStatusDisplay(task);
+    const statusDisplay = getTaskStatusDisplay(task, progressTick);
     const detailsPath = `/app/tasks/${task.id}`;
     const rollbackPath = `/app/tasks/${task.id}/rollback`;
     const deletePath = `/app/tasks/${task.id}/delete`;

@@ -28,6 +28,16 @@ import db from "../db.server";
 import { authenticate } from "../shopify.server";
 
 const LOGS_PER_PAGE = 10;
+const TASK_EXECUTION_TIMEOUT_MS = 10 * 60 * 1000;
+const ACTIVE_TASK_STATUSES = [
+  "Pending",
+  "Processing",
+  "Applying",
+  "Running",
+  "Started",
+  "In progress",
+  "in_progress",
+];
 
 export const loader = async ({ request, params }) => {
   const { session } = await authenticate.admin(request);
@@ -41,7 +51,7 @@ export const loader = async ({ request, params }) => {
     throw new Response("Task not found", { status: 404 });
   }
 
-  const task = await db.task.findFirst({
+  let task = await db.task.findFirst({
     where: {
       id: taskId,
       shop: session.shop,
@@ -50,6 +60,26 @@ export const loader = async ({ request, params }) => {
 
   if (!task) {
     throw new Response("Task not found", { status: 404 });
+  }
+
+  if (
+    ACTIVE_TASK_STATUSES.includes(task.status) &&
+    new Date(task.updatedAt).getTime() <
+      Date.now() - TASK_EXECUTION_TIMEOUT_MS
+  ) {
+    task = await db.task.update({
+      where: { id: task.id },
+      data: {
+        status: "Failed",
+        executionSummary: {
+          ...(task.executionSummary || {}),
+          ok: false,
+          progress: 100,
+          error: "Task execution timed out before Shopify finished responding.",
+        },
+        completedAt: new Date(),
+      },
+    });
   }
 
   const shopifyStoreHandle = getShopifyStoreHandle(session.shop);
@@ -277,6 +307,37 @@ function getTaskProgress(task) {
   if (isTaskProcessing(task)) return Math.max(getExecutionProgress(task), 1);
 
   return getExecutionProgress(task);
+}
+
+function getDateMs(value) {
+  if (!value) return null;
+
+  const date = new Date(value);
+  const time = date.getTime();
+
+  return Number.isNaN(time) ? null : time;
+}
+
+function getTaskStartedAt(task) {
+  return (
+    task.startedAt ||
+    task.executionSummary?.startedAt ||
+    task.executionSummary?.taskStartedAt ||
+    task.createdAt
+  );
+}
+
+function getEstimatedProgress(baseProgress, startedAt, now) {
+  const startedAtMs = getDateMs(startedAt);
+
+  if (!startedAtMs) {
+    return Math.max(baseProgress, 1);
+  }
+
+  const elapsedSeconds = Math.max(0, Math.floor((now - startedAtMs) / 1000));
+  const estimatedProgress = Math.min(95, baseProgress + elapsedSeconds);
+
+  return Math.max(baseProgress, estimatedProgress, 1);
 }
 
 function getRollbackStatusValue(task) {
@@ -931,6 +992,7 @@ export default function TaskDetailsPage() {
 
   const [rollbackModalOpen, setRollbackModalOpen] = useState(false);
   const [clientRollbackStarted, setClientRollbackStarted] = useState(false);
+  const [progressTick, setProgressTick] = useState(Date.now());
 
   const rollbackCompleted = rollbackState.isCompleted;
   const rollbackFailed = rollbackState.isFailed;
@@ -953,9 +1015,12 @@ export default function TaskDetailsPage() {
 
   const statusTone = getStatusToneFromDisplay(statusDisplay);
 
-  const serverProgress = rollbackProcessing
+  const rawServerProgress = rollbackProcessing
     ? Math.max(rollbackState.progress || 1, 1)
     : getTaskProgress(task);
+  const serverProgress = taskProcessing
+    ? getEstimatedProgress(rawServerProgress, getTaskStartedAt(task), progressTick)
+    : rawServerProgress;
 
   const [visibleProgress, setVisibleProgress] = useState(serverProgress);
 
@@ -1080,6 +1145,7 @@ export default function TaskDetailsPage() {
     if (!shouldPoll) return undefined;
 
     const timer = setInterval(() => {
+      setProgressTick(Date.now());
       revalidator.revalidate();
     }, 2000);
 
