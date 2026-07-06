@@ -26,6 +26,7 @@ import {
 import { TitleBar } from "@shopify/app-bridge-react";
 import db from "../db.server";
 import { authenticate } from "../shopify.server";
+import { styleText } from "node:util";
 
 const LOGS_PER_PAGE = 5;
 const TASK_EXECUTION_TIMEOUT_MS = 10 * 60 * 1000;
@@ -265,14 +266,17 @@ function getBaseTaskDisplay(task) {
   const status = getTaskStatusValue(task);
   const normalized = normalizeStatus(status);
 
-  if (isTaskCompleted(task)) {
-    return {
-      label: "Completed",
-      tone: "success",
-      background: "#D1FADF",
-      showProgress: false,
-    };
-  }
+if (isTaskCompleted(task)) {
+  return {
+    label: "Completed",
+    tone: "success",
+    background: "#D1FADF",
+    showProgress: false,
+    style: {
+      width: "fit-content",
+    },
+  };
+}
 
   if (isTaskProcessing(task)) {
     return {
@@ -280,6 +284,9 @@ function getBaseTaskDisplay(task) {
       tone: "attention",
       background: "#FEDF89",
       showProgress: true,
+       style: {
+      width: "fit-content",
+    },
     };
   }
 
@@ -289,6 +296,9 @@ function getBaseTaskDisplay(task) {
       tone: "attention",
       background: "#FEDF89",
       showProgress: false,
+       style: {
+      width: "fit-content",
+    },
     };
   }
 
@@ -298,6 +308,9 @@ function getBaseTaskDisplay(task) {
       tone: "critical",
       background: "#FEE4E2",
       showProgress: false,
+       style: {
+      width: "fit-content",
+    },
     };
   }
 
@@ -306,6 +319,9 @@ function getBaseTaskDisplay(task) {
     tone: "info",
     background: "#E0F2FE",
     showProgress: false,
+     style: {
+      width: "fit-content",
+    },
   };
 }
 
