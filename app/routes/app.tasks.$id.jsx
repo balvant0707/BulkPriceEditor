@@ -559,7 +559,11 @@ function getRollbackState(task) {
     hasCompletedAt ||
     hasSuccessfulRollback ||
     completedStatuses.includes(rollbackStatusKey) ||
-    completedStatuses.includes(taskStatusKey) ||
+    ((taskStatusKey === "cancelled" || taskStatusKey === "canceled") &&
+      rollbackSummary?.ok === true) ||
+    taskStatusKey === "rolled_back" ||
+    taskStatusKey === "rollback_complete" ||
+    taskStatusKey === "rollback_completed" ||
     taskStatus.includes("rolled back") ||
     taskStatus.includes("rollback complete");
 
