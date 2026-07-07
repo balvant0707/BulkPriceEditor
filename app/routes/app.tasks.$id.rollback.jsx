@@ -143,7 +143,7 @@ async function runRollbackExecution(admin, task, rollbackStartedAt) {
     await db.task.update({
       where: { id: task.id },
       data: {
-        status: rollback.ok ? "Rolled back" : "Rollback failed",
+        status: rollback.ok ? "Cancelled" : "Rollback failed",
         executionSummary: {
           ...executionSummary,
           rollback,
@@ -303,6 +303,8 @@ function isRollbackCompleted(task) {
     taskStatus === "rolled_back" ||
     taskStatus === "rollback_complete" ||
     taskStatus === "rollback_completed" ||
+    ((taskStatus === "cancelled" || taskStatus === "canceled") &&
+      rollback.ok === true) ||
     Boolean(rollback.completedAt) ||
     Boolean(rollback.rolledBackAt) ||
     rollback.progress >= 100 && rollback.ok === true

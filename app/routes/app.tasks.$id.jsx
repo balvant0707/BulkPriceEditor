@@ -171,7 +171,9 @@ function isFailedOrCanceledStatus(status) {
 }
 
 function getCanceledStatusLabel(status) {
-  return normalizeStatus(status).includes("cancel") ? "Cancel" : humanize(status);
+  return normalizeStatus(status).includes("cancel")
+    ? "Cancelled"
+    : humanize(status);
 }
 
 function formatDate(value) {
@@ -607,7 +609,7 @@ function getAppliedLabel(task) {
 function getDetailsStatusDisplay(task, rollbackState = null) {
   if (rollbackState?.isCompleted) {
     return {
-      label: "Rolled Back",
+      label: "Cancelled",
       tone: "success",
       background: "#D1FADF",
       showProgress: false,
@@ -652,7 +654,7 @@ function getLogStatusLabel(task, statusDisplay, rollbackState = null) {
   }
 
   if (isTaskProcessing(task)) return statusDisplay.label;
-  if (isTaskCompleted(task)) return "Applied";
+  if (isTaskCompleted(task)) return "Active";
   if (isTaskFailed(task)) return getCanceledStatusLabel(getTaskStatusValue(task));
 
   return humanize(getTaskStatusValue(task) || "Pending");
@@ -1935,7 +1937,7 @@ export default function TaskDetailsPage() {
       }
     : rollbackCompleted
       ? {
-          label: "Rolled Back",
+          label: "Cancelled",
           tone: "success",
           background: "#D1FADF",
           showProgress: false,
