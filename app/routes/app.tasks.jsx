@@ -69,9 +69,14 @@ export const loader = async ({ request }) => {
     where: {
       shop: session.shop,
     },
-    orderBy: {
-      updatedAt: "desc",
-    },
+    orderBy: [
+      {
+        createdAt: "desc",
+      },
+      {
+        id: "desc",
+      },
+    ],
     take: 250,
   });
 

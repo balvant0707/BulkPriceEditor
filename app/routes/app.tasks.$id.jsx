@@ -662,7 +662,7 @@ function getDetailsStatusDisplay(task, rollbackState = null) {
         getRollbackStatusValue(task) || getTaskStatusValue(task) || "Cancel",
       ),
       tone: "critical",
-      background: "#FEE4E2",
+      background: "rgb(185, 184, 184)",
       showProgress: false,
     };
   }
