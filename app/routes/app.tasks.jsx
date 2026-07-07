@@ -638,7 +638,7 @@ function getTaskListStatus(task, now = Date.now()) {
 
   if (isTaskProcessing(task)) {
     return {
-      label: "Applying",
+      label: "Implementing",
       tone: getStatusTone(task.status),
       progress: getEstimatedProgress(
         Math.max(getTaskProgress(task), 0),

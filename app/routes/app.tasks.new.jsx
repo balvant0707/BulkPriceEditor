@@ -176,6 +176,57 @@ const TASK_NODES_QUERY = `#graphql
   }
 `;
 
+const TASK_PRODUCT_VARIANTS_FOR_PRODUCT_QUERY = `#graphql
+  query TaskProductVariantsForProduct($id: ID!, $first: Int!, $after: String) {
+    product(id: $id) {
+      id
+      title
+      productType
+      tags
+      variants(first: $first, after: $after) {
+        nodes {
+          id
+          title
+          price
+          compareAtPrice
+          inventoryItem {
+            id
+            unitCost {
+              amount
+            }
+          }
+          product {
+            id
+            title
+            productType
+            tags
+          }
+        }
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+      }
+    }
+  }
+`;
+
+const TASK_COLLECTION_PRODUCTS_QUERY = `#graphql
+  query TaskCollectionProducts($id: ID!, $first: Int!, $after: String) {
+    collection(id: $id) {
+      products(first: $first, after: $after) {
+        nodes {
+          id
+        }
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+      }
+    }
+  }
+`;
+
 const TASK_PRODUCT_VARIANTS_BULK_UPDATE = `#graphql
   mutation TaskProductVariantsBulkUpdate(
     $productId: ID!
@@ -533,14 +584,63 @@ function buildTaskData(shop, formData) {
 }
 
 function validateTaskData(taskData) {
-  if (taskData.priceChange?.action !== "set_margin") {
-    return "";
+  if (taskData.applyChangesTo === "markets") {
+    return "Market price-list tasks are not supported yet. Use Product prices.";
   }
 
-  const margin = toNumber(taskData.priceChange.percent);
+  const changes = [
+    ["price", "Price", taskData.priceChange],
+    ["compareAtPrice", "Compare at price", taskData.compareAtPriceChange],
+    ["costPerItem", "Cost per item", taskData.costPerItemChange],
+  ];
 
-  if (margin == null || margin < 0 || margin >= 100) {
-    return "Set margin requires a margin percentage from 0 to 99.99.";
+  if (!changes.some(([, , change]) => Boolean(change?.action))) {
+    return "Choose at least one price, compare-at price, or cost per item action.";
+  }
+
+  for (const [field, label, change] of changes) {
+    const error = validateChangeData(field, label, change);
+    if (error) return error;
+  }
+
+  return "";
+}
+
+function validateChangeData(field, label, change) {
+  const action = change?.action || "";
+
+  if (!action) return "";
+
+  if (action === "set_new_value") {
+    const amount = toNumber(change.amount);
+    return amount == null || amount < 0
+      ? `${label} requires a valid amount of 0 or greater.`
+      : "";
+  }
+
+  if (action === "set_margin") {
+    if (field !== "price") {
+      return "Set margin is supported only for price changes.";
+    }
+
+    const margin = toNumber(change.percent);
+    return margin == null || margin < 0 || margin >= 100
+      ? "Set margin requires a margin percentage from 0 to 99.99."
+      : "";
+  }
+
+  if (action === "increase" || action === "decrease") {
+    if (change.type === "by_amount") {
+      const amount = toNumber(change.amount);
+      return amount == null || amount < 0
+        ? `${label} ${action} requires a valid amount of 0 or greater.`
+        : "";
+    }
+
+    const percent = toNumber(change.percent);
+    return percent == null || percent < 0
+      ? `${label} ${action} requires a valid percentage of 0 or greater.`
+      : "";
   }
 
   return "";
@@ -854,7 +954,15 @@ function variantsFromNodes(nodes) {
 }
 
 async function loadVariantsFromProductIds(admin, productIds) {
-  return variantsFromNodes(await loadNodes(admin, productIds));
+  const variants = [];
+  const cleanProductIds = [...new Set((productIds || []).filter(Boolean))];
+
+  for (const productId of cleanProductIds) {
+    variants.push(...(await loadVariantsFromProductId(admin, productId)));
+    if (variants.length >= MAX_TASK_VARIANTS) break;
+  }
+
+  return variants.slice(0, MAX_TASK_VARIANTS);
 }
 
 async function loadVariantsFromVariantIds(admin, variantIds) {
@@ -862,7 +970,51 @@ async function loadVariantsFromVariantIds(admin, variantIds) {
 }
 
 async function loadVariantsFromCollectionIds(admin, collectionIds) {
-  return variantsFromNodes(await loadNodes(admin, collectionIds));
+  const productIds = [];
+  const cleanCollectionIds = [...new Set((collectionIds || []).filter(Boolean))];
+
+  for (const collectionId of cleanCollectionIds) {
+    productIds.push(...(await loadProductIdsFromCollection(admin, collectionId)));
+    if (productIds.length >= MAX_TASK_VARIANTS) break;
+  }
+
+  return loadVariantsFromProductIds(admin, productIds);
+}
+
+async function loadVariantsFromProductId(admin, productId) {
+  const variants = [];
+  let after = null;
+
+  do {
+    const data = await shopifyGraphql(admin, TASK_PRODUCT_VARIANTS_FOR_PRODUCT_QUERY, {
+      id: productId,
+      first: Math.min(VARIANT_PAGE_SIZE, MAX_TASK_VARIANTS - variants.length),
+      after,
+    });
+    const connection = data.product?.variants;
+    variants.push(...(connection?.nodes || []));
+    after = connection?.pageInfo?.hasNextPage ? connection.pageInfo.endCursor : null;
+  } while (after && variants.length < MAX_TASK_VARIANTS);
+
+  return variants;
+}
+
+async function loadProductIdsFromCollection(admin, collectionId) {
+  const productIds = [];
+  let after = null;
+
+  do {
+    const data = await shopifyGraphql(admin, TASK_COLLECTION_PRODUCTS_QUERY, {
+      id: collectionId,
+      first: Math.min(VARIANT_PAGE_SIZE, MAX_TASK_VARIANTS - productIds.length),
+      after,
+    });
+    const connection = data.collection?.products;
+    productIds.push(...(connection?.nodes || []).map((product) => product.id));
+    after = connection?.pageInfo?.hasNextPage ? connection.pageInfo.endCursor : null;
+  } while (after && productIds.length < MAX_TASK_VARIANTS);
+
+  return productIds;
 }
 
 async function loadVariantsFromTags(admin, tagNames) {
@@ -971,6 +1123,10 @@ function calculateFieldValue(currentValue, variant, change, options = {}) {
     }
     nextValue = cost / (1 - margin / 100);
   } else if (action === "increase" || action === "decrease") {
+    const relativeBase = getRelativeBaseValue(variant, change.relativeTo);
+    if (relativeBase != null) {
+      nextValue = relativeBase;
+    }
     if (nextValue == null) return undefined;
     const direction = action === "increase" ? 1 : -1;
     if (change.type === "by_amount") {
@@ -988,6 +1144,18 @@ function calculateFieldValue(currentValue, variant, change, options = {}) {
 
   nextValue = applyRounding(nextValue, change.rounding);
   return formatPrice(Math.max(0, nextValue));
+}
+
+function getRelativeBaseValue(variant, relativeTo) {
+  if (relativeTo === "actual_price") {
+    return toNumber(variant.price);
+  }
+
+  if (relativeTo === "cost_per_item") {
+    return toNumber(variant.inventoryItem?.unitCost?.amount);
+  }
+
+  return null;
 }
 
 function applyRounding(value, rounding = {}) {
@@ -2356,8 +2524,6 @@ function PriceChangeFields({
     (isIncreaseOrDecrease && changeType === "by_amount");
 
   const shouldShowRounding =
-    ((isPriceField || isCompareAtPriceField) && action === "") ||
-    (isCostPerItemField && action === "") ||
     (isPriceField && action === "set_margin") ||
     (isIncreaseOrDecrease && !isCompareNoFieldsAction);
 
@@ -2631,11 +2797,16 @@ export default function NewTaskPage() {
 
                     <Button
                       pressed={applyChangesTo === "markets"}
+                      disabled
                       onClick={() => handleApplyChangesToChange("markets")}
                     >
                       Market prices
                     </Button>
                   </ButtonGroup>
+
+                  <Text as="p" tone="subdued">
+                    Market price-list tasks are not available yet.
+                  </Text>
 
                   {applyChangesTo === "markets" && (
                     <BlockStack>
