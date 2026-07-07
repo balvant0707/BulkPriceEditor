@@ -98,7 +98,9 @@ function canDeleteTask(task) {
   const status = normalizeStatus(task.status);
 
   return (
-    status.includes("cancel") ||
+    (status.includes("cancel") &&
+      !status.includes("canceling") &&
+      !status.includes("cancelling")) ||
     status.includes("failed") ||
     status.includes("error") ||
     isRollbackCompleted(task)

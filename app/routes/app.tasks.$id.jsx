@@ -166,7 +166,9 @@ function isFailedOrCanceledStatus(status) {
   return (
     normalized.includes("failed") ||
     normalized.includes("error") ||
-    normalized.includes("cancel")
+    (normalized.includes("cancel") &&
+      !normalized.includes("canceling") &&
+      !normalized.includes("cancelling"))
   );
 }
 
@@ -322,12 +324,17 @@ function isTaskProcessing(task) {
 
   return (
     status === "processing" ||
-    status === "pending" ||
     status === "applying" ||
     status === "running" ||
     status === "in_progress" ||
     status === "started"
   );
+}
+
+function isTaskPending(task) {
+  const status = normalizeStatus(getTaskStatusValue(task));
+
+  return !isTaskCompleted(task) && !isTaskFailed(task) && status === "pending";
 }
 
 function getBaseTaskDisplay(task) {
@@ -358,6 +365,18 @@ function getBaseTaskDisplay(task) {
     };
   }
 
+  if (isTaskPending(task) || !normalized) {
+    return {
+      label: "Pending",
+      tone: "attention",
+      background: "#FEDF89",
+      showProgress: false,
+       style: {
+      width: "fit-content",
+    },
+    };
+  }
+
   if (isTaskProcessing(task)) {
     return {
       label: "Applying",
@@ -370,7 +389,7 @@ function getBaseTaskDisplay(task) {
     };
   }
 
-  if (!normalized || normalized === "pending") {
+  if (!normalized) {
     return {
       label: "Pending",
       tone: "attention",
@@ -395,7 +414,8 @@ function getBaseTaskDisplay(task) {
 
 function getTaskProgress(task) {
   if (isTaskCompleted(task)) return 100;
-  if (isTaskProcessing(task)) return Math.max(getExecutionProgress(task), 1);
+  if (isTaskPending(task)) return 0;
+  if (isTaskProcessing(task)) return getExecutionProgress(task);
 
   return getExecutionProgress(task);
 }
@@ -424,11 +444,12 @@ function getEstimatedProgress(
   now,
   speedPerSecond = 1,
   progressCap = 95,
+  minimumProgress = 1,
 ) {
   const startedAtMs = getDateMs(startedAt);
 
   if (!startedAtMs) {
-    return Math.max(baseProgress, 1);
+    return Math.max(baseProgress, minimumProgress);
   }
 
   const elapsedSeconds = Math.max(0, Math.floor((now - startedAtMs) / 1000));
@@ -437,7 +458,7 @@ function getEstimatedProgress(
     baseProgress + elapsedSeconds * speedPerSecond,
   );
 
-  return Math.max(baseProgress, estimatedProgress, 1);
+  return Math.max(baseProgress, estimatedProgress, minimumProgress);
 }
 
 function getRollbackStatusValue(task) {
@@ -551,6 +572,8 @@ function getRollbackState(task) {
     "rollback_started",
     "rollback_running",
     "rollback_in_progress",
+    "canceling",
+    "cancelling",
   ];
 
   const failedStatuses = ["failed", "error", "cancelled", "canceled"];
@@ -579,7 +602,9 @@ function getRollbackState(task) {
     rollbackProgress > 0 ||
     processingStatuses.includes(rollbackStatusKey) ||
     processingStatuses.includes(taskStatusKey) ||
-    taskStatus.includes("rolling back");
+    taskStatus.includes("rolling back") ||
+    taskStatus.includes("canceling") ||
+    taskStatus.includes("cancelling");
 
   const isProcessing =
     !isCompleted &&
@@ -588,7 +613,9 @@ function getRollbackState(task) {
     (processingStatuses.includes(rollbackStatusKey) ||
       rollbackStatusKey === "pending" ||
       processingStatuses.includes(taskStatusKey) ||
-      taskStatus.includes("rolling back"));
+      taskStatus.includes("rolling back") ||
+      taskStatus.includes("canceling") ||
+      taskStatus.includes("cancelling"));
 
   return {
     isCompleted,
@@ -622,7 +649,7 @@ function getDetailsStatusDisplay(task, rollbackState = null) {
 
   if (rollbackState?.isProcessing) {
     return {
-      label: "Rolling Back",
+      label: "Canceling",
       tone: "attention",
       background: "#FEDF89",
       showProgress: true,
@@ -1916,6 +1943,7 @@ export default function TaskDetailsPage() {
   const rollbackState = getRollbackState(task);
   const taskCompleted = isTaskCompleted(task);
   const taskProcessing = isTaskProcessing(task);
+  const taskPending = isTaskPending(task);
 
   const [rollbackModalOpen, setRollbackModalOpen] = useState(false);
   const [clientRollbackStarted, setClientRollbackStarted] = useState(false);
@@ -1934,7 +1962,7 @@ export default function TaskDetailsPage() {
 
   const statusDisplay = rollbackProcessing
     ? {
-        label: "Rolling Back",
+        label: "Canceling",
         tone: "attention",
         background: "#FEDF89",
         showProgress: true,
@@ -1959,7 +1987,7 @@ export default function TaskDetailsPage() {
   const logStatusLabel = getLogStatusLabel(task, statusDisplay, rollbackState);
 
   const rawServerProgress = rollbackProcessing
-    ? Math.max(rollbackState.progress || 1, 1)
+    ? Math.max(rollbackState.progress || 0, 0)
     : getTaskProgress(task);
   const rollbackStartedAt =
     getRollbackStartedValue(task) || clientRollbackStartedAt || getTaskStartedAt(task);
@@ -1970,6 +1998,7 @@ export default function TaskDetailsPage() {
         progressTick,
         ROLLBACK_PROGRESS_SPEED_PER_SECOND,
         ROLLBACK_PROGRESS_CAP,
+        0,
       )
     : taskProcessing
       ? getEstimatedProgress(
@@ -1978,6 +2007,7 @@ export default function TaskDetailsPage() {
           progressTick,
           TASK_PROGRESS_SPEED_PER_SECOND,
           TASK_PROGRESS_CAP,
+          0,
         )
       : rawServerProgress;
 
@@ -2010,7 +2040,7 @@ export default function TaskDetailsPage() {
   );
 
   const shouldPoll =
-    !selectedProductId && (taskProcessing || rollbackProcessing);
+    !selectedProductId && (taskPending || taskProcessing || rollbackProcessing);
 
   const openRollbackModal = () => {
     setRollbackModalOpen(true);
@@ -2026,7 +2056,7 @@ export default function TaskDetailsPage() {
     setClientRollbackStarted(true);
     setClientRollbackStartedAt(Date.now());
     setProgressTick(Date.now());
-    setVisibleProgress(1);
+    setVisibleProgress(0);
     const formData = new FormData();
     formData.set("redirectTo", `/app/tasks/${task.id}`);
     submit(formData, {
@@ -2093,15 +2123,15 @@ export default function TaskDetailsPage() {
           return serverProgress;
         }
 
-        return Math.max(currentProgress, serverProgress, 1);
+        return Math.max(currentProgress, serverProgress, 0);
       }
 
       if (taskProcessing) {
-        if (currentProgress >= 100 || currentProgress <= 0) {
-          return Math.max(serverProgress, 1);
+        if (currentProgress >= 100 || currentProgress < 0) {
+          return Math.max(serverProgress, 0);
         }
 
-        return Math.max(currentProgress, serverProgress, 1);
+        return Math.max(currentProgress, serverProgress, 0);
       }
 
       return serverProgress;

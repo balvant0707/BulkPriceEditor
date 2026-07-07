@@ -37,6 +37,11 @@ const TASK_HELP_URL = "#";
 const NEW_TASK_URL = "/app/tasks/new";
 const TASKS_URL = "/app/tasks";
 const PAGE_SIZE = 10;
+const POLL_INTERVAL_MS = 2000;
+const TASK_PROGRESS_SPEED_PER_SECOND = 2;
+const ROLLBACK_PROGRESS_SPEED_PER_SECOND = 12;
+const TASK_PROGRESS_CAP = 95;
+const ROLLBACK_PROGRESS_CAP = 98;
 
 const TASK_TABS = [
   {
@@ -397,6 +402,60 @@ function getTaskProgress(task) {
   );
 }
 
+function getDateMs(value) {
+  if (!value) return null;
+
+  const date = new Date(value);
+  const time = date.getTime();
+
+  return Number.isNaN(time) ? null : time;
+}
+
+function getTaskStartedAt(task) {
+  return (
+    task.startedAt ||
+    task.executionSummary?.startedAt ||
+    task.executionSummary?.taskStartedAt ||
+    task.createdAt
+  );
+}
+
+function getRollbackStartedAt(task) {
+  return (
+    task.rollbackStartedAt ||
+    task.rollback?.startedAt ||
+    task.rollbackSummary?.startedAt ||
+    task.executionSummary?.rollbackStartedAt ||
+    task.executionSummary?.rollback?.startedAt ||
+    task.executionSummary?.rollbackSummary?.startedAt ||
+    task.startedAt ||
+    task.createdAt
+  );
+}
+
+function getEstimatedProgress(
+  baseProgress,
+  startedAt,
+  now,
+  speedPerSecond,
+  progressCap,
+  minimumProgress = 0,
+) {
+  const startedAtMs = getDateMs(startedAt);
+
+  if (!startedAtMs) {
+    return Math.max(baseProgress, minimumProgress);
+  }
+
+  const elapsedSeconds = Math.max(0, Math.floor((now - startedAtMs) / 1000));
+  const estimatedProgress = Math.min(
+    progressCap,
+    baseProgress + elapsedSeconds * speedPerSecond,
+  );
+
+  return Math.max(baseProgress, estimatedProgress, minimumProgress);
+}
+
 function getRollbackProgress(task) {
   return getProgressValue(
     task.rollbackProgress,
@@ -466,7 +525,9 @@ function isFailedOrCanceledTask(task) {
   const status = normalizeStatus(task.status);
 
   return (
-    status.includes("cancel") ||
+    (status.includes("cancel") &&
+      !status.includes("canceling") &&
+      !status.includes("cancelling")) ||
     status.includes("failed") ||
     status.includes("error")
   );
@@ -510,10 +571,18 @@ function isRollbackProcessing(task) {
     rollbackStatus.includes("processing") ||
     rollbackStatus.includes("running") ||
     rollbackStatus.includes("in progress") ||
+    rollbackStatus.includes("canceling") ||
+    rollbackStatus.includes("cancelling") ||
     taskStatus === "rolling back" ||
+    taskStatus === "canceling" ||
+    taskStatus === "cancelling" ||
     taskStatus.includes("rollback processing") ||
     taskStatus.includes("rollback running")
   );
+}
+
+function isTaskPending(task) {
+  return normalizeStatusKey(task.status) === "pending";
 }
 
 function isTaskProcessing(task) {
@@ -521,27 +590,49 @@ function isTaskProcessing(task) {
   return (
     status.includes("processing") ||
     status.includes("applying") ||
-    status.includes("pending") ||
     status.includes("running") ||
     status.includes("in_progress")
   );
 }
 
-function getTaskListStatus(task) {
+function getTaskListStatus(task, now = Date.now()) {
   if (isRollbackProcessing(task)) {
     return {
-      label: "Canceled",
-      tone: "subdued",
-      progress: getRollbackProgress(task),
+      label: "Canceling",
+      tone: "attention",
+      progress: getEstimatedProgress(
+        Math.max(getRollbackProgress(task), 0),
+        getRollbackStartedAt(task),
+        now,
+        ROLLBACK_PROGRESS_SPEED_PER_SECOND,
+        ROLLBACK_PROGRESS_CAP,
+        0,
+      ),
       showProgress: true,
+    };
+  }
+
+  if (isTaskPending(task)) {
+    return {
+      label: "Pending",
+      tone: "attention",
+      progress: 0,
+      showProgress: false,
     };
   }
 
   if (isTaskProcessing(task)) {
     return {
-      label: getStatusLabel(task.status),
+      label: "Applying",
       tone: getStatusTone(task.status),
-      progress: getTaskProgress(task),
+      progress: getEstimatedProgress(
+        Math.max(getTaskProgress(task), 0),
+        getTaskStartedAt(task),
+        now,
+        TASK_PROGRESS_SPEED_PER_SECOND,
+        TASK_PROGRESS_CAP,
+        0,
+      ),
       showProgress: true,
     };
   }
@@ -575,7 +666,9 @@ function taskMatchesTab(task, activeTab) {
 
   if (activeTab === "canceled") {
     return (
-      status.includes("cancel") ||
+      (status.includes("cancel") &&
+        !status.includes("canceling") &&
+        !status.includes("cancelling")) ||
       status.includes("failed") ||
       status.includes("error")
     );
@@ -670,6 +763,7 @@ function TasksListPage({ tasks }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [rollbackTask, setRollbackTask] = useState(null);
   const [deleteTask, setDeleteTask] = useState(null);
+  const [progressTick, setProgressTick] = useState(Date.now());
 
   const isOpeningNewTask = navigation.location?.pathname === NEW_TASK_URL;
 
@@ -758,7 +852,11 @@ function TasksListPage({ tasks }) {
   }, [tasks, activeTab, queryValue]);
 
   const hasActiveTask = useMemo(
-    () => tasks.some((task) => isTaskProcessing(task) || isRollbackProcessing(task)),
+    () =>
+      tasks.some(
+        (task) =>
+          isTaskPending(task) || isTaskProcessing(task) || isRollbackProcessing(task),
+      ),
     [tasks],
   );
 
@@ -766,10 +864,12 @@ function TasksListPage({ tasks }) {
     if (!hasActiveTask) return undefined;
 
     const interval = window.setInterval(() => {
+      setProgressTick(Date.now());
+
       if (revalidator.state === "idle") {
         revalidator.revalidate();
       }
-    }, 2000);
+    }, POLL_INTERVAL_MS);
 
     return () => window.clearInterval(interval);
   }, [hasActiveTask, revalidator]);
@@ -801,7 +901,7 @@ function TasksListPage({ tasks }) {
   };
 
   const rowMarkup = paginatedTasks.map((task, index) => {
-    const taskStatus = getTaskListStatus(task);
+    const taskStatus = getTaskListStatus(task, progressTick);
     const detailsPath = `/app/tasks/${task.id}`;
     const rollbackPath = `/app/tasks/${task.id}/rollback`;
     const deletePath = `/app/tasks/${task.id}/delete`;
