@@ -37,8 +37,8 @@ const TASK_HELP_URL = "#";
 const NEW_TASK_URL = "/app/tasks/new";
 const TASKS_URL = "/app/tasks";
 const PAGE_SIZE = 10;
-const POLL_INTERVAL_MS = 2000;
-const TASK_PROGRESS_SPEED_PER_SECOND = 2;
+const POLL_INTERVAL_MS = 1000;
+const TASK_PROGRESS_SPEED_PER_SECOND = 5;
 const ROLLBACK_PROGRESS_SPEED_PER_SECOND = 12;
 const TASK_PROGRESS_CAP = 95;
 const ROLLBACK_PROGRESS_CAP = 98;
@@ -1227,5 +1227,5 @@ export default function TaskPage() {
     return <EmptyTasksPage />;
   }
 
-  return <TasksListPage tasks={tasks} />;
+  return <TasksListPage tasks={tasks} />
 }
