@@ -370,6 +370,7 @@ function getBaseTaskDisplay(task) {
       label: "Pending",
       tone: "attention",
       background: "#FEDF89",
+      showPendingSpinner: true,
       showProgress: false,
        style: {
       width: "fit-content",
@@ -379,7 +380,7 @@ function getBaseTaskDisplay(task) {
 
   if (isTaskProcessing(task)) {
     return {
-      label: "Applying",
+      label: "Implementing",
       tone: "attention",
       background: "#FEDF89",
       showProgress: true,
@@ -394,6 +395,7 @@ function getBaseTaskDisplay(task) {
       label: "Pending",
       tone: "attention",
       background: "#FEDF89",
+      showPendingSpinner: true,
       showProgress: false,
        style: {
       width: "fit-content",
@@ -632,7 +634,7 @@ function getStatusToneFromDisplay(display) {
 function getAppliedLabel(task) {
   if (isTaskFailed(task)) return getCanceledStatusLabel(getTaskStatusValue(task));
   if (isTaskCompleted(task)) return "Completed";
-  if (isTaskProcessing(task)) return "Applying";
+  if (isTaskProcessing(task)) return "Implementing";
 
   return humanize(getTaskStatusValue(task) || "Pending");
 }
@@ -1716,6 +1718,8 @@ function getProductDetails(task, productId, shopifyStoreHandle, shopCurrency = "
 }
 
 function StatusBadge({ display }) {
+  const showPendingSpinner = Boolean(display.showPendingSpinner);
+
   return (
     <span
       style={{
@@ -1729,7 +1733,38 @@ function StatusBadge({ display }) {
         padding: "6px 10px",
       }}
     >
-      {display.tone === "attention" ? (
+      {showPendingSpinner ? (
+        <span
+          aria-hidden="true"
+          style={{
+            alignItems: "center",
+            display: "inline-flex",
+            gap: 2,
+          }}
+        >
+          <style>
+            {`
+              @keyframes task-pending-dot {
+                0%, 80%, 100% { opacity: 0.35; transform: scale(0.75); }
+                40% { opacity: 1; transform: scale(1); }
+              }
+            `}
+          </style>
+          {[0, 1, 2].map((index) => (
+            <span
+              key={index}
+              style={{
+                animation: `task-pending-dot 1.2s ${index * 0.16}s infinite ease-in-out`,
+                background: "#B98900",
+                borderRadius: "50%",
+                display: "inline-block",
+                height: 6,
+                width: 6,
+              }}
+            />
+          ))}
+        </span>
+      ) : display.tone === "attention" ? (
         <span
           aria-hidden="true"
           style={{
@@ -2221,11 +2256,11 @@ export default function TaskDetailsPage() {
               <DetailRow label="Exclude" value={humanize(task.excludeScope)} />
 
               <DetailRow label="Status">
-                <BlockStack gap="100">
+                <InlineStack gap="200" blockAlign="center" wrap={false}>
                   <StatusBadge display={statusDisplay} />
 
                   {statusDisplay.showProgress ? (
-                    <BlockStack gap="100">
+                    <>
                       <Box maxWidth="320px" style={{ display: "none" }}>
                         <ProgressBar
                           progress={visibleProgress}
@@ -2233,12 +2268,12 @@ export default function TaskDetailsPage() {
                           tone="primary"
                         />
                       </Box>
-                      <Text as="p" tone="subdued">
+                      <Text as="span" tone="subdued">
                         Progress: {visibleProgress}%
                       </Text>
-                    </BlockStack>
+                    </>
                   ) : null}
-                </BlockStack>
+                </InlineStack>
               </DetailRow>
 
               <DetailRow label="Created at" value={formatDate(task.createdAt)} />
