@@ -1,9 +1,11 @@
 import { redirect } from "@remix-run/node";
 import db from "../db.server";
 import { authenticate } from "../shopify.server";
+import { commitFlashSession, getFlashSession } from "../lib/flash.server";
 
 export const action = async ({ request, params }) => {
   const { session } = await authenticate.admin(request);
+  const flashSession = await getFlashSession(request);
   const taskId = Number(params.id);
 
   if (!Number.isInteger(taskId) || taskId <= 0) {
@@ -24,20 +26,29 @@ export const action = async ({ request, params }) => {
   const canDelete = canDeleteTask(task);
 
   if (!canDelete) {
-    return redirect(
-      `/app/tasks?message=${encodeURIComponent(
-        "Task can be deleted only after rollback is complete.",
-      )}`,
+    flashSession.flash(
+      "toast",
+      "Task can be deleted only after rollback is complete.",
     );
+
+    return redirect("/app/tasks", {
+      headers: {
+        "Set-Cookie": await commitFlashSession(flashSession),
+      },
+    });
   }
 
   await db.task.delete({
     where: { id: task.id },
   });
 
-  return redirect(
-    `/app/tasks?message=${encodeURIComponent("Task was deleted.")}`,
-  );
+  flashSession.flash("toast", "Task was deleted.");
+
+  return redirect("/app/tasks", {
+    headers: {
+      "Set-Cookie": await commitFlashSession(flashSession),
+    },
+  });
 };
 
 export const loader = async () => redirect("/app/tasks");

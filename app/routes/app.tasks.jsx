@@ -26,12 +26,12 @@ import {
   Tabs,
   TextField,
   Pagination,
-  Banner,
   Modal,
 } from "@shopify/polaris";
-import { TitleBar } from "@shopify/app-bridge-react";
+import { TitleBar, useAppBridge } from "@shopify/app-bridge-react";
 import db from "../db.server";
 import { authenticate } from "../shopify.server";
+import { commitFlashSession, getFlashSession } from "../lib/flash.server";
 
 const TASK_HELP_URL = "#";
 const NEW_TASK_URL = "/app/tasks/new";
@@ -64,6 +64,8 @@ const TASK_TABS = [
 
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
+  const flashSession = await getFlashSession(request);
+  const toastMessage = flashSession.get("toast") || "";
 
   const tasks = await db.task.findMany({
     where: {
@@ -80,10 +82,18 @@ export const loader = async ({ request }) => {
     take: 250,
   });
 
-  return json({
-    taskCount: tasks.length,
-    tasks,
-  });
+  return json(
+    {
+      taskCount: tasks.length,
+      tasks,
+      toastMessage,
+    },
+    {
+      headers: {
+        "Set-Cookie": await commitFlashSession(flashSession),
+      },
+    },
+  );
 };
 
 function humanize(value) {
@@ -762,6 +772,8 @@ function EmptyTasksPage() {
 }
 
 function TasksListPage({ tasks }) {
+  const { toastMessage } = useLoaderData();
+  const shopify = useAppBridge();
   const navigation = useNavigation();
   const revalidator = useRevalidator();
   const submit = useSubmit();
@@ -778,7 +790,6 @@ function TasksListPage({ tasks }) {
     ? requestedTab
     : "all";
   const queryValue = searchParams.get("q") || "";
-  const message = searchParams.get("message") || "";
   const pageParam = Number(searchParams.get("page") || 1);
 
   const selectedTabIndex = Math.max(
@@ -864,6 +875,12 @@ function TasksListPage({ tasks }) {
       ),
     [tasks],
   );
+
+  useEffect(() => {
+    if (toastMessage) {
+      shopify.toast.show(toastMessage);
+    }
+  }, [shopify, toastMessage]);
 
   useEffect(() => {
     if (!hasActiveTask) return undefined;
@@ -1016,12 +1033,6 @@ function TasksListPage({ tasks }) {
 
       <Layout>
         <Layout.Section>
-          {message ? (
-            <Box paddingBlockEnd="400">
-              <Banner tone="info">{message}</Banner>
-            </Box>
-          ) : null}
-
           <Card padding="0">
             <Tabs
               tabs={tabsWithCounts}
