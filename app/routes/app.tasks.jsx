@@ -315,7 +315,21 @@ function formatApplyTo(task) {
 }
 
 function getStatusLabel(status) {
+  const normalized = String(status || "").toLowerCase();
+
+  if (normalized.includes("cancel")) {
+    return "Cancelled";
+  }
+
   return humanize(status || "Pending");
+}
+
+function normalizeStatus(status) {
+  return String(status || "").toLowerCase().trim();
+}
+
+function normalizeStatusKey(status) {
+  return normalizeStatus(status).replace(/[\s-]+/g, "_");
 }
 
 function getStatusTone(status) {
@@ -401,6 +415,74 @@ function getRollbackProgress(task) {
     task.executionSummary?.rollbackSummary?.progress,
     task.executionSummary?.rollbackSummary?.percent,
     task.executionSummary?.rollbackSummary?.percentage,
+  );
+}
+
+function getRollbackSummary(task) {
+  return (
+    task.rollback ||
+    task.rollbackSummary ||
+    task.executionSummary?.rollback ||
+    task.executionSummary?.rollbackSummary ||
+    {}
+  );
+}
+
+function getRollbackStatusKey(task) {
+  return normalizeStatusKey(
+    task.rollbackStatus ||
+      task.rollback?.status ||
+      task.rollbackSummary?.status ||
+      task.executionSummary?.rollbackStatus ||
+      task.executionSummary?.rollback?.status ||
+      task.executionSummary?.rollbackSummary?.status ||
+      "",
+  );
+}
+
+function isRollbackCompleted(task) {
+  const taskStatus = normalizeStatusKey(task.status);
+  const rollbackStatus = getRollbackStatusKey(task);
+  const rollback = getRollbackSummary(task);
+
+  return (
+    rollbackStatus === "complete" ||
+    rollbackStatus === "completed" ||
+    rollbackStatus === "rolled_back" ||
+    rollbackStatus === "rollback_complete" ||
+    rollbackStatus === "rollback_completed" ||
+    taskStatus === "rolled_back" ||
+    taskStatus === "rollback_complete" ||
+    taskStatus === "rollback_completed" ||
+    ((taskStatus === "cancelled" || taskStatus === "canceled") &&
+      rollback.ok === true) ||
+    Boolean(rollback.completedAt) ||
+    Boolean(rollback.rolledBackAt) ||
+    (rollback.progress >= 100 && rollback.ok === true)
+  );
+}
+
+function isFailedOrCanceledTask(task) {
+  const status = normalizeStatus(task.status);
+
+  return (
+    status.includes("cancel") ||
+    status.includes("failed") ||
+    status.includes("error")
+  );
+}
+
+function canDeleteTask(task) {
+  return isFailedOrCanceledTask(task) || isRollbackCompleted(task);
+}
+
+function canRollbackTask(task) {
+  const status = normalizeStatusKey(task.status);
+
+  return (
+    !canDeleteTask(task) &&
+    !isRollbackProcessing(task) &&
+    (status === "complete" || status === "completed")
   );
 }
 
@@ -723,12 +805,8 @@ function TasksListPage({ tasks }) {
     const detailsPath = `/app/tasks/${task.id}`;
     const rollbackPath = `/app/tasks/${task.id}/rollback`;
     const deletePath = `/app/tasks/${task.id}/delete`;
-    const normalizedStatus = String(task.status || "").toLowerCase();
-    const canRollback = normalizedStatus === "complete";
-    const canDelete =
-      normalizedStatus === "canceled" ||
-      normalizedStatus === "rolled back" ||
-      normalizedStatus === "rollback failed";
+    const canRollback = canRollbackTask(task);
+    const canDelete = canDeleteTask(task);
     const isDetailsLoading =
       navigation.state !== "idle" &&
       navigation.location?.pathname === detailsPath;
@@ -784,15 +862,17 @@ function TasksListPage({ tasks }) {
               Details
             </Button>
 
-            <Button
-              size="slim"
-              variant={canRollback ? "primary" : undefined}
-              loading={isRollbackLoading}
-              disabled={!canRollback || isRollbackProcessing(task)}
-              onClick={() => setRollbackTask(task)}
-            >
-              Rollback
-            </Button>
+            {!canDelete ? (
+              <Button
+                size="slim"
+                variant={canRollback ? "primary" : undefined}
+                loading={isRollbackLoading}
+                disabled={!canRollback}
+                onClick={() => setRollbackTask(task)}
+              >
+                Rollback
+              </Button>
+            ) : null}
 
             {canDelete ? (
               <Button
