@@ -1638,49 +1638,46 @@ function getProductDetails(task, productId, shopifyStoreHandle, shopCurrency = "
   const originalInventoryItems =
     task.executionSummary?.originalInventoryItems || [];
 
-  const variantRecords = originalVariants
-    .filter((variant) => getProductId(variant) === productId)
-    .map((variant, index) => {
-      const variantId = getVariantId(variant);
+  const recordsByVariantId = new Map();
 
-      return {
-        rowId: `variant-${variantId || index}`,
-        variantId,
-        title: getVariantTitle(variant),
-        sku: getVariantSku(variant),
-        price: variant.price,
-        compareAtPrice: variant.compareAtPrice,
-        newSetPrice: variant.nextPrice,
-        changes: buildVariantChanges(variant, shopCurrency),
-        adminUrl: getVariantAdminUrl(shopifyStoreHandle, productId, variantId),
-      };
+  originalVariants
+    .filter((v) => getProductId(v) === productId)
+    .forEach((v) => {
+      const variantId = getVariantId(v);
+      if (variantId) {
+        recordsByVariantId.set(variantId, { ...recordsByVariantId.get(variantId), ...v });
+      }
     });
 
-  const inventoryRecords = originalInventoryItems
-    .filter((item) => getProductId(item) === productId)
-    .map((item, index) => {
-      const variantId = getVariantId(item);
-
-      return {
-        rowId: `inventory-${variantId || index}`,
-        variantId,
-        title: getVariantTitle(item),
-        sku: getVariantSku(item),
-        price: item.price,
-        compareAtPrice: item.compareAtPrice,
-        newSetPrice: item.nextPrice,
-        changes: buildVariantChanges(item, shopCurrency),
-        adminUrl: getVariantAdminUrl(shopifyStoreHandle, productId, variantId),
-      };
+  originalInventoryItems
+    .filter((i) => getProductId(i) === productId)
+    .forEach((i) => {
+      const variantId = getVariantId(i);
+      if (variantId) {
+        recordsByVariantId.set(variantId, { ...recordsByVariantId.get(variantId), ...i });
+      }
     });
 
-  const allRecords = [...variantRecords, ...inventoryRecords];
+  const allRecords = Array.from(recordsByVariantId.values()).map((record, index) => {
+    const variantId = getVariantId(record);
+    return {
+      rowId: `variant-${variantId || index}`,
+      variantId,
+      title: getVariantTitle(record),
+      sku: getVariantSku(record),
+      price: record.price,
+      compareAtPrice: record.compareAtPrice,
+      newSetPrice: record.nextPrice,
+      cost: record.cost,
+      newSetCost: record.nextCost,
+      changes: buildVariantChanges(record, shopCurrency),
+      adminUrl: getVariantAdminUrl(shopifyStoreHandle, productId, variantId),
+    };
+  });
 
   if (!allRecords.length) return null;
 
-  const firstOriginalRecord =
-    originalVariants.find((variant) => getProductId(variant) === productId) ||
-    originalInventoryItems.find((item) => getProductId(item) === productId);
+  const firstOriginalRecord = allRecords[0];
 
   return {
     productId,
