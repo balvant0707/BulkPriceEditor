@@ -409,17 +409,6 @@ function getBaseTaskDisplay(task) {
 
 function getTaskProgress(task) {
   if (isTaskCompleted(task)) return 100;
-  if (isTaskPending(task) || isTaskProcessing(task)) {
-    return getEstimatedProgress(
-      Math.max(getExecutionProgress(task), 0),
-      getTaskStartedAt(task),
-      Date.now(),
-      PENDING_PROGRESS_SPEED_PER_SECOND,
-      100,
-      0,
-    );
-  }
-
   return getExecutionProgress(task);
 }
 
@@ -439,29 +428,6 @@ function getTaskStartedAt(task) {
     task.executionSummary?.taskStartedAt ||
     task.createdAt
   );
-}
-
-function getEstimatedProgress(
-  baseProgress,
-  startedAt,
-  now,
-  speedPerSecond = 1,
-  progressCap = 95,
-  minimumProgress = 1,
-) {
-  const startedAtMs = getDateMs(startedAt);
-
-  if (!startedAtMs) {
-    return Math.max(baseProgress, minimumProgress);
-  }
-
-  const elapsedSeconds = Math.max(0, Math.floor((now - startedAtMs) / 1000));
-  const estimatedProgress = Math.min(
-    progressCap,
-    baseProgress + elapsedSeconds * speedPerSecond,
-  );
-
-  return Math.max(baseProgress, estimatedProgress, minimumProgress);
 }
 
 function getRollbackStatusValue(task) {
@@ -1946,8 +1912,6 @@ export default function TaskDetailsPage() {
 
   const [rollbackModalOpen, setRollbackModalOpen] = useState(false);
   const [clientRollbackStarted, setClientRollbackStarted] = useState(false);
-  const [clientRollbackStartedAt, setClientRollbackStartedAt] = useState(null);
-  const [progressTick, setProgressTick] = useState(Date.now());
 
   const rollbackCompleted = rollbackState.isCompleted;
   const rollbackFailed = rollbackState.isFailed;
@@ -1988,28 +1952,7 @@ export default function TaskDetailsPage() {
   const rawServerProgress = rollbackProcessing
     ? Math.max(rollbackState.progress || 0, 0)
     : getTaskProgress(task);
-  const rollbackStartedAt =
-    getRollbackStartedValue(task) || clientRollbackStartedAt || getTaskStartedAt(task);
-  const serverProgress = rollbackProcessing
-    ? getEstimatedProgress(
-        rawServerProgress,
-        rollbackStartedAt,
-        progressTick,
-        ROLLBACK_PROGRESS_SPEED_PER_SECOND,
-        ROLLBACK_PROGRESS_CAP,
-        0,
-      )
-    : taskProcessing
-      ? getEstimatedProgress(
-          rawServerProgress,
-          getTaskStartedAt(task),
-          progressTick,
-          PENDING_PROGRESS_SPEED_PER_SECOND,
-          100,
-          0,
-        )
-      : rawServerProgress;
-
+  const serverProgress = rawServerProgress;
   const [visibleProgress, setVisibleProgress] = useState(serverProgress);
 
   const logs = useMemo(() => {
@@ -2053,8 +1996,6 @@ export default function TaskDetailsPage() {
   const confirmRollback = () => {
     setRollbackModalOpen(false);
     setClientRollbackStarted(true);
-    setClientRollbackStartedAt(Date.now());
-    setProgressTick(Date.now());
     setVisibleProgress(0);
     const formData = new FormData();
     formData.set("redirectTo", `/app/tasks/${task.id}`);
@@ -2102,7 +2043,6 @@ export default function TaskDetailsPage() {
   useEffect(() => {
     if (rollbackCompleted || rollbackFailed) {
       setClientRollbackStarted(false);
-      setClientRollbackStartedAt(null);
       setRollbackModalOpen(false);
     }
   }, [rollbackCompleted, rollbackFailed]);
@@ -2116,32 +2056,13 @@ export default function TaskDetailsPage() {
   }, [totalPages]);
 
   useEffect(() => {
-    setVisibleProgress((currentProgress) => {
-      if (rollbackProcessing) {
-        if (currentProgress >= 100 || currentProgress <= 0) {
-          return serverProgress;
-        }
-
-        return Math.max(currentProgress, serverProgress, 0);
-      }
-
-      if (taskProcessing) {
-        if (currentProgress >= 100 || currentProgress < 0) {
-          return Math.max(serverProgress, 0);
-        }
-
-        return Math.max(currentProgress, serverProgress, 0);
-      }
-
-      return serverProgress;
-    });
-  }, [rollbackProcessing, taskProcessing, serverProgress]);
+    setVisibleProgress(serverProgress);
+  }, [serverProgress]);
 
   useEffect(() => {
     if (!shouldPoll) return undefined;
 
     const timer = setInterval(() => {
-      setProgressTick(Date.now());
       revalidator.revalidate();
     }, POLL_INTERVAL_MS);
 

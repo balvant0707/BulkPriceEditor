@@ -467,29 +467,6 @@ function getRollbackStartedAt(task) {
   );
 }
 
-function getEstimatedProgress(
-  baseProgress,
-  startedAt,
-  now,
-  speedPerSecond,
-  progressCap,
-  minimumProgress = 0,
-) {
-  const startedAtMs = getDateMs(startedAt);
-
-  if (!startedAtMs) {
-    return Math.max(baseProgress, minimumProgress);
-  }
-
-  const elapsedSeconds = Math.max(0, Math.floor((now - startedAtMs) / 1000));
-  const estimatedProgress = Math.min(
-    progressCap,
-    baseProgress + elapsedSeconds * speedPerSecond,
-  );
-
-  return Math.max(baseProgress, estimatedProgress, minimumProgress);
-}
-
 function getRollbackProgress(task) {
   return getProgressValue(
     task.rollbackProgress,
@@ -624,19 +601,12 @@ function isTaskProcessing(task) {
   return status === "applying";
 }
 
-function getTaskListStatus(task, now = Date.now()) {
+function getTaskListStatus(task) {
   if (isRollbackProcessing(task)) {
     return {
       label: "Cancelling",
       tone: "attention",
-      progress: getEstimatedProgress(
-        Math.max(getRollbackProgress(task), 0),
-        getRollbackStartedAt(task),
-        now,
-        ROLLBACK_PROGRESS_SPEED_PER_SECOND,
-        ROLLBACK_PROGRESS_CAP,
-        0,
-      ),
+      progress: getRollbackProgress(task),
       showProgress: true,
     };
   }
@@ -645,14 +615,7 @@ function getTaskListStatus(task, now = Date.now()) {
     return {
       label: "Pending",
       tone: "attention",
-      progress: getEstimatedProgress(
-        0,
-        getTaskStartedAt(task),
-        now,
-        PENDING_PROGRESS_SPEED_PER_SECOND,
-        100,
-        0,
-      ),
+      progress: getTaskProgress(task),
       showProgress: true,
     };
   }
@@ -661,14 +624,7 @@ function getTaskListStatus(task, now = Date.now()) {
     return {
       label: "Applying",
       tone: getStatusTone(task.status),
-      progress: getEstimatedProgress(
-        Math.max(getTaskProgress(task), 0),
-        getTaskStartedAt(task),
-        now,
-        PENDING_PROGRESS_SPEED_PER_SECOND,
-        100,
-        0,
-      ),
+      progress: getTaskProgress(task),
       showProgress: true,
     };
   }
@@ -945,7 +901,7 @@ function TasksListPage({ tasks }) {
   };
 
   const rowMarkup = paginatedTasks.map((task, index) => {
-    const taskStatus = getTaskListStatus(task, progressTick);
+    const taskStatus = getTaskListStatus(task);
     const detailsPath = `/app/tasks/${task.id}`;
     const rollbackPath = `/app/tasks/${task.id}/rollback`;
     const deletePath = `/app/tasks/${task.id}/delete`;
