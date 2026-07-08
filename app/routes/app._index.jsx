@@ -35,8 +35,7 @@ const statsValueStyle = {
 const taskStatDefinitions = [
   { id: "all", label: "All tasks", url: "/app/tasks" },
   { id: "completed", label: "Completed", url: "/app/tasks?status=completed" },
-  { id: "archived", label: "Archived", url: "/app/tasks?status=archived" },
-  { id: "canceled", label: "Canceled", url: "/app/tasks?status=canceled" },
+  { id: "cancelled", label: "Cancelled", url: "/app/tasks?status=cancelled" },
 ];
 
 const saleStatDefinitions = [
@@ -79,13 +78,11 @@ function taskMatchesStatus(task, statusId) {
     );
   }
 
-  if (statusId === "archived") {
-    return status.includes("archived");
-  }
-
-  if (statusId === "canceled") {
+  if (statusId === "cancelled") {
     return (
       status.includes("cancel") ||
+      status.includes("rollback") ||
+      status.includes("rolled back") ||
       status.includes("failed") ||
       status.includes("error")
     );

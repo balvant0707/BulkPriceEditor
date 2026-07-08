@@ -14,9 +14,9 @@ import { TitleBar } from "@shopify/app-bridge-react";
 import db from "../db.server";
 import { authenticate } from "../shopify.server";
 
-const ROLLBACK_UPDATE_CONCURRENCY = 12;
+const ROLLBACK_UPDATE_CONCURRENCY = 24;
 const ROLLBACK_VARIANT_BATCH_SIZE = 200;
-const ROLLBACK_PROGRESS_WRITE_INTERVAL_MS = 800;
+const ROLLBACK_PROGRESS_WRITE_INTERVAL_MS = 350;
 
 const TASK_PRODUCT_VARIANTS_BULK_UPDATE = `#graphql
   mutation TaskRollbackProductVariantsBulkUpdate(
@@ -99,7 +99,7 @@ export const action = async ({ request, params }) => {
         ...(task.executionSummary || {}),
         rollback: {
           ok: null,
-          status: "cancelling",
+          status: "Cancelling",
           progress: 1,
           startedAt: rollbackStartedAt,
         },
@@ -146,7 +146,10 @@ async function runRollbackExecution(admin, task, rollbackStartedAt) {
         status: "Cancelled",
         executionSummary: {
           ...executionSummary,
-          rollback,
+          rollback: {
+            ...rollback,
+            status: "Cancelled",
+          },
         },
       },
     });
@@ -159,7 +162,7 @@ async function runRollbackExecution(admin, task, rollbackStartedAt) {
           ...executionSummary,
           rollback: {
             ok: false,
-            status: "failed",
+            status: "Cancelled",
             progress: 100,
             startedAt: rollbackStartedAt,
             completedAt: new Date().toISOString(),
@@ -207,7 +210,7 @@ function createRollbackProgressReporter(taskId, baseExecutionSummary, startedAt)
           ...baseExecutionSummary,
           rollback: {
             ok: null,
-            status: "cancelling",
+            status: "Cancelling",
             startedAt,
             ...latestSummary,
             progress,
@@ -275,19 +278,9 @@ function isRollbackProcessing(task) {
   const rollback = getRollbackSummary(task);
 
   return (
-    rollbackStatus === "processing" ||
     rollbackStatus === "cancelling" ||
-    rollbackStatus === "started" ||
-    rollbackStatus === "running" ||
-    rollbackStatus === "in_progress" ||
-    rollbackStatus === "rollback_processing" ||
-    rollbackStatus === "rollback_started" ||
-    rollbackStatus === "rollback_running" ||
-    rollbackStatus === "rollback_in_progress" ||
-    taskStatus === "rolling_back" ||
     taskStatus === "canceling" ||
     taskStatus === "cancelling" ||
-    taskStatus === "rollback_processing" ||
     (Boolean(rollback.startedAt) && !rollback.completedAt && rollback.progress < 100)
   );
 }
@@ -298,14 +291,8 @@ function isRollbackCompleted(task) {
   const rollback = getRollbackSummary(task);
 
   return (
-    rollbackStatus === "complete" ||
-    rollbackStatus === "completed" ||
-    rollbackStatus === "rolled_back" ||
-    rollbackStatus === "rollback_complete" ||
-    rollbackStatus === "rollback_completed" ||
-    taskStatus === "rolled_back" ||
-    taskStatus === "rollback_complete" ||
-    taskStatus === "rollback_completed" ||
+    rollbackStatus === "cancelled" ||
+    rollbackStatus === "canceled" ||
     ((taskStatus === "cancelled" || taskStatus === "canceled") &&
       rollback.ok === true) ||
     Boolean(rollback.completedAt) ||
@@ -322,9 +309,7 @@ function canRollbackTask(task) {
     isRollbackCompleted(task) ||
     status.includes("cancel") ||
     status.includes("rollback") ||
-    status.includes("rolled_back") ||
-    status.includes("failed") ||
-    status.includes("error")
+    status.includes("rolled_back")
   ) {
     return false;
   }
@@ -394,7 +379,7 @@ async function rollbackTask(
   if (!originalVariants.length && !originalInventoryItems.length) {
     return {
       ok: false,
-      status: "failed",
+      status: "Cancelled",
       progress: 100,
       error: "Rollback data is not available for this task.",
       updatedVariants,
@@ -564,7 +549,7 @@ async function rollbackTask(
 
   return {
     ok: errors.length === 0,
-    status: errors.length === 0 ? "complete" : "failed",
+    status: "Cancelled",
     progress: 100,
     updatedVariants,
     updatedInventoryItems,

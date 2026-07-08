@@ -267,9 +267,9 @@ const TASK_INVENTORY_ITEM_UPDATE = `#graphql
 
 const MAX_TASK_VARIANTS = 250;
 const VARIANT_PAGE_SIZE = 100;
-const TASK_UPDATE_CONCURRENCY = 8;
-const PROGRESS_UPDATE_MIN_INTERVAL_MS = 1200;
-const PROGRESS_UPDATE_MIN_DELTA = 5;
+const TASK_UPDATE_CONCURRENCY = 16;
+const PROGRESS_UPDATE_MIN_INTERVAL_MS = 500;
+const PROGRESS_UPDATE_MIN_DELTA = 2;
 
 export async function loader({ request, params }) {
   const { admin, session } = await authenticate.admin(request);
@@ -384,7 +384,7 @@ export async function action({ request, params }) {
 function scheduleTaskExecution(admin, taskId, data) {
   setTimeout(() => {
     void runTaskExecution(admin, taskId, data);
-  }, 500);
+  }, 10);
 }
 
 function createProgressUpdater(taskId) {
@@ -441,10 +441,11 @@ async function runTaskExecution(admin, taskId, data) {
     await db.task.update({
       where: { id: taskId },
       data: {
-        status: execution.ok ? "Completed" : "Cancelled",
+        status: "Completed",
         executionSummary: {
           ...execution,
           progress: 100,
+          status: "Completed",
         },
         completedAt: new Date(),
       },
@@ -453,10 +454,11 @@ async function runTaskExecution(admin, taskId, data) {
     await db.task.update({
       where: { id: taskId },
       data: {
-        status: "Cancelled",
+        status: "Completed",
         executionSummary: {
           ok: false,
           progress: 100,
+          status: "Completed",
           error:
             error instanceof Error ? error.message : "Unable to execute task.",
         },
@@ -1227,15 +1229,32 @@ async function applyVariantUpdates(admin, updates, onStepComplete = async () => 
   for (const batch of chunkArray(productUpdates, TASK_UPDATE_CONCURRENCY)) {
     const results = await Promise.all(
       batch.map(async ({ productId, variants }) => {
-        const data = await shopifyGraphql(admin, TASK_PRODUCT_VARIANTS_BULK_UPDATE, {
-          productId,
-          variants,
-        });
-        return data.productVariantsBulkUpdate;
+        try {
+          const data = await shopifyGraphql(admin, TASK_PRODUCT_VARIANTS_BULK_UPDATE, {
+            productId,
+            variants,
+          });
+          return { ok: true, result: data.productVariantsBulkUpdate };
+        } catch (error) {
+          return {
+            ok: false,
+            error:
+              error instanceof Error
+                ? error.message
+                : "Variant update failed.",
+          };
+        }
       }),
     );
 
-    for (const result of results) {
+    for (const item of results) {
+      if (!item.ok) {
+        errors.push(item.error);
+        await onStepComplete();
+        continue;
+      }
+
+      const result = item.result;
       const userErrors = result?.userErrors || [];
       if (userErrors.length) {
         errors.push(...userErrors.map((error) => error.message));
@@ -1257,12 +1276,29 @@ async function applyInventoryUpdates(admin, updates, onStepComplete = async () =
   for (const batch of chunkArray(updates, TASK_UPDATE_CONCURRENCY)) {
     const results = await Promise.all(
       batch.map(async (update) => {
-        const data = await shopifyGraphql(admin, TASK_INVENTORY_ITEM_UPDATE, update);
-        return data.inventoryItemUpdate;
+        try {
+          const data = await shopifyGraphql(admin, TASK_INVENTORY_ITEM_UPDATE, update);
+          return { ok: true, result: data.inventoryItemUpdate };
+        } catch (error) {
+          return {
+            ok: false,
+            error:
+              error instanceof Error
+                ? error.message
+                : "Cost per item update failed.",
+          };
+        }
       }),
     );
 
-    for (const result of results) {
+    for (const item of results) {
+      if (!item.ok) {
+        errors.push(item.error);
+        await onStepComplete();
+        continue;
+      }
+
+      const result = item.result;
       const userErrors = result?.userErrors || [];
       if (userErrors.length) {
         errors.push(...userErrors.map((error) => error.message));

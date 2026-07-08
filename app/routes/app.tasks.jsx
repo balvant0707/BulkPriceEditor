@@ -52,12 +52,8 @@ const TASK_TABS = [
     content: "Completed",
   },
   {
-    id: "archived",
-    content: "Archived",
-  },
-  {
-    id: "canceled",
-    content: "Canceled",
+    id: "cancelled",
+    content: "Cancelled",
   },
 ];
 
@@ -340,7 +336,13 @@ function getStatusLabel(status) {
     return "Cancelling";
   }
 
-  if (normalized.includes("cancel")) {
+  if (
+    normalized.includes("cancel") ||
+    normalized.includes("failed") ||
+    normalized.includes("error") ||
+    normalized.includes("rolled back") ||
+    normalized.includes("rollback")
+  ) {
     return "Cancelled";
   }
 
@@ -379,14 +381,12 @@ function getStatusTone(status) {
     return "success";
   }
 
-  if (normalized.includes("archived")) {
-    return "info";
-  }
-
   if (
     normalized.includes("cancel") ||
     normalized.includes("failed") ||
-    normalized.includes("error")
+    normalized.includes("error") ||
+    normalized.includes("rolled back") ||
+    normalized.includes("rollback")
   ) {
     return "critical";
   }
@@ -539,14 +539,8 @@ function isRollbackCompleted(task) {
   const rollback = getRollbackSummary(task);
 
   return (
-    rollbackStatus === "complete" ||
-    rollbackStatus === "completed" ||
-    rollbackStatus === "rolled_back" ||
-    rollbackStatus === "rollback_complete" ||
-    rollbackStatus === "rollback_completed" ||
-    taskStatus === "rolled_back" ||
-    taskStatus === "rollback_complete" ||
-    taskStatus === "rollback_completed" ||
+    rollbackStatus === "cancelled" ||
+    rollbackStatus === "canceled" ||
     ((taskStatus === "cancelled" || taskStatus === "canceled") &&
       rollback.ok === true) ||
     Boolean(rollback.completedAt) ||
@@ -680,15 +674,13 @@ function taskMatchesTab(task, activeTab) {
     );
   }
 
-  if (activeTab === "archived") {
-    return status.includes("archived");
-  }
-
-  if (activeTab === "canceled") {
+  if (activeTab === "cancelled") {
     return (
       (status.includes("cancel") &&
         !status.includes("canceling") &&
         !status.includes("cancelling")) ||
+      status.includes("rolled back") ||
+      status.includes("rollback") ||
       status.includes("failed") ||
       status.includes("error")
     );
@@ -1172,7 +1164,7 @@ function TasksListPage({ tasks }) {
           <Modal.Section>
             <Text as="p" variant="bodyMd" fontWeight="semibold">
               More recent tasks applied to the same products will be also
-              canceled. Are you sure?
+              cancelled. Are you sure?
             </Text>
           </Modal.Section>
         </div>

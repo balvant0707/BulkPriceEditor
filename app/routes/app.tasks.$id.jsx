@@ -71,11 +71,12 @@ export const loader = async ({ request, params }) => {
     task = await db.task.update({
       where: { id: task.id },
       data: {
-        status: "Failed",
+        status: "Cancelled",
         executionSummary: {
           ...(task.executionSummary || {}),
           ok: false,
           progress: 100,
+          status: "Cancelled",
           error: "Task execution timed out before Shopify finished responding.",
         },
         completedAt: new Date(),
@@ -169,7 +170,13 @@ function isFailedOrCanceledStatus(status) {
 }
 
 function getCanceledStatusLabel(status) {
-  return normalizeStatus(status).includes("cancel")
+  const normalized = normalizeStatus(status);
+
+  return normalized.includes("cancel") ||
+    normalized.includes("failed") ||
+    normalized.includes("error") ||
+    normalized.includes("rollback") ||
+    normalized.includes("rolled back")
     ? "Cancelled"
     : humanize(status);
 }
@@ -521,24 +528,9 @@ function getRollbackState(task) {
       Boolean(rollbackSummary.completedAt) ||
       Boolean(rollbackSummary.rolledBackAt));
 
-  const completedStatuses = [
-    "complete",
-    "completed",
-    "rolled_back",
-    "rolledback",
-    "rollback_complete",
-    "rollback_completed",
-  ];
+  const completedStatuses = ["cancelled", "canceled"];
 
-  const processingStatuses = [
-    "rolling_back",
-    "rollback_processing",
-    "rollback_started",
-    "rollback_running",
-    "rollback_in_progress",
-    "canceling",
-    "cancelling",
-  ];
+  const processingStatuses = ["canceling", "cancelling"];
 
   const failedStatuses = ["failed", "error", "cancelled", "canceled"];
 
@@ -548,9 +540,6 @@ function getRollbackState(task) {
     completedStatuses.includes(rollbackStatusKey) ||
     ((taskStatusKey === "cancelled" || taskStatusKey === "canceled") &&
       rollbackSummary?.ok === true) ||
-    taskStatusKey === "rolled_back" ||
-    taskStatusKey === "rollback_complete" ||
-    taskStatusKey === "rollback_completed" ||
     taskStatus.includes("rolled back") ||
     taskStatus.includes("rollback complete");
 
@@ -2149,6 +2138,9 @@ export default function TaskDetailsPage() {
 
                   {statusDisplay.showProgress ? (
                     <>
+                      <Text as="span" tone="subdued">
+                        {visibleProgress}%
+                      </Text>
                       <Box maxWidth="320px">
                         <ProgressBar
                           progress={visibleProgress}
@@ -2156,9 +2148,6 @@ export default function TaskDetailsPage() {
                           tone="primary"
                         />
                       </Box>
-                      <Text as="span" tone="subdued">
-                        Progress: {visibleProgress}%
-                      </Text>
                     </>
                   ) : null}
                 </InlineStack>
