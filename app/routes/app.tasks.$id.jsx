@@ -31,7 +31,6 @@ import { authenticate } from "../shopify.server";
 const LOGS_PER_PAGE = 4;
 const TASK_EXECUTION_TIMEOUT_MS = 10 * 60 * 1000;
 const POLL_INTERVAL_MS = 500;
-const ROLLBACK_PROGRESS_CAP = 98;
 const ACTIVE_TASK_STATUSES = [
   "Pending",
   "Applying",
@@ -1766,6 +1765,206 @@ function ApplyToDetails({ task, selectedCollections }) {
   );
 }
 
+function getConfiguredRecords(configuration, prefix, type) {
+  if (type === "collection") {
+    return buildCollectionRecordsFromIds(
+      getConfigArray(configuration, `${prefix}_collection_ids[]`),
+      getConfigArray(configuration, `${prefix}_collection_titles[]`),
+      getConfigArray(configuration, `${prefix}_collection_handles[]`),
+      getConfigArray(configuration, `${prefix}_collection_products_counts[]`),
+      getConfigArray(configuration, `${prefix}_collection_image_urls[]`),
+    );
+  }
+
+  if (type === "product") {
+    const ids = getConfigArray(configuration, `${prefix}_product_ids[]`);
+    const titles = getConfigArray(configuration, `${prefix}_product_titles[]`);
+
+    return ids.map((id, index) => ({ id, title: titles[index] || "" }));
+  }
+
+  if (type === "variant") {
+    const ids = getConfigArray(configuration, `${prefix}_variant_ids[]`);
+    const titles = getConfigArray(configuration, `${prefix}_variant_titles[]`);
+    const productIds = getConfigArray(configuration, `${prefix}_variant_product_ids[]`);
+    const productTitles = getConfigArray(configuration, `${prefix}_variant_product_titles[]`);
+
+    return ids.map((id, index) => ({
+      id,
+      title: titles[index] || "",
+      productId: productIds[index] || "",
+      productTitle: productTitles[index] || "",
+    }));
+  }
+
+  if (type === "tag") {
+    return getConfigArray(configuration, `${prefix}_tag_names[]`).map((title) => ({
+      id: title,
+      title,
+    }));
+  }
+
+  return [];
+}
+
+function uniqueResourceRecords(records) {
+  const unique = new Map();
+
+  records.forEach((record, index) => {
+    const key =
+      record?.gid ||
+      record?.id ||
+      record?.title ||
+      record?.handle ||
+      `resource-${index}`;
+
+    if (!unique.has(key)) {
+      unique.set(key, record);
+    }
+  });
+
+  return Array.from(unique.values());
+}
+
+function getSelectedResourceRecords(task, prefix, type, selectedCollections = []) {
+  const resources =
+    prefix === "apply" ? task.applyResources || {} : task.excludeResources || {};
+  const configuration = task.configuration || {};
+
+  if (type === "collection") {
+    if (prefix === "apply" && selectedCollections?.length) {
+      return selectedCollections;
+    }
+
+    return uniqueResourceRecords(
+      [
+        ...getArrayValue(resources.collections),
+        ...buildCollectionRecordsFromIds(resources.collectionIds),
+        ...getConfiguredRecords(configuration, prefix, type),
+      ].map((record, index) => normalizeCollectionRecord(record, index)),
+    );
+  }
+
+  if (type === "product") {
+    return uniqueResourceRecords([
+      ...getArrayValue(resources.products),
+      ...getConfiguredRecords(configuration, prefix, type),
+      ...getArrayValue(resources.productIds).map((id) => ({ id })),
+    ]);
+  }
+
+  if (type === "variant") {
+    return uniqueResourceRecords([
+      ...getArrayValue(resources.variants),
+      ...getConfiguredRecords(configuration, prefix, type),
+      ...getArrayValue(resources.variantIds).map((id) => ({ id })),
+    ]);
+  }
+
+  if (type === "tag") {
+    return uniqueResourceRecords([
+      ...getArrayValue(resources.tagNames).map((title) => ({ id: title, title })),
+      ...getConfiguredRecords(configuration, prefix, type),
+    ]);
+  }
+
+  return [];
+}
+
+function ResourceList({ records, type, shopifyStoreHandle }) {
+  if (!records.length) return null;
+
+  return (
+    <BlockStack gap="150">
+      {records.map((item, index) => {
+        const productId =
+          type === "variant"
+            ? getShopifyNumericId(item.productId)
+            : getShopifyNumericId(item.id || item.gid);
+        const variantId =
+          type === "variant" ? getShopifyNumericId(item.id || item.gid) : "";
+        const label =
+          type === "variant"
+            ? `${item.productTitle ? `${item.productTitle} - ` : ""}${
+                item.title || item.id || "Variant"
+              }`
+            : item.title || item.handle || item.id || humanize(type);
+        const url =
+          type === "collection"
+            ? item.adminUrl ||
+              getCollectionAdminUrl(
+                shopifyStoreHandle,
+                getShopifyNumericId(item.id || item.gid),
+              )
+            : type === "product"
+              ? getProductAdminUrl(shopifyStoreHandle, productId)
+              : type === "variant"
+                ? getVariantAdminUrl(shopifyStoreHandle, productId, variantId)
+                : "";
+
+        return (
+          <Text as="p" fontWeight="regular" key={`${type}-${item.id || item.title || index}`}>
+            <AdminLink url={url}>{label}</AdminLink>
+          </Text>
+        );
+      })}
+    </BlockStack>
+  );
+}
+
+function SelectionDetails({
+  task,
+  prefix,
+  scope,
+  selectedCollections,
+  shopifyStoreHandle,
+}) {
+  const collections = getSelectedResourceRecords(
+    task,
+    prefix,
+    "collection",
+    selectedCollections,
+  );
+  const products = getSelectedResourceRecords(task, prefix, "product");
+  const variants = getSelectedResourceRecords(task, prefix, "variant");
+  const tags = getSelectedResourceRecords(task, prefix, "tag");
+  const hasSelections =
+    collections.length || products.length || variants.length || tags.length;
+
+  return (
+    <BlockStack gap="200">
+      <Text as="p" fontWeight="semibold">
+        {humanize(scope)}
+      </Text>
+
+      {hasSelections ? (
+        <BlockStack gap="200">
+          <ResourceList
+            records={collections}
+            type="collection"
+            shopifyStoreHandle={shopifyStoreHandle}
+          />
+          <ResourceList
+            records={products}
+            type="product"
+            shopifyStoreHandle={shopifyStoreHandle}
+          />
+          <ResourceList
+            records={variants}
+            type="variant"
+            shopifyStoreHandle={shopifyStoreHandle}
+          />
+          <ResourceList
+            records={tags}
+            type="tag"
+            shopifyStoreHandle={shopifyStoreHandle}
+          />
+        </BlockStack>
+      ) : null}
+    </BlockStack>
+  );
+}
+
 function ProductDetailsView({ task, productDetails, navigate }) {
   const rollbackState = getRollbackState(task);
   const statusDisplay = getDetailsStatusDisplay(task, rollbackState);
@@ -1936,6 +2135,8 @@ export default function TaskDetailsPage() {
     : getTaskProgress(task);
   const serverProgress = rawServerProgress;
   const [visibleProgress, setVisibleProgress] = useState(serverProgress);
+  const showStatusPercent =
+    statusDisplay.showProgress && statusDisplay.label !== "Pending";
 
   const logs = useMemo(() => {
     const productLogs = createProductGroups(task, shopifyStoreHandle, shopCurrency);
@@ -2038,24 +2239,18 @@ export default function TaskDetailsPage() {
   }, [totalPages]);
 
   useEffect(() => {
-    setVisibleProgress((current) => Math.max(current, serverProgress));
+    setVisibleProgress(serverProgress);
   }, [serverProgress]);
 
   useEffect(() => {
     if (!shouldPoll) return undefined;
 
     const timer = setInterval(() => {
-      setVisibleProgress((current) => {
-        const nextProgress = Math.max(current, serverProgress);
-        const cap = rollbackProcessing ? ROLLBACK_PROGRESS_CAP : 100;
-
-        return Math.min(cap, nextProgress + 1);
-      });
       revalidator.revalidate();
     }, POLL_INTERVAL_MS);
 
     return () => clearInterval(timer);
-  }, [revalidator, rollbackProcessing, serverProgress, shouldPoll]);
+  }, [revalidator, shouldPoll]);
 
   if (selectedProductId) {
     return (
@@ -2120,19 +2315,30 @@ export default function TaskDetailsPage() {
               />
 
               <DetailRow label="Apply to">
-                <ApplyToDetails
+                <SelectionDetails
                   task={task}
+                  prefix="apply"
+                  scope={task.applyScope}
                   selectedCollections={selectedCollections}
+                  shopifyStoreHandle={shopifyStoreHandle}
                 />
               </DetailRow>
 
-              <DetailRow label="Exclude" value={humanize(task.excludeScope)} />
+              <DetailRow label="Exclude">
+                <SelectionDetails
+                  task={task}
+                  prefix="exclude"
+                  scope={task.excludeScope}
+                  selectedCollections={[]}
+                  shopifyStoreHandle={shopifyStoreHandle}
+                />
+              </DetailRow>
 
               <DetailRow label="Status">
                 <InlineStack gap="200" blockAlign="center" wrap={false}>
                   <StatusBadge display={statusDisplay} />
 
-                  {statusDisplay.showProgress ? (
+                  {showStatusPercent ? (
                     <>
                       <Text as="span" tone="subdued">
                         {visibleProgress}%

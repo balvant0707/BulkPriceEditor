@@ -537,6 +537,33 @@ function buildSelectedCollectionRecords(formData, prefix) {
   }));
 }
 
+function buildSelectedProductRecords(formData, prefix) {
+  const ids = getFormValues(formData, `${prefix}_product_ids[]`);
+  const titles = getFormValues(formData, `${prefix}_product_titles[]`);
+
+  return ids.map((id, index) => ({
+    id,
+    title: titles[index] || "",
+  }));
+}
+
+function buildSelectedVariantRecords(formData, prefix) {
+  const ids = getFormValues(formData, `${prefix}_variant_ids[]`);
+  const titles = getFormValues(formData, `${prefix}_variant_titles[]`);
+  const productIds = getFormValues(formData, `${prefix}_variant_product_ids[]`);
+  const productTitles = getFormValues(
+    formData,
+    `${prefix}_variant_product_titles[]`,
+  );
+
+  return ids.map((id, index) => ({
+    id,
+    title: titles[index] || "",
+    productId: productIds[index] || "",
+    productTitle: productTitles[index] || "",
+  }));
+}
+
 function buildTaskData(shop, formData) {
   const selectedMarketIds = getFormValues(formData, "selected_market_ids[]");
   const selectedMarketHandles = getFormValues(formData, "selected_market_handles[]");
@@ -546,6 +573,10 @@ function buildTaskData(shop, formData) {
   );
   const applyCollections = buildSelectedCollectionRecords(formData, "apply");
   const excludeCollections = buildSelectedCollectionRecords(formData, "exclude");
+  const applyProducts = buildSelectedProductRecords(formData, "apply");
+  const excludeProducts = buildSelectedProductRecords(formData, "exclude");
+  const applyVariants = buildSelectedVariantRecords(formData, "apply");
+  const excludeVariants = buildSelectedVariantRecords(formData, "exclude");
 
   return {
     shop,
@@ -569,7 +600,9 @@ function buildTaskData(shop, formData) {
       collectionIds: getFormValues(formData, "apply_collection_ids[]"),
       collections: applyCollections,
       productIds: getFormValues(formData, "apply_product_ids[]"),
+      products: applyProducts,
       variantIds: getFormValues(formData, "apply_variant_ids[]"),
+      variants: applyVariants,
       tagNames: getFormValues(formData, "apply_tag_names[]"),
     },
     excludeResources: {
@@ -578,7 +611,9 @@ function buildTaskData(shop, formData) {
       collectionIds: getFormValues(formData, "exclude_collection_ids[]"),
       collections: excludeCollections,
       productIds: getFormValues(formData, "exclude_product_ids[]"),
+      products: excludeProducts,
       variantIds: getFormValues(formData, "exclude_variant_ids[]"),
+      variants: excludeVariants,
       tagNames: getFormValues(formData, "exclude_tag_names[]"),
     },
     configuration: formDataToConfiguration(formData),
@@ -2237,12 +2272,18 @@ function ResourcePickerField({
           />
 
           {selectedProducts.map((item) => (
-            <input
-              key={item.id}
-              type="hidden"
-              name={`${sectionPrefix}_product_ids[]`}
-              value={item.id}
-            />
+            <div key={item.id}>
+              <input
+                type="hidden"
+                name={`${sectionPrefix}_product_ids[]`}
+                value={item.id}
+              />
+              <input
+                type="hidden"
+                name={`${sectionPrefix}_product_titles[]`}
+                value={item.title || ""}
+              />
+            </div>
           ))}
 
           <ResourcePickerModal
@@ -2297,12 +2338,28 @@ function ResourcePickerField({
           />
 
           {selectedVariants.map((item) => (
-            <input
-              key={item.id}
-              type="hidden"
-              name={`${sectionPrefix}_variant_ids[]`}
-              value={item.id}
-            />
+            <div key={item.id}>
+              <input
+                type="hidden"
+                name={`${sectionPrefix}_variant_ids[]`}
+                value={item.id}
+              />
+              <input
+                type="hidden"
+                name={`${sectionPrefix}_variant_titles[]`}
+                value={item.title || ""}
+              />
+              <input
+                type="hidden"
+                name={`${sectionPrefix}_variant_product_ids[]`}
+                value={item.productId || ""}
+              />
+              <input
+                type="hidden"
+                name={`${sectionPrefix}_variant_product_titles[]`}
+                value={item.productTitle || ""}
+              />
+            </div>
           ))}
 
           <ResourcePickerModal
