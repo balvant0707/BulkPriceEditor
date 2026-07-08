@@ -428,6 +428,29 @@ function getDateMs(value) {
   return Number.isNaN(time) ? null : time;
 }
 
+function getEstimatedProgress(
+  baseProgress,
+  startedAt,
+  now,
+  speedPerSecond,
+  progressCap,
+  minimumProgress = 0,
+) {
+  const startedAtMs = getDateMs(startedAt);
+
+  if (!startedAtMs) {
+    return Math.max(baseProgress, minimumProgress);
+  }
+
+  const elapsedSeconds = Math.max(0, Math.floor((now - startedAtMs) / 1000));
+  const estimatedProgress = Math.min(
+    progressCap,
+    baseProgress + elapsedSeconds * speedPerSecond,
+  );
+
+  return Math.max(baseProgress, estimatedProgress, minimumProgress);
+}
+
 function getTaskStartedAt(task) {
   return (
     task.startedAt ||
@@ -1945,7 +1968,20 @@ export default function TaskDetailsPage() {
     ? Math.max(rollbackState.progress || 0, 0)
     : getTaskProgress(task);
   const serverProgress = rawServerProgress;
+  const [progressTick, setProgressTick] = useState(Date.now());
   const [visibleProgress, setVisibleProgress] = useState(serverProgress);
+  const estimatedProgress = statusDisplay.showProgress
+    ? getEstimatedProgress(
+        Math.max(serverProgress || 0, 0),
+        rollbackProcessing ? getRollbackStartedValue(task) : getTaskStartedAt(task),
+        progressTick,
+        rollbackProcessing
+          ? ROLLBACK_PROGRESS_SPEED_PER_SECOND
+          : PENDING_PROGRESS_SPEED_PER_SECOND,
+        rollbackProcessing ? ROLLBACK_PROGRESS_CAP : 98,
+        taskPending || rollbackProcessing ? 1 : 0,
+      )
+    : serverProgress;
 
   const logs = useMemo(() => {
     const productLogs = createProductGroups(task, shopifyStoreHandle, shopCurrency);
@@ -1988,6 +2024,7 @@ export default function TaskDetailsPage() {
   const confirmRollback = () => {
     setRollbackModalOpen(false);
     setClientRollbackStarted(true);
+    setProgressTick(Date.now());
     setVisibleProgress(0);
     const formData = new FormData();
     formData.set("redirectTo", `/app/tasks/${task.id}`);
@@ -2048,13 +2085,14 @@ export default function TaskDetailsPage() {
   }, [totalPages]);
 
   useEffect(() => {
-    setVisibleProgress(serverProgress);
-  }, [serverProgress]);
+    setVisibleProgress(estimatedProgress);
+  }, [estimatedProgress]);
 
   useEffect(() => {
     if (!shouldPoll) return undefined;
 
     const timer = setInterval(() => {
+      setProgressTick(Date.now());
       revalidator.revalidate();
     }, POLL_INTERVAL_MS);
 

@@ -710,6 +710,7 @@ async function executeTask(admin, taskData, onProgress = async () => {}) {
         originalInventoryItems.push({
           id: variant.inventoryItem.id,
           variantId: variant.id,
+          variantTitle: variant.title,
           productId: variant.product?.id,
           productTitle: variant.product?.title,
           cost: variant.inventoryItem.unitCost?.amount,
@@ -1089,7 +1090,7 @@ function buildInventoryUpdate(variant, costChange) {
     variant.inventoryItem.unitCost?.amount,
     variant,
     costChange,
-    { resetValue: null },
+    { resetValue: null, fallbackBase: variant.price },
   );
 
   if (nextCost === undefined) return null;
