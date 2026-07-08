@@ -31,21 +31,13 @@ import { authenticate } from "../shopify.server";
 const LOGS_PER_PAGE = 4;
 const TASK_EXECUTION_TIMEOUT_MS = 10 * 60 * 1000;
 const POLL_INTERVAL_MS = 500;
-const TASK_PROGRESS_SPEED_PER_SECOND = 5;
-const ROLLBACK_PROGRESS_SPEED_PER_SECOND = 12;
-const TASK_PROGRESS_CAP = 95;
+const ROLLBACK_PROGRESS_SPEED_PER_SECOND = 50;
 const ROLLBACK_PROGRESS_CAP = 98;
 const PENDING_PROGRESS_SPEED_PER_SECOND = 50;
 const ACTIVE_TASK_STATUSES = [
   "Pending",
   "Applying",
-  "Processing",
-  "Running",
-  "Started",
-  "In progress",
-  "in_progress",
   "Cancelling",
-  "Canceling",
 ];
 
 export const loader = async ({ request, params }) => {
@@ -327,11 +319,7 @@ function isTaskProcessing(task) {
   if (isTaskCompleted(task) || isTaskFailed(task)) return false;
 
   return (
-    status === "processing" ||
-    status === "applying" ||
-    status === "running" ||
-    status === "in_progress" ||
-    status === "started"
+    status === "applying"
   );
 }
 
@@ -371,7 +359,7 @@ function getBaseTaskDisplay(task) {
 
   if (isTaskPending(task) || !normalized) {
     return {
-      label: "Applying",
+      label: "Pending",
       tone: "attention",
       background: "#FEDF89",
       showPendingSpinner: true,
@@ -642,14 +630,6 @@ function getRollbackState(task) {
 
 function getStatusToneFromDisplay(display) {
   return display?.tone || "info";
-}
-
-function getAppliedLabel(task) {
-  if (isTaskFailed(task)) return getCanceledStatusLabel(getTaskStatusValue(task));
-  if (isTaskCompleted(task)) return "Completed";
-  if (isTaskProcessing(task)) return "Applying";
-
-  return humanize(getTaskStatusValue(task) || "Pending");
 }
 
 function getDetailsStatusDisplay(task, rollbackState = null) {
@@ -2245,7 +2225,7 @@ export default function TaskDetailsPage() {
 
                   {statusDisplay.showProgress ? (
                     <>
-                      <Box maxWidth="320px" style={{ display: "none" }}>
+                      <Box maxWidth="320px">
                         <ProgressBar
                           progress={visibleProgress}
                           size="small"

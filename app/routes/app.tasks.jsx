@@ -621,12 +621,7 @@ function isTaskPending(task) {
 
 function isTaskProcessing(task) {
   const status = String(task.status || "").toLowerCase();
-  return (
-    status.includes("processing") ||
-    status.includes("applying") ||
-    status.includes("running") ||
-    status.includes("in_progress")
-  );
+  return status === "applying";
 }
 
 function getTaskListStatus(task, now = Date.now()) {
@@ -648,7 +643,7 @@ function getTaskListStatus(task, now = Date.now()) {
 
   if (isTaskPending(task)) {
     return {
-      label: "Applying",
+      label: "Pending",
       tone: "attention",
       progress: getEstimatedProgress(
         0,
