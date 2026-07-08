@@ -531,11 +531,6 @@ function getRollbackState(task) {
   ];
 
   const processingStatuses = [
-    "processing",
-    "applying",
-    "started",
-    "running",
-    "in_progress",
     "rolling_back",
     "rollback_processing",
     "rollback_started",
@@ -570,21 +565,12 @@ function getRollbackState(task) {
     hasStartedAt ||
     rollbackProgress > 0 ||
     processingStatuses.includes(rollbackStatusKey) ||
-    processingStatuses.includes(taskStatusKey) ||
-    taskStatus.includes("rolling back") ||
-    taskStatus.includes("canceling") ||
-    taskStatus.includes("cancelling");
+    processingStatuses.includes(taskStatusKey);
 
   const isProcessing =
     !isCompleted &&
     !isFailed &&
-    hasRealRollbackStart &&
-    (processingStatuses.includes(rollbackStatusKey) ||
-      rollbackStatusKey === "pending" ||
-      processingStatuses.includes(taskStatusKey) ||
-      taskStatus.includes("rolling back") ||
-      taskStatus.includes("canceling") ||
-      taskStatus.includes("cancelling"));
+    hasRealRollbackStart;
 
   return {
     isCompleted,

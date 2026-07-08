@@ -2518,10 +2518,7 @@ function PriceChangeFields({
     (isIncreaseOrDecrease && changeType === "by_percent");
 
   const shouldShowAmount =
-    (action === "set_new_value" && !isCompareAtPriceField && !isCostPerItemField) ||
-    (isCompareAtPriceField && action === "set_new_value") ||
-    (isCostPerItemField && action === "set_new_value") ||
-    (isIncreaseOrDecrease && changeType === "by_amount");
+    action === "set_new_value" || (isIncreaseOrDecrease && changeType === "by_amount");
 
   const shouldShowRounding =
     (isPriceField && action === "set_margin") ||
