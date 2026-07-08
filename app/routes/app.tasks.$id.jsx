@@ -1388,6 +1388,22 @@ function createProductGroups(task, shopifyStoreHandle, shopCurrency) {
   const originalInventoryItems =
     task.executionSummary?.originalInventoryItems || [];
 
+  const recordsByVariantId = new Map();
+
+  originalVariants.forEach((v) => {
+    const variantId = getVariantId(v);
+    if (variantId) {
+      recordsByVariantId.set(variantId, { ...recordsByVariantId.get(variantId), ...v });
+    }
+  });
+
+  originalInventoryItems.forEach((i) => {
+    const variantId = getVariantId(i);
+    if (variantId) {
+      recordsByVariantId.set(variantId, { ...recordsByVariantId.get(variantId), ...i });
+    }
+  });
+
   function addRecord(record, index, type) {
     const productId = getProductId(record);
     const variantId = getVariantId(record);
@@ -1434,18 +1450,16 @@ function createProductGroups(task, shopifyStoreHandle, shopCurrency) {
       price: record?.price,
       compareAtPrice: record?.compareAtPrice,
       newSetPrice: record?.nextPrice,
+      cost: record?.cost,
+      newSetCost: record?.nextCost,
       changes: buildVariantChanges(record, shopCurrency),
       adminUrl: getVariantAdminUrl(shopifyStoreHandle, productId, variantId),
       type,
     });
   }
 
-  originalVariants.forEach((variant, index) => {
-    addRecord(variant, index, "variant");
-  });
-
-  originalInventoryItems.forEach((item, index) => {
-    addRecord(item, index, "inventory");
+  Array.from(recordsByVariantId.values()).forEach((record, index) => {
+    addRecord(record, index, "variant");
   });
 
   return Array.from(groups.values()).map((group) => {
@@ -1480,6 +1494,8 @@ function createProductGroups(task, shopifyStoreHandle, shopCurrency) {
       price: summarizeVariantValue(group.variants, "price"),
       compareAtPrice: summarizeVariantValue(group.variants, "compareAtPrice"),
       newSetPrice: summarizeVariantValue(group.variants, "newSetPrice"),
+      cost: summarizeVariantValue(group.variants, "cost"),
+      newSetCost: summarizeVariantValue(group.variants, "newSetCost"),
       variantCount: group.variants.length,
     };
   });
@@ -1583,6 +1599,8 @@ function filterLogs(logs, searchQuery) {
       log.price,
       log.compareAtPrice,
       log.newSetPrice,
+      log.cost,
+      log.newSetCost,
       log.changeSummary?.primary,
       ...(log.variants || []).flatMap((variant) => [
         variant.title,
@@ -1591,6 +1609,8 @@ function filterLogs(logs, searchQuery) {
         variant.price,
         variant.compareAtPrice,
         variant.newSetPrice,
+        variant.cost,
+        variant.newSetCost,
         ...(variant.changes || []),
       ]),
     ]
