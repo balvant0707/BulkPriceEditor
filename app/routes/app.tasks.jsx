@@ -1030,6 +1030,7 @@ function TasksListPage({ tasks }) {
         loading: isOpeningNewTask,
         disabled: isOpeningNewTask,
       }}
+      fullWidth
     >
       <TitleBar title="Tasks" />
 
