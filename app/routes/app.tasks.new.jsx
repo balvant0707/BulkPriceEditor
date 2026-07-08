@@ -2783,6 +2783,9 @@ export default function NewTaskPage() {
   const [autoReapply, setAutoReapply] = useState(
     Boolean(task?.autoReapplyChanges || configuration.auto_reapply_changes),
   );
+  const [trackConditionChanges, setTrackConditionChanges] = useState(
+    Boolean(configuration.track_condition_changes),
+  );
 
   const [applyCollections, setApplyCollections] = useState(
     collectionConfigToSelectedItems(configuration, "apply"),
@@ -3067,6 +3070,21 @@ export default function NewTaskPage() {
                 </SectionCard>
 
                 <SectionCard title="Advanced">
+                  <input
+                    type="hidden"
+                    name="track_condition_changes_enabled"
+                    value={trackConditionChanges ? "enabled" : "disabled"}
+                  />
+                  <Checkbox
+                    label="Track changes in condition automatically (every hour)"
+                    name="track_condition_changes"
+                    checked={trackConditionChanges}
+                    onChange={setTrackConditionChanges}
+                    helpText="New matching products will be included and products that no longer match will be excluded."
+                  />
+
+                  <Divider />
+
                   <input
                     type="hidden"
                     name="auto_reapply_changes_enabled"
