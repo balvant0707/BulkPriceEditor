@@ -20,6 +20,7 @@ import {
   Page,
   Pagination,
   ProgressBar,
+  Spinner,
   Text,
   TextField,
 } from "@shopify/polaris";
@@ -34,14 +35,17 @@ const TASK_PROGRESS_SPEED_PER_SECOND = 5;
 const ROLLBACK_PROGRESS_SPEED_PER_SECOND = 12;
 const TASK_PROGRESS_CAP = 95;
 const ROLLBACK_PROGRESS_CAP = 98;
+const PENDING_PROGRESS_SPEED_PER_SECOND = 50;
 const ACTIVE_TASK_STATUSES = [
   "Pending",
-  "Processing",
   "Applying",
+  "Processing",
   "Running",
   "Started",
   "In progress",
   "in_progress",
+  "Cancelling",
+  "Canceling",
 ];
 
 export const loader = async ({ request, params }) => {
@@ -347,9 +351,9 @@ function getBaseTaskDisplay(task) {
       tone: "critical",
       background: "#FEE4E2",
       showProgress: false,
-       style: {
-      width: "fit-content",
-    },
+      style: {
+        width: "fit-content",
+      },
     };
   }
 
@@ -367,26 +371,27 @@ function getBaseTaskDisplay(task) {
 
   if (isTaskPending(task) || !normalized) {
     return {
-      label: "Pending",
+      label: "Applying",
       tone: "attention",
       background: "#FEDF89",
       showPendingSpinner: true,
-      showProgress: false,
-       style: {
-      width: "fit-content",
-    },
+      showProgress: true,
+      style: {
+        width: "fit-content",
+      },
     };
   }
 
   if (isTaskProcessing(task)) {
     return {
-      label: "Implementing",
+      label: "Applying",
       tone: "attention",
       background: "#FEDF89",
+      showPendingSpinner: true,
       showProgress: true,
-       style: {
-      width: "fit-content",
-    },
+      style: {
+        width: "fit-content",
+      },
     };
   }
 
@@ -416,8 +421,16 @@ function getBaseTaskDisplay(task) {
 
 function getTaskProgress(task) {
   if (isTaskCompleted(task)) return 100;
-  if (isTaskPending(task)) return 0;
-  if (isTaskProcessing(task)) return getExecutionProgress(task);
+  if (isTaskPending(task) || isTaskProcessing(task)) {
+    return getEstimatedProgress(
+      Math.max(getExecutionProgress(task), 0),
+      getTaskStartedAt(task),
+      Date.now(),
+      PENDING_PROGRESS_SPEED_PER_SECOND,
+      100,
+      0,
+    );
+  }
 
   return getExecutionProgress(task);
 }
@@ -634,7 +647,7 @@ function getStatusToneFromDisplay(display) {
 function getAppliedLabel(task) {
   if (isTaskFailed(task)) return getCanceledStatusLabel(getTaskStatusValue(task));
   if (isTaskCompleted(task)) return "Completed";
-  if (isTaskProcessing(task)) return "Implementing";
+  if (isTaskProcessing(task)) return "Applying";
 
   return humanize(getTaskStatusValue(task) || "Pending");
 }
@@ -651,7 +664,7 @@ function getDetailsStatusDisplay(task, rollbackState = null) {
 
   if (rollbackState?.isProcessing) {
     return {
-      label: "Canceling",
+      label: "Cancelling",
       tone: "attention",
       background: "#FEDF89",
       showProgress: true,
@@ -687,7 +700,7 @@ function getLogStatusLabel(task, statusDisplay, rollbackState = null) {
   }
 
   if (isTaskProcessing(task)) return statusDisplay.label;
-  if (isTaskCompleted(task)) return "Active";
+  if (isTaskCompleted(task)) return "Completed";
   if (isTaskFailed(task)) return getCanceledStatusLabel(getTaskStatusValue(task));
 
   return humanize(getTaskStatusValue(task) || "Pending");
@@ -1734,36 +1747,7 @@ function StatusBadge({ display }) {
       }}
     >
       {showPendingSpinner ? (
-        <span
-          aria-hidden="true"
-          style={{
-            alignItems: "center",
-            display: "inline-flex",
-            gap: 2,
-          }}
-        >
-          <style>
-            {`
-              @keyframes task-pending-dot {
-                0%, 80%, 100% { opacity: 0.35; transform: scale(0.75); }
-                40% { opacity: 1; transform: scale(1); }
-              }
-            `}
-          </style>
-          {[0, 1, 2].map((index) => (
-            <span
-              key={index}
-              style={{
-                animation: `task-pending-dot 1.2s ${index * 0.16}s infinite ease-in-out`,
-                background: "#B98900",
-                borderRadius: "50%",
-                display: "inline-block",
-                height: 6,
-                width: 6,
-              }}
-            />
-          ))}
-        </span>
+        <Spinner accessibilityLabel="Task status loading" size="small" />
       ) : display.tone === "attention" ? (
         <span
           aria-hidden="true"
@@ -1997,7 +1981,7 @@ export default function TaskDetailsPage() {
 
   const statusDisplay = rollbackProcessing
     ? {
-        label: "Canceling",
+        label: "Cancelling",
         tone: "attention",
         background: "#FEDF89",
         showProgress: true,
@@ -2040,8 +2024,8 @@ export default function TaskDetailsPage() {
           rawServerProgress,
           getTaskStartedAt(task),
           progressTick,
-          TASK_PROGRESS_SPEED_PER_SECOND,
-          TASK_PROGRESS_CAP,
+          PENDING_PROGRESS_SPEED_PER_SECOND,
+          100,
           0,
         )
       : rawServerProgress;

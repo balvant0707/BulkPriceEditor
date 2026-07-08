@@ -94,12 +94,12 @@ export const action = async ({ request, params }) => {
   await db.task.update({
     where: { id: task.id },
     data: {
-      status: "Canceling",
+      status: "Cancelling",
       executionSummary: {
         ...(task.executionSummary || {}),
         rollback: {
           ok: null,
-          status: "processing",
+          status: "cancelling",
           progress: 1,
           startedAt: rollbackStartedAt,
         },
@@ -143,7 +143,7 @@ async function runRollbackExecution(admin, task, rollbackStartedAt) {
     await db.task.update({
       where: { id: task.id },
       data: {
-        status: rollback.ok ? "Cancelled" : "Rollback failed",
+        status: "Cancelled",
         executionSummary: {
           ...executionSummary,
           rollback,
@@ -154,7 +154,7 @@ async function runRollbackExecution(admin, task, rollbackStartedAt) {
     await db.task.update({
       where: { id: task.id },
       data: {
-        status: "Rollback failed",
+        status: "Cancelled",
         executionSummary: {
           ...executionSummary,
           rollback: {
@@ -202,12 +202,12 @@ function createRollbackProgressReporter(taskId, baseExecutionSummary, startedAt)
     await db.task.update({
       where: { id: taskId },
       data: {
-        status: "Canceling",
+        status: "Cancelling",
         executionSummary: {
           ...baseExecutionSummary,
           rollback: {
             ok: null,
-            status: "processing",
+            status: "cancelling",
             startedAt,
             ...latestSummary,
             progress,
@@ -276,6 +276,7 @@ function isRollbackProcessing(task) {
 
   return (
     rollbackStatus === "processing" ||
+    rollbackStatus === "cancelling" ||
     rollbackStatus === "started" ||
     rollbackStatus === "running" ||
     rollbackStatus === "in_progress" ||

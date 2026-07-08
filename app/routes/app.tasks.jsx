@@ -42,6 +42,7 @@ const TASK_PROGRESS_SPEED_PER_SECOND = 5;
 const ROLLBACK_PROGRESS_SPEED_PER_SECOND = 12;
 const TASK_PROGRESS_CAP = 95;
 const ROLLBACK_PROGRESS_CAP = 98;
+const PENDING_PROGRESS_SPEED_PER_SECOND = 50;
 
 const TASK_TABS = [
   {
@@ -337,8 +338,24 @@ function formatApplyTo(task) {
 function getStatusLabel(status) {
   const normalized = String(status || "").toLowerCase();
 
+  if (normalized.includes("cancelling") || normalized.includes("canceling")) {
+    return "Cancelling";
+  }
+
   if (normalized.includes("cancel")) {
     return "Cancelled";
+  }
+
+  if (normalized.includes("pending")) {
+    return "Pending";
+  }
+
+  if (normalized.includes("applying") || normalized.includes("processing")) {
+    return "Applying";
+  }
+
+  if (normalized.includes("complete")) {
+    return "Completed";
   }
 
   return humanize(status || "Pending");
@@ -357,6 +374,7 @@ function getStatusTone(status) {
 
   if (
     normalized === "complete" ||
+    normalized === "completed" ||
     normalized.includes("completed") ||
     normalized.includes("success")
   ) {
@@ -376,8 +394,11 @@ function getStatusTone(status) {
   }
 
   if (
+    normalized.includes("cancelling") ||
+    normalized.includes("canceling") ||
     normalized.includes("running") ||
     normalized.includes("processing") ||
+    normalized.includes("applying") ||
     normalized.includes("pending")
   ) {
     return "attention";
@@ -613,7 +634,7 @@ function isTaskProcessing(task) {
 function getTaskListStatus(task, now = Date.now()) {
   if (isRollbackProcessing(task)) {
     return {
-      label: "Canceling",
+      label: "Cancelling",
       tone: "attention",
       progress: getEstimatedProgress(
         Math.max(getRollbackProgress(task), 0),
@@ -629,23 +650,30 @@ function getTaskListStatus(task, now = Date.now()) {
 
   if (isTaskPending(task)) {
     return {
-      label: "Pending",
+      label: "Applying",
       tone: "attention",
-      progress: 0,
-      showProgress: false,
+      progress: getEstimatedProgress(
+        0,
+        getTaskStartedAt(task),
+        now,
+        PENDING_PROGRESS_SPEED_PER_SECOND,
+        100,
+        0,
+      ),
+      showProgress: true,
     };
   }
 
   if (isTaskProcessing(task)) {
     return {
-      label: "Implementing",
+      label: "Applying",
       tone: getStatusTone(task.status),
       progress: getEstimatedProgress(
         Math.max(getTaskProgress(task), 0),
         getTaskStartedAt(task),
         now,
-        TASK_PROGRESS_SPEED_PER_SECOND,
-        TASK_PROGRESS_CAP,
+        PENDING_PROGRESS_SPEED_PER_SECOND,
+        100,
         0,
       ),
       showProgress: true,
@@ -670,6 +698,7 @@ function taskMatchesTab(task, activeTab) {
   if (activeTab === "completed") {
     return (
       status === "complete" ||
+      status === "completed" ||
       status.includes("completed") ||
       status.includes("success")
     );

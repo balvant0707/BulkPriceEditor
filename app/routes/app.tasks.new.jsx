@@ -341,11 +341,11 @@ export async function action({ request, params }) {
       throw new Response("Task not found", { status: 404 });
     }
 
-    if (existingTask.status !== "Complete") {
+    if (!["Completed", "Complete"].includes(existingTask.status)) {
       return json(
         {
           error:
-            "Task cannot be changed until the current status is Complete.",
+            "Task cannot be changed until the current status is Completed.",
         },
         { status: 400 },
       );
@@ -430,7 +430,7 @@ async function runTaskExecution(admin, taskId, data) {
     await db.task.update({
       where: { id: taskId },
       data: {
-        status: "Processing",
+        status: "Applying",
         executionSummary: { progress: 0 },
         startedAt: new Date(),
       },
@@ -441,7 +441,7 @@ async function runTaskExecution(admin, taskId, data) {
     await db.task.update({
       where: { id: taskId },
       data: {
-        status: execution.ok ? "Complete" : "Failed",
+        status: execution.ok ? "Completed" : "Cancelled",
         executionSummary: {
           ...execution,
           progress: 100,
@@ -453,7 +453,7 @@ async function runTaskExecution(admin, taskId, data) {
     await db.task.update({
       where: { id: taskId },
       data: {
-        status: "Failed",
+        status: "Cancelled",
         executionSummary: {
           ok: false,
           progress: 100,
@@ -2875,7 +2875,7 @@ export default function NewTaskPage() {
                   <PriceChangeFields
                     fieldPrefix="price"
                     actionOptions={priceActionOptions}
-                    defaultAction="decrease"
+                    defaultAction=""
                     showRelative
                     relativeOptions={priceRelativeOptions}
                     currency={shopCurrency}
