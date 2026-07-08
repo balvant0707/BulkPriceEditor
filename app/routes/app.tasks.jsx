@@ -23,6 +23,7 @@ import {
   Layout,
   IndexTable,
   Badge,
+  Spinner,
   Tabs,
   TextField,
   Pagination,
@@ -966,9 +967,15 @@ function TasksListPage({ tasks }) {
           <InlineStack gap="200" blockAlign="center" wrap={false}>
             <Badge tone={taskStatus.tone}>{taskStatus.label}</Badge>
             {taskStatus.showProgress ? (
-              <Text as="span" variant="bodySm" tone="subdued">
-                {taskStatus.progress}%
-              </Text>
+              <InlineStack gap="100" blockAlign="center" wrap={false}>
+                <Spinner
+                  accessibilityLabel={`${taskStatus.label} task`}
+                  size="small"
+                />
+                <Text as="span" variant="bodySm" tone="subdued">
+                  {taskStatus.progress}%
+                </Text>
+              </InlineStack>
             ) : null}
           </InlineStack>
         </IndexTable.Cell>

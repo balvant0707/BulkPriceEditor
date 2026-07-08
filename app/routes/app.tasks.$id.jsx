@@ -31,9 +31,7 @@ import { authenticate } from "../shopify.server";
 const LOGS_PER_PAGE = 4;
 const TASK_EXECUTION_TIMEOUT_MS = 10 * 60 * 1000;
 const POLL_INTERVAL_MS = 500;
-const ROLLBACK_PROGRESS_SPEED_PER_SECOND = 50;
 const ROLLBACK_PROGRESS_CAP = 98;
-const PENDING_PROGRESS_SPEED_PER_SECOND = 50;
 const ACTIVE_TASK_STATUSES = [
   "Pending",
   "Applying",
@@ -417,38 +415,6 @@ function getBaseTaskDisplay(task) {
 function getTaskProgress(task) {
   if (isTaskCompleted(task)) return 100;
   return getExecutionProgress(task);
-}
-
-function getDateMs(value) {
-  if (!value) return null;
-
-  const date = new Date(value);
-  const time = date.getTime();
-
-  return Number.isNaN(time) ? null : time;
-}
-
-function getEstimatedProgress(
-  baseProgress,
-  startedAt,
-  now,
-  speedPerSecond,
-  progressCap,
-  minimumProgress = 0,
-) {
-  const startedAtMs = getDateMs(startedAt);
-
-  if (!startedAtMs) {
-    return Math.max(baseProgress, minimumProgress);
-  }
-
-  const elapsedSeconds = Math.max(0, Math.floor((now - startedAtMs) / 1000));
-  const estimatedProgress = Math.min(
-    progressCap,
-    baseProgress + elapsedSeconds * speedPerSecond,
-  );
-
-  return Math.max(baseProgress, estimatedProgress, minimumProgress);
 }
 
 function getTaskStartedAt(task) {
@@ -1943,6 +1909,7 @@ export default function TaskDetailsPage() {
         label: "Cancelling",
         tone: "attention",
         background: "#FEDF89",
+        showPendingSpinner: true,
         showProgress: true,
       }
     : rollbackCompleted
@@ -1968,20 +1935,7 @@ export default function TaskDetailsPage() {
     ? Math.max(rollbackState.progress || 0, 0)
     : getTaskProgress(task);
   const serverProgress = rawServerProgress;
-  const [progressTick, setProgressTick] = useState(Date.now());
   const [visibleProgress, setVisibleProgress] = useState(serverProgress);
-  const estimatedProgress = statusDisplay.showProgress
-    ? getEstimatedProgress(
-        Math.max(serverProgress || 0, 0),
-        rollbackProcessing ? getRollbackStartedValue(task) : getTaskStartedAt(task),
-        progressTick,
-        rollbackProcessing
-          ? ROLLBACK_PROGRESS_SPEED_PER_SECOND
-          : PENDING_PROGRESS_SPEED_PER_SECOND,
-        rollbackProcessing ? ROLLBACK_PROGRESS_CAP : 98,
-        taskPending || rollbackProcessing ? 1 : 0,
-      )
-    : serverProgress;
 
   const logs = useMemo(() => {
     const productLogs = createProductGroups(task, shopifyStoreHandle, shopCurrency);
@@ -2024,7 +1978,6 @@ export default function TaskDetailsPage() {
   const confirmRollback = () => {
     setRollbackModalOpen(false);
     setClientRollbackStarted(true);
-    setProgressTick(Date.now());
     setVisibleProgress(0);
     const formData = new FormData();
     formData.set("redirectTo", `/app/tasks/${task.id}`);
@@ -2085,19 +2038,24 @@ export default function TaskDetailsPage() {
   }, [totalPages]);
 
   useEffect(() => {
-    setVisibleProgress(estimatedProgress);
-  }, [estimatedProgress]);
+    setVisibleProgress((current) => Math.max(current, serverProgress));
+  }, [serverProgress]);
 
   useEffect(() => {
     if (!shouldPoll) return undefined;
 
     const timer = setInterval(() => {
-      setProgressTick(Date.now());
+      setVisibleProgress((current) => {
+        const nextProgress = Math.max(current, serverProgress);
+        const cap = rollbackProcessing ? ROLLBACK_PROGRESS_CAP : 100;
+
+        return Math.min(cap, nextProgress + 1);
+      });
       revalidator.revalidate();
     }, POLL_INTERVAL_MS);
 
     return () => clearInterval(timer);
-  }, [revalidator, shouldPoll]);
+  }, [revalidator, rollbackProcessing, serverProgress, shouldPoll]);
 
   if (selectedProductId) {
     return (

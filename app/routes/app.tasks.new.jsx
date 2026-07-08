@@ -259,6 +259,7 @@ const TASK_INVENTORY_ITEM_UPDATE = `#graphql
         }
       }
       userErrors {
+        field
         message
       }
     }
