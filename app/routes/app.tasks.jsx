@@ -1048,9 +1048,7 @@ function TasksListPage({ tasks }) {
     >
       <TitleBar title="Tasks" />
 
-      <Layout>
-        <Layout.Section>
-          <Card padding="0">
+      <Card padding="0">
             <Tabs
               tabs={tabsWithCounts}
               selected={selectedTabIndex}
@@ -1139,20 +1137,18 @@ function TasksListPage({ tasks }) {
                 </InlineStack>
               </Box>
             ) : null}
-          </Card>
+      </Card>
 
-          <Box paddingBlockStart="800">
-            <InlineStack align="center">
-              <Text as="p" variant="bodyMd">
-                Learn more about{" "}
-                <Link url={TASK_HELP_URL} external removeUnderline>
-                  tasks
-                </Link>
-              </Text>
-            </InlineStack>
-          </Box>
-        </Layout.Section>
-      </Layout>
+      <Box paddingBlockStart="800">
+        <InlineStack align="center">
+          <Text as="p" variant="bodyMd">
+            Learn more about{" "}
+            <Link url={TASK_HELP_URL} external removeUnderline>
+              tasks
+            </Link>
+          </Text>
+        </InlineStack>
+      </Box>
 
       <Modal
         open={Boolean(rollbackTask)}

@@ -945,6 +945,7 @@ function uniqueVariants(variants) {
 
 function getDiscountedScope(taskData) {
   return normalizeDiscountedScope([
+    taskData.applyScope === "products_on_sale" ? "products_on_sale" : "",
     taskData.discountedScope,
     taskData.excludeResources?.discountedScope,
   ].find(Boolean));
