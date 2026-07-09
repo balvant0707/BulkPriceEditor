@@ -194,13 +194,19 @@ function formatDate(value) {
 }
 
 function formatChange(task) {
+  const changes = getTaskChangeItems(task);
+
+  return changes.length ? changes.join(", ") : "Change";
+}
+
+function getTaskChangeItems(task) {
   const changes = [
     formatChangePayload(task.priceChange, "price"),
     formatChangePayload(task.compareAtPriceChange, "compare at price"),
     formatChangePayload(task.costPerItemChange, "cost per item"),
   ].filter(Boolean);
 
-  return changes.length ? changes.join(", ") : "Change";
+  return changes;
 }
 
 function isEnabledValue(value) {
@@ -262,12 +268,15 @@ function formatDiscountedScope(task) {
 function ChangeDetails({ task }) {
   const autoReapplyLastRun = getAutoReapplyLastRun(task);
   const showAutoReapply = isAutoReapplyEnabled(task);
+  const changes = getTaskChangeItems(task);
 
   return (
     <BlockStack gap="150">
-      <Text as="p" fontWeight="regular">
-        {formatChange(task)}
-      </Text>
+      {(changes.length ? changes : ["Change"]).map((change, index) => (
+        <Text as="p" fontWeight="regular" key={`task-change-${index}`}>
+          {change}
+        </Text>
+      ))}
 
       {showAutoReapply ? (
         <Text as="p" tone="subdued">
@@ -1400,15 +1409,21 @@ function shouldShowPriceNoChange(task) {
 
 function summarizeProductChanges(changeItems, noChangeLabel = "") {
   if (!changeItems.length) {
+    const fallback = noChangeLabel || "No changes recorded";
+
     return {
-      primary: noChangeLabel || "No changes recorded",
+      items: [fallback],
+      primary: fallback,
       moreCount: 0,
     };
   }
 
+  const items = changeItems.map((change) => change.text);
+
   return {
-    primary: changeItems[0].text,
-    moreCount: Math.max(changeItems.length - 1, 0),
+    items,
+    primary: items[0],
+    moreCount: Math.max(items.length - 1, 0),
   };
 }
 
@@ -1616,6 +1631,7 @@ function createFallbackLogGroups(task, shopifyStoreHandle) {
       changes: [getLogMessage(record)],
       otherChanges: [],
       changeSummary: {
+        items: [getLogMessage(record)],
         primary: getLogMessage(record),
         moreCount: 0,
       },
@@ -2493,12 +2509,17 @@ export default function TaskDetailsPage() {
 
                         <IndexTable.Cell>
                           <BlockStack gap="100">
-                            <Text as="span">{log.changeSummary.primary}</Text>
-                            {log.changeSummary.moreCount > 0 ? (
-                              <Text as="span" tone="subdued">
-                                and {log.changeSummary.moreCount} more
+                            {(log.changeSummary?.items?.length
+                              ? log.changeSummary.items
+                              : [log.changeSummary?.primary || "-"]
+                            ).map((change, changeIndex) => (
+                              <Text
+                                as="span"
+                                key={`${log.rowId}-change-${changeIndex}`}
+                              >
+                                {change}
                               </Text>
-                            ) : null}
+                            ))}
                           </BlockStack>
                         </IndexTable.Cell>
 

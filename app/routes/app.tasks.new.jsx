@@ -38,7 +38,7 @@ import {
   isVariantDiscounted,
   normalizeDiscountedScope,
   splitVariantsByDiscountedScope,
-} from "../lib/task-discounted-exclusion.server";
+} from "../lib/task-discounted-exclusion";
 
 const MARKETS_QUERY = `#graphql
   query GetMarkets {
@@ -3019,10 +3019,12 @@ export default function NewTaskPage() {
     getConfigValue(configuration, "exclude", task?.excludeScope || "nothing"),
   ]);
   const [excludeDiscounted, setExcludeDiscounted] = useState([
-    getConfigValue(
-      configuration,
-      "exclude_discounted",
-      task?.discountedScope || "nothing",
+    normalizeDiscountedScope(
+      getConfigValue(
+        configuration,
+        "exclude_discounted",
+        task?.discountedScope || "nothing",
+      ),
     ),
   ]);
   const [autoReapply, setAutoReapply] = useState(

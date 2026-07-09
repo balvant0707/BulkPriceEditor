@@ -129,7 +129,6 @@ model Sale {
   endAt                 DateTime?
   addTagsEnabled        Boolean   @default(false)
   removeTagsEnabled     Boolean   @default(false)
-  trackConditionChanges Boolean   @default(false)
   autoReapplyChanges    Boolean   @default(false)
   startedAt             DateTime?
   completedAt           DateTime?

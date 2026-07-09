@@ -187,10 +187,10 @@ function formatTaskChange(task) {
     return customTitle;
   }
 
-  const changes = Object.values(getTaskChangeColumns(task)).filter(Boolean);
+  const changes = getTaskChangeItems(task);
 
   if (changes.length) {
-    return changes.join(", ");
+    return changes.join(" ");
   }
 
   const changeType = String(
@@ -248,15 +248,12 @@ function formatTaskChange(task) {
   return `Task #${task.id}`;
 }
 
-function getTaskChangeColumns(task) {
-  return {
-    price: formatChangePayload(task.priceChange, "price"),
-    compareAtPrice: formatChangePayload(
-      task.compareAtPriceChange,
-      "compare at price",
-    ),
-    costPerItem: formatChangePayload(task.costPerItemChange, "cost per item"),
-  };
+function getTaskChangeItems(task) {
+  return [
+    formatChangePayload(task.priceChange, "price"),
+    formatChangePayload(task.compareAtPriceChange, "compare at price"),
+    formatChangePayload(task.costPerItemChange, "cost per item"),
+  ].filter(Boolean);
 }
 
 function formatTaskType(task) {
@@ -929,9 +926,8 @@ function TasksListPage({ tasks }) {
 
   const rowMarkup = paginatedTasks.map((task, index) => {
     const taskStatus = getTaskListStatus(task, progressTick);
-    const changeColumns = getTaskChangeColumns(task);
-    const hasStructuredChanges = Object.values(changeColumns).some(Boolean);
-    const fallbackChange = hasStructuredChanges ? "" : formatTaskChange(task);
+    const changeItems = getTaskChangeItems(task);
+    const visibleChanges = changeItems.length ? changeItems : [formatTaskChange(task)];
     const detailsPath = `/app/tasks/${task.id}`;
     const rollbackPath = `/app/tasks/${task.id}/rollback`;
     const deletePath = `/app/tasks/${task.id}/delete`;
@@ -950,21 +946,17 @@ function TasksListPage({ tasks }) {
     return (
       <IndexTable.Row id={String(task.id)} key={task.id} position={index}>
         <IndexTable.Cell>
-          <Text as="span" variant="bodyMd">
-            {changeColumns.price || fallbackChange || "-"}
-          </Text>
-        </IndexTable.Cell>
-
-        <IndexTable.Cell>
-          <Text as="span" variant="bodyMd">
-            {changeColumns.compareAtPrice || "-"}
-          </Text>
-        </IndexTable.Cell>
-
-        <IndexTable.Cell>
-          <Text as="span" variant="bodyMd">
-            {changeColumns.costPerItem || "-"}
-          </Text>
+          <BlockStack gap="100">
+            {visibleChanges.map((change, changeIndex) => (
+              <Text
+                as="span"
+                variant="bodyMd"
+                key={`${task.id}-change-${changeIndex}`}
+              >
+                {change || "-"}
+              </Text>
+            ))}
+          </BlockStack>
         </IndexTable.Cell>
 
         <IndexTable.Cell>
@@ -1092,13 +1084,7 @@ function TasksListPage({ tasks }) {
               selectable={false}
               headings={[
                 {
-                  title: "Price",
-                },
-                {
-                  title: "Compare at price",
-                },
-                {
-                  title: "Cost per item",
+                  title: "Changes",
                 },
                 {
                   title: "Type",

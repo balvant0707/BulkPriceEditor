@@ -2,7 +2,7 @@ import db from "../db.server";
 import {
   normalizeDiscountedScope,
   splitVariantsByDiscountedScope,
-} from "../lib/task-discounted-exclusion.server";
+} from "../lib/task-discounted-exclusion";
 
 const TASK_VARIANTS_QUERY = `#graphql
   query TaskProductVariants($first: Int!, $after: String, $query: String) {

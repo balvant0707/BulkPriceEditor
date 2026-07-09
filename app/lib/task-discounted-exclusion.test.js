@@ -6,7 +6,7 @@ import {
   isVariantDiscounted,
   normalizeDiscountedScope,
   splitVariantsByDiscountedScope,
-} from "./task-discounted-exclusion.server.js";
+} from "./task-discounted-exclusion.js";
 
 const variants = [
   {
