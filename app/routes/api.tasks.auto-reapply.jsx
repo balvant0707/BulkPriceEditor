@@ -1,10 +1,16 @@
 import { json } from "@remix-run/node";
 import db from "../db.server";
 import { unauthenticated } from "../shopify.server";
+import {
+  getAutoReapplyLastRun,
+  getDisabledAutoReapplyConfiguration,
+} from "../lib/task-auto-reapply";
 import { executeAutoReapplyTask } from "../services/task-reapply.server";
 
 const AUTO_REAPPLY_BATCH_SIZE = 20;
 const MAX_AUTO_REAPPLY_PRICE_CHANGES = 10000;
+const AUTO_REAPPLY_INTERVAL_MS = 60 * 60 * 1000;
+const runningTaskIds = new Set();
 
 export async function loader({ request }) {
   return runAutoReapplyScheduler(request);
@@ -18,16 +24,22 @@ async function runAutoReapplyScheduler(request) {
   const authResponse = authorizeCronRequest(request);
   if (authResponse) return authResponse;
 
-  const tasks = await db.task.findMany({
+  // Server cron should call this endpoint once per hour, for example:
+  // https://your-app-domain.com/cron/auto-reapply?secret=YOUR_SECRET
+  const candidateTasks = await db.task.findMany({
     where: {
-      status: "Completed",
-      autoReapply: true,
+      status: { in: ["Completed", "Complete"] },
+      shop: { not: "" },
+      OR: [{ autoReapply: true }, { autoReapplyChanges: true }],
     },
     orderBy: {
       updatedAt: "asc",
     },
-    take: AUTO_REAPPLY_BATCH_SIZE,
+    take: AUTO_REAPPLY_BATCH_SIZE * 3,
   });
+  const tasks = candidateTasks
+    .filter((task) => shouldRunAutoReapplyTask(task))
+    .slice(0, AUTO_REAPPLY_BATCH_SIZE);
 
   const results = [];
 
@@ -46,10 +58,6 @@ function authorizeCronRequest(request) {
   const configuredSecret =
     process.env.AUTO_REAPPLY_CRON_SECRET || process.env.CRON_SECRET || "";
 
-  if (!configuredSecret && process.env.NODE_ENV !== "production") {
-    return null;
-  }
-
   const url = new URL(request.url);
   const providedSecret =
     request.headers.get("x-cron-secret") ||
@@ -64,21 +72,64 @@ function authorizeCronRequest(request) {
   return null;
 }
 
+function shouldRunAutoReapplyTask(task) {
+  if (!task.shop) return false;
+  if (runningTaskIds.has(task.id)) return false;
+
+  const lastRun = getAutoReapplyLastRun(task);
+  if (!lastRun) return true;
+
+  const lastRunAt = new Date(lastRun).getTime();
+  if (Number.isNaN(lastRunAt)) return true;
+
+  return Date.now() - lastRunAt >= AUTO_REAPPLY_INTERVAL_MS;
+}
+
 async function reapplyTask(task) {
+  if (!task.shop) {
+    return {
+      ok: false,
+      taskId: task.id,
+      shop: "",
+      error: "Auto re-apply skipped because the task shop is missing.",
+    };
+  }
+
+  if (runningTaskIds.has(task.id)) {
+    return {
+      ok: true,
+      taskId: task.id,
+      shop: task.shop,
+      skipped: true,
+      reason: "Auto re-apply is already running for this task.",
+    };
+  }
+
+  runningTaskIds.add(task.id);
+
   try {
     const { admin } = await unauthenticated.admin(task.shop);
     const execution = await executeAutoReapplyTask(admin, task);
     const totalPriceChanges = Number(execution.totalPriceChanges || 0);
     const canContinue = totalPriceChanges <= MAX_AUTO_REAPPLY_PRICE_CHANGES;
+    const now = new Date().toISOString();
 
-    await db.task.update({
-      where: { id: task.id },
+    await db.task.updateMany({
+      where: { id: task.id, shop: task.shop },
       data: {
         autoReapply: canContinue,
         autoReapplyChanges: canContinue,
+        configuration: canContinue
+          ? {
+              ...(task.configuration || {}),
+              auto_reapply_changes: true,
+              auto_reapply_changes_enabled: true,
+              auto_reapply_last_run_at: now,
+            }
+          : getDisabledAutoReapplyConfiguration(task.configuration),
         executionSummary: {
           ...(task.executionSummary || {}),
-          autoReapplyLastRunAt: new Date().toISOString(),
+          autoReapplyLastRunAt: now,
           autoReapplyLastResult: {
             ok: execution.ok,
             totalPriceChanges,
@@ -100,12 +151,18 @@ async function reapplyTask(task) {
       disabled: !canContinue,
     };
   } catch (error) {
-    await db.task.update({
-      where: { id: task.id },
+    const now = new Date().toISOString();
+
+    await db.task.updateMany({
+      where: { id: task.id, shop: task.shop },
       data: {
+        configuration: {
+          ...(task.configuration || {}),
+          auto_reapply_last_run_at: now,
+        },
         executionSummary: {
           ...(task.executionSummary || {}),
-          autoReapplyLastRunAt: new Date().toISOString(),
+          autoReapplyLastRunAt: now,
           autoReapplyLastResult: {
             ok: false,
             error:
@@ -124,5 +181,7 @@ async function reapplyTask(task) {
       error:
         error instanceof Error ? error.message : "Unable to re-apply task.",
     };
+  } finally {
+    runningTaskIds.delete(task.id);
   }
 }

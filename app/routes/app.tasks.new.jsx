@@ -328,6 +328,10 @@ export async function loader({ request, params }) {
 
 export async function action({ request, params }) {
   const { admin, session } = await authenticate.admin(request);
+  if (!session.shop) {
+    throw new Response("Shop is required to create a task.", { status: 401 });
+  }
+
   const formData = await request.formData();
   const taskId = getRecordId(
     getFormValue(formData, "id") || params.id || new URL(request.url).searchParams.get("id"),
@@ -376,8 +380,8 @@ export async function action({ request, params }) {
       );
     }
 
-    await db.task.update({
-      where: { id: taskId },
+    await db.task.updateMany({
+      where: { id: taskId, shop: session.shop },
       data: {
         ...data,
         status: "Pending",
@@ -407,12 +411,10 @@ export async function action({ request, params }) {
 }
 
 function scheduleTaskExecution(admin, taskId, data, shop) {
-  setTimeout(() => {
-    void runTaskExecution(admin, taskId, data, shop);
-  }, 10);
+  void runTaskExecution(admin, taskId, data, shop);
 }
 
-function createProgressUpdater(taskId) {
+function createProgressUpdater(taskId, shop) {
   let lastWriteAt = 0;
   let lastWrittenProgress = 0;
   let latestSummary = {};
@@ -441,19 +443,38 @@ function createProgressUpdater(taskId) {
     lastWriteAt = now;
     lastWrittenProgress = safeProgress;
 
-    await db.task.update({
-      where: { id: taskId },
+    await db.task.updateMany({
+      where: { id: taskId, shop },
       data: { executionSummary: latestSummary },
     });
   };
 }
 
 async function runTaskExecution(admin, taskId, data, shop) {
-  try {
-    const updateProgress = createProgressUpdater(taskId);
+  const resolvedShop = resolveShop(data, shop);
 
+  if (!resolvedShop) {
     await db.task.update({
       where: { id: taskId },
+      data: {
+        status: "Completed",
+        executionSummary: {
+          ok: false,
+          progress: 100,
+          status: "Completed",
+          error: "Task execution failed because the shop is missing.",
+        },
+        completedAt: new Date(),
+      },
+    });
+    return;
+  }
+
+  try {
+    const updateProgress = createProgressUpdater(taskId, resolvedShop);
+
+    await db.task.updateMany({
+      where: { id: taskId, shop: resolvedShop },
       data: {
         status: "Applying",
         executionSummary: { progress: 0 },
@@ -463,11 +484,11 @@ async function runTaskExecution(admin, taskId, data, shop) {
 
     const execution = await executeTask(admin, data, updateProgress, {
       taskId,
-      shop: shop || data.shop,
+      shop: resolvedShop,
     });
 
-    await db.task.update({
-      where: { id: taskId },
+    await db.task.updateMany({
+      where: { id: taskId, shop: resolvedShop },
       data: {
         status: "Completed",
         autoReapply:
@@ -485,8 +506,8 @@ async function runTaskExecution(admin, taskId, data, shop) {
       },
     });
   } catch (error) {
-    await db.task.update({
-      where: { id: taskId },
+    await db.task.updateMany({
+      where: { id: taskId, shop: resolvedShop },
       data: {
         status: "Completed",
         executionSummary: {
@@ -598,6 +619,11 @@ function buildSelectedVariantRecords(formData, prefix) {
 }
 
 function buildTaskData(shop, formData) {
+  const resolvedShop = String(shop || "").trim();
+  if (!resolvedShop) {
+    throw new Response("Shop is required to create a task.", { status: 401 });
+  }
+
   const selectedMarketIds = getFormValues(formData, "selected_market_ids[]");
   const selectedMarketHandles = getFormValues(formData, "selected_market_handles[]");
   const selectedMarketCurrencyCodes = getFormValues(
@@ -612,7 +638,7 @@ function buildTaskData(shop, formData) {
   const excludeVariants = buildSelectedVariantRecords(formData, "exclude");
 
   return {
-    shop,
+    shop: resolvedShop,
     status: "draft",
     applyChangesTo: getFormValue(formData, "apply_changes_to", "products"),
     applyToFixedPrices: hasFormValue(formData, "apply_to_fixed_prices"),
@@ -753,6 +779,18 @@ async function executeTask(
   options = {},
 ) {
   try {
+    const shop = resolveShop(taskData, options.shop);
+
+    if (!shop) {
+      return {
+        ok: false,
+        error: "Task execution skipped because the shop is missing.",
+        analyzedVariants: 0,
+        updatedVariants: 0,
+        totalPriceChanges: 0,
+      };
+    }
+
     if (taskData.applyChangesTo === "markets") {
       return {
         ok: false,
@@ -780,7 +818,7 @@ async function executeTask(
     );
     const auditLogs = skippedLogs.map((log) => ({
       taskId: options.taskId,
-      shop: options.shop || taskData.shop,
+      shop,
       ...log,
     }));
 
@@ -792,7 +830,7 @@ async function executeTask(
           action: "Skipped",
           skipReason: "Excluded by task configuration.",
           taskId: options.taskId,
-          shop: options.shop || taskData.shop,
+          shop,
         }),
       );
     });
@@ -811,7 +849,7 @@ async function executeTask(
             action: "Updated",
             newPrice: variantUpdate.variant.price ?? variant.price,
             taskId: options.taskId,
-            shop: options.shop || taskData.shop,
+            shop,
           }),
         );
       }
@@ -840,7 +878,7 @@ async function executeTask(
             action: "Skipped",
             skipReason: "No price or cost change required.",
             taskId: options.taskId,
-            shop: options.shop || taskData.shop,
+            shop,
           }),
         );
       }
@@ -1032,6 +1070,13 @@ function countSkippedProducts(logs) {
 }
 
 async function persistTaskAuditLogs(logs) {
+  const skippedMissingShop = logs.filter((log) => log.taskId && !log.shop).length;
+  if (skippedMissingShop > 0) {
+    console.warn(
+      `Skipped ${skippedMissingShop} task audit logs because shop was missing.`,
+    );
+  }
+
   const rows = logs
     .filter((log) => log.taskId && log.shop)
     .map((log) => ({
@@ -1048,6 +1093,23 @@ async function persistTaskAuditLogs(logs) {
   if (!rows.length) return;
 
   await db.taskAuditLog.createMany({ data: rows });
+}
+
+function resolveShop(...sources) {
+  for (const source of sources) {
+    if (!source) continue;
+
+    const shop =
+      typeof source === "string"
+        ? source
+        : source.shop || source.data?.shop || source.session?.shop;
+
+    if (shop && String(shop).trim()) {
+      return String(shop).trim();
+    }
+  }
+
+  return "";
 }
 
 async function shopifyGraphql(admin, query, variables = {}) {

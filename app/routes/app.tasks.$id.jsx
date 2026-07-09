@@ -27,6 +27,12 @@ import {
 import { TitleBar } from "@shopify/app-bridge-react";
 import db from "../db.server";
 import { authenticate } from "../shopify.server";
+import {
+  AUTO_REAPPLY_TEXT,
+  getAutoReapplyLastRun,
+  getDisabledAutoReapplyConfiguration,
+  isAutoReapplyEnabled,
+} from "../lib/task-auto-reapply";
 
 const LOGS_PER_PAGE = 4;
 const TASK_EXECUTION_TIMEOUT_MS = 10 * 60 * 1000;
@@ -65,8 +71,8 @@ export const loader = async ({ request, params }) => {
     new Date(task.updatedAt).getTime() <
     Date.now() - TASK_EXECUTION_TIMEOUT_MS
   ) {
-    task = await db.task.update({
-      where: { id: task.id },
+    await db.task.updateMany({
+      where: { id: task.id, shop: session.shop },
       data: {
         status: "Cancelled",
         executionSummary: {
@@ -77,6 +83,12 @@ export const loader = async ({ request, params }) => {
           error: "Task execution timed out before Shopify finished responding.",
         },
         completedAt: new Date(),
+      },
+    });
+    task = await db.task.findFirst({
+      where: {
+        id: taskId,
+        shop: session.shop,
       },
     });
   }
@@ -133,8 +145,8 @@ export const action = async ({ request, params }) => {
       throw new Response("Task not found", { status: 404 });
     }
 
-    await db.task.update({
-      where: { id: task.id },
+    await db.task.updateMany({
+      where: { id: task.id, shop: session.shop },
       data: {
         autoReapply: false,
         autoReapplyChanges: false,
@@ -269,65 +281,6 @@ function getTaskChangeItems(task) {
   ].filter(Boolean);
 
   return changes;
-}
-
-function isEnabledValue(value) {
-  if (value === true) return true;
-  if (value === false || value === null || value === undefined) return false;
-
-  return ["1", "true", "yes", "on", "enabled"].includes(
-    String(value).toLowerCase(),
-  );
-}
-
-function isAutoReapplyEnabled(task) {
-  const configuration = task.configuration || {};
-
-  return (
-    Boolean(task.autoReapply || task.autoReapplyChanges) ||
-    isEnabledValue(configuration.auto_reapply_changes) ||
-    isEnabledValue(configuration.auto_reapply_changes_enabled)
-  );
-}
-
-function getObjectValue(value) {
-  if (!value) return {};
-  if (typeof value === "object" && !Array.isArray(value)) return { ...value };
-
-  if (typeof value === "string") {
-    try {
-      const parsed = JSON.parse(value);
-      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-        ? { ...parsed }
-        : {};
-    } catch {
-      return {};
-    }
-  }
-
-  return {};
-}
-
-function getDisabledAutoReapplyConfiguration(configuration) {
-  const nextConfiguration = getObjectValue(configuration);
-
-  nextConfiguration.auto_reapply_changes = "";
-  nextConfiguration.auto_reapply_changes_enabled = "disabled";
-
-  return nextConfiguration;
-}
-
-const AUTO_REAPPLY_TEXT =
-  "Automatically re-apply price changes (every hour, up to 10,000 changes)";
-
-function getAutoReapplyLastRun(task) {
-  return (
-    task.autoReapplyLastRunAt ||
-    task.executionSummary?.autoReapplyLastRunAt ||
-    task.executionSummary?.lastAutoReapplyRunAt ||
-    task.configuration?.auto_reapply_last_run_at ||
-    ""
-  );
 }
 
 function getDiscountedScopeValue(task) {

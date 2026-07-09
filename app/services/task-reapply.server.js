@@ -171,13 +171,19 @@ const TASK_INVENTORY_ITEM_UPDATE = `#graphql
   }
 `;
 
-const MAX_TASK_VARIANTS = 250;
+const MAX_TASK_VARIANTS = 10000;
 const VARIANT_PAGE_SIZE = 100;
 const TASK_UPDATE_CONCURRENCY = 4;
 const GRAPHQL_MAX_RETRIES = 4;
 const GRAPHQL_RETRY_BASE_MS = 500;
 
 export async function executeAutoReapplyTask(admin, task) {
+  const shop = resolveShop(task);
+
+  if (!shop) {
+    throw new Error("Auto re-apply skipped because the task shop is missing.");
+  }
+
   const targetVariants = await loadTargetVariants(admin, task);
   const excludedVariantIds = await loadExcludedVariantIds(admin, task);
   const selectedVariants = uniqueVariants(targetVariants).filter(
@@ -190,7 +196,7 @@ export async function executeAutoReapplyTask(admin, task) {
   );
   const auditLogs = skippedLogs.map((log) => ({
     taskId: task.id,
-    shop: task.shop,
+    shop,
     ...log,
   }));
   const productVariantUpdates = [];
@@ -207,7 +213,7 @@ export async function executeAutoReapplyTask(admin, task) {
           action: "Updated",
           newPrice: variantUpdate.variant.price ?? variant.price,
           taskId: task.id,
-          shop: task.shop,
+          shop,
         }),
       );
     }
@@ -222,7 +228,7 @@ export async function executeAutoReapplyTask(admin, task) {
           action: "Skipped",
           skipReason: "No price or cost change required.",
           taskId: task.id,
-          shop: task.shop,
+          shop,
         }),
       );
     }
@@ -722,6 +728,13 @@ function buildAuditLogRecord(variant, options = {}) {
 }
 
 async function persistTaskAuditLogs(logs) {
+  const skippedMissingShop = logs.filter((log) => log.taskId && !log.shop).length;
+  if (skippedMissingShop > 0) {
+    console.warn(
+      `Skipped ${skippedMissingShop} auto re-apply audit logs because shop was missing.`,
+    );
+  }
+
   const rows = logs
     .filter((log) => log.taskId && log.shop)
     .map((log) => ({
@@ -738,6 +751,23 @@ async function persistTaskAuditLogs(logs) {
   if (rows.length) {
     await db.taskAuditLog.createMany({ data: rows });
   }
+}
+
+function resolveShop(...sources) {
+  for (const source of sources) {
+    if (!source) continue;
+
+    const shop =
+      typeof source === "string"
+        ? source
+        : source.shop || source.data?.shop || source.session?.shop;
+
+    if (shop && String(shop).trim()) {
+      return String(shop).trim();
+    }
+  }
+
+  return "";
 }
 
 function uniqueVariants(variants) {

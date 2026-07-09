@@ -33,6 +33,11 @@ import { TitleBar, useAppBridge } from "@shopify/app-bridge-react";
 import db from "../db.server";
 import { authenticate } from "../shopify.server";
 import { commitFlashSession, getFlashSession } from "../lib/flash.server";
+import {
+  AUTO_REAPPLY_TEXT,
+  getAutoReapplyLastRun,
+  isAutoReapplyEnabled,
+} from "../lib/task-auto-reapply";
 
 const TASK_HELP_URL = "#";
 const NEW_TASK_URL = "/app/tasks/new";
@@ -287,38 +292,6 @@ function getTaskChangeItems(task) {
     formatChangePayload(task.compareAtPriceChange, "compare at price"),
     formatChangePayload(task.costPerItemChange, "cost per item"),
   ].filter(Boolean);
-}
-
-const AUTO_REAPPLY_TEXT =
-  "Automatically re-apply price changes (every hour, up to 10,000 changes)";
-
-function isEnabledValue(value) {
-  if (value === true) return true;
-  if (value === false || value === null || value === undefined) return false;
-
-  return ["1", "true", "yes", "on", "enabled"].includes(
-    String(value).toLowerCase(),
-  );
-}
-
-function isAutoReapplyEnabled(task) {
-  const configuration = task.configuration || {};
-
-  return (
-    Boolean(task.autoReapply || task.autoReapplyChanges) ||
-    isEnabledValue(configuration.auto_reapply_changes) ||
-    isEnabledValue(configuration.auto_reapply_changes_enabled)
-  );
-}
-
-function getAutoReapplyLastRun(task) {
-  return (
-    task.autoReapplyLastRunAt ||
-    task.executionSummary?.autoReapplyLastRunAt ||
-    task.executionSummary?.lastAutoReapplyRunAt ||
-    task.configuration?.auto_reapply_last_run_at ||
-    ""
-  );
 }
 
 function AutoReapplyMessage({ task }) {

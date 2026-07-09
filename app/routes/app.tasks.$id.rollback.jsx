@@ -59,6 +59,10 @@ const TASK_INVENTORY_ITEM_UPDATE = `#graphql
 
 export const loader = async ({ request, params }) => {
   const { session } = await authenticate.admin(request);
+  if (!session.shop) {
+    throw new Response("Shop is required.", { status: 401 });
+  }
+
   const task = await loadTask(params.id, session.shop);
 
   return json({ task });
@@ -66,6 +70,10 @@ export const loader = async ({ request, params }) => {
 
 export const action = async ({ request, params }) => {
   const { admin, session } = await authenticate.admin(request);
+  if (!session.shop) {
+    throw new Response("Shop is required to roll back a task.", { status: 401 });
+  }
+
   const formData = await request.formData();
   const task = await loadTask(params.id, session.shop);
   const rollbackStartedAt = new Date().toISOString();
@@ -92,8 +100,8 @@ export const action = async ({ request, params }) => {
     );
   }
 
-  await db.task.update({
-    where: { id: task.id },
+  await db.task.updateMany({
+    where: { id: task.id, shop: task.shop },
     data: {
       status: "Cancelling",
       executionSummary: {
@@ -114,15 +122,14 @@ export const action = async ({ request, params }) => {
 };
 
 function scheduleRollbackExecution(admin, task, rollbackStartedAt) {
-  setTimeout(() => {
-    void runRollbackExecution(admin, task, rollbackStartedAt);
-  }, 10);
+  void runRollbackExecution(admin, task, rollbackStartedAt);
 }
 
 async function runRollbackExecution(admin, task, rollbackStartedAt) {
   const executionSummary = task.executionSummary || {};
   const updateRollbackProgress = createRollbackProgressReporter(
     task.id,
+    task.shop,
     executionSummary,
     rollbackStartedAt,
   );
@@ -141,8 +148,8 @@ async function runRollbackExecution(admin, task, rollbackStartedAt) {
       rollbackStartedAt,
     );
 
-    await db.task.update({
-      where: { id: task.id },
+    await db.task.updateMany({
+      where: { id: task.id, shop: task.shop },
       data: {
         status: "Cancelled",
         executionSummary: {
@@ -155,8 +162,8 @@ async function runRollbackExecution(admin, task, rollbackStartedAt) {
       },
     });
   } catch (error) {
-    await db.task.update({
-      where: { id: task.id },
+    await db.task.updateMany({
+      where: { id: task.id, shop: task.shop },
       data: {
         status: "Cancelled",
         executionSummary: {
@@ -178,7 +185,12 @@ async function runRollbackExecution(admin, task, rollbackStartedAt) {
   }
 }
 
-function createRollbackProgressReporter(taskId, baseExecutionSummary, startedAt) {
+function createRollbackProgressReporter(
+  taskId,
+  shop,
+  baseExecutionSummary,
+  startedAt,
+) {
   let lastWriteAt = 0;
   let latestSummary = {};
 
@@ -203,8 +215,8 @@ function createRollbackProgressReporter(taskId, baseExecutionSummary, startedAt)
 
     lastWriteAt = now;
 
-    await db.task.update({
-      where: { id: taskId },
+    await db.task.updateMany({
+      where: { id: taskId, shop },
       data: {
         status: "Cancelling",
         executionSummary: {
@@ -224,15 +236,20 @@ function createRollbackProgressReporter(taskId, baseExecutionSummary, startedAt)
 
 async function loadTask(id, shop) {
   const taskId = Number(id);
+  const resolvedShop = String(shop || "").trim();
 
   if (!Number.isInteger(taskId) || taskId <= 0) {
     throw new Response("Task not found", { status: 404 });
   }
 
+  if (!resolvedShop) {
+    throw new Response("Shop is required.", { status: 401 });
+  }
+
   const task = await db.task.findFirst({
     where: {
       id: taskId,
-      shop,
+      shop: resolvedShop,
     },
   });
 
