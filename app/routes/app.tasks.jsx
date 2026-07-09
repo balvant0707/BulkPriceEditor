@@ -134,6 +134,39 @@ function formatDate(value) {
   return `${monthDay} at ${time}`;
 }
 
+function formatRelativeTime(value) {
+  if (!value) return "—";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+
+  const diffSeconds = Math.max(
+    0,
+    Math.round((Date.now() - date.getTime()) / 1000),
+  );
+
+  if (diffSeconds < 45) return "just now";
+
+  const minutes = Math.round(diffSeconds / 60);
+  if (minutes < 2) return "about 1 minute ago";
+  if (minutes < 45) return `about ${minutes} minutes ago`;
+  if (minutes < 90) return "about 1 hour ago";
+
+  const hours = Math.round(minutes / 60);
+  if (hours < 22) return `about ${hours} hours ago`;
+  if (hours < 36) return "about 1 day ago";
+
+  const days = Math.round(hours / 24);
+  if (days < 26) return `about ${days} days ago`;
+  if (days < 45) return "about 1 month ago";
+
+  const months = Math.round(days / 30);
+  if (months < 12) return `about ${months} months ago`;
+
+  const years = Math.round(days / 365);
+  return years <= 1 ? "about 1 year ago" : `about ${years} years ago`;
+}
+
 function formatChangePayload(change, label) {
   const action = String(change?.action || "").toLowerCase();
   if (!action) return "";
@@ -278,32 +311,71 @@ function isAutoReapplyEnabled(task) {
   );
 }
 
-function AutoReapplyMessage() {
+function getAutoReapplyLastRun(task) {
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: "6px",
-        marginTop: "8px",
-      }}
-    >
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        viewBox="0 0 16 16"
-        width="16"
-        height="16"
-        fill="currentColor"
-        aria-hidden="true"
-      >
-        <path d="M1.5 7.25a.75.75 0 0 0 1.5 0 3 3 0 0 1 3-3h6.566l-1.123 1.248a.75.75 0 1 0 1.115 1.004l2.25-2.5a.75.75 0 0 0-.028-1.032l-2.25-2.25a.749.749 0 1 0-1.06 1.06l.97.97h-6.44a4.5 4.5 0 0 0-4.5 4.5" />
-        <path d="M14.5 8.75a.75.75 0 0 0-1.5 0 3 3 0 0 1-3 3h-6.566l1.123-1.248a.75.75 0 1 0-1.115-1.004l-2.25 2.5a.75.75 0 0 0 .028 1.032l2.25 2.25a.749.749 0 1 0 1.06-1.06l-.97-.97h6.44a4.5 4.5 0 0 0 4.5-4.5" />
-      </svg>
+    task.autoReapplyLastRunAt ||
+    task.executionSummary?.autoReapplyLastRunAt ||
+    task.executionSummary?.lastAutoReapplyRunAt ||
+    task.configuration?.auto_reapply_last_run_at ||
+    ""
+  );
+}
 
-      <Text as="span" tone="subdued">
-        {AUTO_REAPPLY_TEXT}
-      </Text>
-    </div>
+function AutoReapplyMessage({ task }) {
+  const autoReapplyLastRun = getAutoReapplyLastRun(task);
+
+  return (
+    <BlockStack gap="050">
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "6px",
+          marginTop: "8px",
+        }}
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 16 16"
+          width="16"
+          height="16"
+          fill="currentColor"
+          aria-hidden="true"
+        >
+          <path d="M1.5 7.25a.75.75 0 0 0 1.5 0 3 3 0 0 1 3-3h6.566l-1.123 1.248a.75.75 0 1 0 1.115 1.004l2.25-2.5a.75.75 0 0 0-.028-1.032l-2.25-2.25a.749.749 0 1 0-1.06 1.06l.97.97h-6.44a4.5 4.5 0 0 0-4.5 4.5" />
+          <path d="M14.5 8.75a.75.75 0 0 0-1.5 0 3 3 0 0 1-3 3h-6.566l1.123-1.248a.75.75 0 1 0-1.115-1.004l-2.25 2.5a.75.75 0 0 0 .028 1.032l2.25 2.25a.749.749 0 1 0 1.06-1.06l-.97-.97h6.44a4.5 4.5 0 0 0 4.5-4.5" />
+        </svg>
+
+        <Text as="span" tone="subdued">
+          {AUTO_REAPPLY_TEXT}
+        </Text>
+      </div>
+
+      {autoReapplyLastRun ? (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
+          }}
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 16 16"
+            width="16"
+            height="16"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <path d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8m8.75-3.25a.75.75 0 0 0-1.5 0v3.5c0 .199.079.39.22.53l2.25 2.25a.75.75 0 1 0 1.06-1.06L8.75 7.94z" />
+          </svg>
+
+          <Text as="span" tone="subdued">
+            Last run {formatRelativeTime(autoReapplyLastRun)}
+          </Text>
+        </div>
+      ) : null}
+    </BlockStack>
   );
 }
 
@@ -1008,7 +1080,7 @@ function TasksListPage({ tasks }) {
               </Text>
             ))}
 
-            {isAutoReapplyEnabled(task) ? <AutoReapplyMessage /> : null}
+            {isAutoReapplyEnabled(task) ? <AutoReapplyMessage task={task} /> : null}
           </BlockStack>
         </IndexTable.Cell>
 
