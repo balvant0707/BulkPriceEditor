@@ -117,7 +117,7 @@ export default function ProductReportPage({ type }) {
         </Text>
       </IndexTable.Cell>
       <IndexTable.Cell>
-        <Text as="span" alignment="end" numeric>
+        <Text as="span" alignment="start" numeric>
           {formatMoney(row.price, row.currencyCode)}
         </Text>
       </IndexTable.Cell>
