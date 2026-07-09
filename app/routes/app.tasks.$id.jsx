@@ -63,7 +63,7 @@ export const loader = async ({ request, params }) => {
   if (
     ACTIVE_TASK_STATUSES.includes(task.status) &&
     new Date(task.updatedAt).getTime() <
-    Date.now() - TASK_EXECUTION_TIMEOUT_MS
+      Date.now() - TASK_EXECUTION_TIMEOUT_MS
   ) {
     task = await db.task.update({
       where: { id: task.id },
@@ -101,11 +101,11 @@ export const loader = async ({ request, params }) => {
     selectedCollections,
     productDetails: selectedProductId
       ? getProductDetails(
-        task,
-        selectedProductId,
-        shopifyStoreHandle,
-        shopCurrency,
-      )
+          task,
+          selectedProductId,
+          shopifyStoreHandle,
+          shopCurrency,
+        )
       : null,
     shopCurrency,
   });
@@ -279,12 +279,11 @@ function ChangeDetails({ task }) {
       ))}
 
       {showAutoReapply ? (
+        
         <Text as="p" tone="subdued">
-          <span aria-hidden="true" class="icon color-base tone-auto size-base"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16"><path d="M1.5 7.25a.75.75 0 0 0 1.5 0 3 3 0 0 1 3-3h6.566l-1.123 1.248a.75.75 0 1 0 1.115 1.004l2.25-2.5a.75.75 0 0 0-.028-1.032l-2.25-2.25a.749.749 0 1 0-1.06 1.06l.97.97h-6.44a4.5 4.5 0 0 0-4.5 4.5"></path><path d="M14.5 8.75a.75.75 0 0 0-1.5 0 3 3 0 0 1-3 3h-6.566l1.123-1.248a.75.75 0 1 0-1.115-1.004l-2.25 2.5a.75.75 0 0 0 .028 1.032l2.25 2.25a.749.749 0 1 0 1.06-1.06l-.97-.97h6.44a4.5 4.5 0 0 0 4.5-4.5"></path></svg></span>
-          <Text as="p" fontWeight="regular">
-            Automatically re-apply price changes (every hour, up to 10,000
-            changes)
-          </Text>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16"><path d="M1.5 7.25a.75.75 0 0 0 1.5 0 3 3 0 0 1 3-3h6.566l-1.123 1.248a.75.75 0 1 0 1.115 1.004l2.25-2.5a.75.75 0 0 0-.028-1.032l-2.25-2.25a.749.749 0 1 0-1.06 1.06l.97.97h-6.44a4.5 4.5 0 0 0-4.5 4.5"></path><path d="M14.5 8.75a.75.75 0 0 0-1.5 0 3 3 0 0 1-3 3h-6.566l1.123-1.248a.75.75 0 1 0-1.115-1.004l-2.25 2.5a.75.75 0 0 0 .028 1.032l2.25 2.25a.749.749 0 1 0 1.06-1.06l-.97-.97h6.44a4.5 4.5 0 0 0 4.5-4.5"></path></svg>
+        Automatically re-apply price changes (every hour, up to 10,000
+          changes)
         </Text>
       ) : null}
 
@@ -488,9 +487,9 @@ function getBaseTaskDisplay(task) {
       background: "#FEDF89",
       showPendingSpinner: true,
       showProgress: false,
-      style: {
-        width: "fit-content",
-      },
+       style: {
+      width: "fit-content",
+    },
     };
   }
 
@@ -499,7 +498,7 @@ function getBaseTaskDisplay(task) {
     tone: "info",
     background: "#E0F2FE",
     showProgress: false,
-    style: {
+     style: {
       width: "fit-content",
     },
   };
@@ -735,29 +734,29 @@ function getShopifyNumericId(value) {
 function getProductId(record) {
   return getShopifyNumericId(
     record?.productId ??
-    record?.product_id ??
-    record?.legacyProductId ??
-    record?.productLegacyResourceId ??
-    record?.productGraphqlId ??
-    record?.productGid ??
-    record?.product?.id ??
-    record?.product?.legacyResourceId ??
-    record?.product?.admin_graphql_api_id,
+      record?.product_id ??
+      record?.legacyProductId ??
+      record?.productLegacyResourceId ??
+      record?.productGraphqlId ??
+      record?.productGid ??
+      record?.product?.id ??
+      record?.product?.legacyResourceId ??
+      record?.product?.admin_graphql_api_id,
   );
 }
 
 function getVariantId(record) {
   return getShopifyNumericId(
     record?.variantId ??
-    record?.variant_id ??
-    record?.legacyVariantId ??
-    record?.variantLegacyResourceId ??
-    record?.variantGraphqlId ??
-    record?.variantGid ??
-    record?.admin_graphql_api_id ??
-    record?.variant?.id ??
-    record?.variant?.legacyResourceId ??
-    record?.id,
+      record?.variant_id ??
+      record?.legacyVariantId ??
+      record?.variantLegacyResourceId ??
+      record?.variantGraphqlId ??
+      record?.variantGid ??
+      record?.admin_graphql_api_id ??
+      record?.variant?.id ??
+      record?.variant?.legacyResourceId ??
+      record?.id,
   );
 }
 
@@ -926,20 +925,20 @@ function getCollectionRecordId(record) {
 
   return getShopifyNumericId(
     record?.collectionId ??
-    record?.collection_id ??
-    record?.legacyResourceId ??
-    record?.legacy_resource_id ??
-    record?.legacyCollectionId ??
-    record?.collectionLegacyResourceId ??
-    record?.admin_graphql_api_id ??
-    record?.collectionGid ??
-    record?.gid ??
-    record?.resourceId ??
-    record?.resource_id ??
-    record?.targetId ??
-    record?.target_id ??
-    record?.value ??
-    record?.id,
+      record?.collection_id ??
+      record?.legacyResourceId ??
+      record?.legacy_resource_id ??
+      record?.legacyCollectionId ??
+      record?.collectionLegacyResourceId ??
+      record?.admin_graphql_api_id ??
+      record?.collectionGid ??
+      record?.gid ??
+      record?.resourceId ??
+      record?.resource_id ??
+      record?.targetId ??
+      record?.target_id ??
+      record?.value ??
+      record?.id,
   );
 }
 
@@ -947,12 +946,12 @@ function getCollectionRecordGid(record) {
   const rawValue =
     typeof record === "object" && record
       ? record.collectionGid ||
-      record.gid ||
-      record.admin_graphql_api_id ||
-      record.resourceId ||
-      record.targetId ||
-      record.value ||
-      record.id
+        record.gid ||
+        record.admin_graphql_api_id ||
+        record.resourceId ||
+        record.targetId ||
+        record.value ||
+        record.id
       : record;
 
   const stringValue = String(rawValue || "");
@@ -1528,16 +1527,19 @@ function createProductGroups(task, shopifyStoreHandle, shopCurrency) {
   return Array.from(groups.values()).map((group) => {
     const changes = [
       group.priceChangeCount
-        ? `${group.priceChangeCount} variant price change${group.priceChangeCount > 1 ? "s" : ""
-        }`
+        ? `${group.priceChangeCount} variant price change${
+            group.priceChangeCount > 1 ? "s" : ""
+          }`
         : "",
       group.compareAtChangeCount
-        ? `${group.compareAtChangeCount} compare-at price change${group.compareAtChangeCount > 1 ? "s" : ""
-        }`
+        ? `${group.compareAtChangeCount} compare-at price change${
+            group.compareAtChangeCount > 1 ? "s" : ""
+          }`
         : "",
       group.costChangeCount
-        ? `${group.costChangeCount} cost change${group.costChangeCount > 1 ? "s" : ""
-        }`
+        ? `${group.costChangeCount} cost change${
+            group.costChangeCount > 1 ? "s" : ""
+          }`
         : "",
     ].filter(Boolean);
 
@@ -1983,16 +1985,17 @@ function ResourceList({ records, type, shopifyStoreHandle }) {
           type === "variant" ? getShopifyNumericId(item.id || item.gid) : "";
         const label =
           type === "variant"
-            ? `${item.productTitle ? `${item.productTitle} - ` : ""}${item.title || item.id || "Variant"
-            }`
+            ? `${item.productTitle ? `${item.productTitle} - ` : ""}${
+                item.title || item.id || "Variant"
+              }`
             : item.title || item.handle || item.id || humanize(type);
         const url =
           type === "collection"
             ? item.adminUrl ||
-            getCollectionAdminUrl(
-              shopifyStoreHandle,
-              getShopifyNumericId(item.id || item.gid),
-            )
+              getCollectionAdminUrl(
+                shopifyStoreHandle,
+                getShopifyNumericId(item.id || item.gid),
+              )
             : type === "product"
               ? getProductAdminUrl(shopifyStoreHandle, productId)
               : type === "variant"
@@ -2202,26 +2205,26 @@ export default function TaskDetailsPage() {
 
   const statusDisplay = rollbackProcessing
     ? {
-      label: "Cancelling",
-      tone: "attention",
-      background: "#FEDF89",
-      showPendingSpinner: true,
-      showProgress: true,
-    }
+        label: "Cancelling",
+        tone: "attention",
+        background: "#FEDF89",
+        showPendingSpinner: true,
+        showProgress: true,
+      }
     : rollbackCompleted
       ? {
-        label: "Cancelled",
-        tone: "success",
-        background: "#D1FADF",
-        showProgress: false,
-      }
-      : rollbackFailed
-        ? {
-          label: getCanceledStatusLabel(getRollbackStatusValue(task) || getTaskStatusValue(task) || "Cancel"),
-          tone: "critical",
-          background: "#FEE4E2",
+          label: "Cancelled",
+          tone: "success",
+          background: "#D1FADF",
           showProgress: false,
         }
+      : rollbackFailed
+        ? {
+            label: getCanceledStatusLabel(getRollbackStatusValue(task) || getTaskStatusValue(task) || "Cancel"),
+            tone: "critical",
+            background: "#FEE4E2",
+            showProgress: false,
+          }
         : baseStatusDisplay;
 
   const statusTone = getStatusToneFromDisplay(statusDisplay);
@@ -2299,20 +2302,20 @@ export default function TaskDetailsPage() {
     ? []
     : rollbackCompleted
       ? [
-        {
-          content: deleteFetcher.state === "idle" ? "Delete" : "Deleting...",
-          destructive: true,
-          disabled: deleteFetcher.state !== "idle",
-          onAction: handleDelete,
-        },
-      ]
+          {
+            content: deleteFetcher.state === "idle" ? "Delete" : "Deleting...",
+            destructive: true,
+            disabled: deleteFetcher.state !== "idle",
+            onAction: handleDelete,
+          },
+        ]
       : [
-        {
-          content: "Rollback",
-          disabled: !taskCompleted,
-          onAction: openRollbackModal,
-        },
-      ];
+          {
+            content: "Rollback",
+            disabled: !taskCompleted,
+            onAction: openRollbackModal,
+          },
+        ];
 
   useEffect(() => {
     if (deleteFetcher.data?.deleted) {
