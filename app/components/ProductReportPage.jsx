@@ -141,12 +141,12 @@ export default function ProductReportPage({ type }) {
       ) : (
         <>
           <IndexTable.Cell>
-            <Text as="span" alignment="end" numeric>
+            <Text as="span"alignment="start" align="start" numeric>
               {formatMoney(row.compareAtPrice, row.currencyCode)}
             </Text>
           </IndexTable.Cell>
           <IndexTable.Cell>
-            <Text as="span" alignment="end" numeric>
+            <Text as="span" alignment="start" align="start" numeric>
               {formatDiscount(row.discountPercent)}
             </Text>
           </IndexTable.Cell>
