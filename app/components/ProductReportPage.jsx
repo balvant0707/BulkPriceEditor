@@ -45,14 +45,6 @@ export default function ProductReportPage({ type }) {
   const [searchParams] = useSearchParams();
   const [queryValue, setQueryValue] = useState(query || "");
   const [filterValue, setFilterValue] = useState(filter || "all");
-  const title =
-    type === REPORT_TYPES.margin
-      ? "Products Margin Report"
-      : "Products Discount Report";
-  const reportDescription =
-    type === REPORT_TYPES.margin
-      ? "Review price, cost, and gross margin for each variant."
-      : "Review variants that still have compare-at prices and discount values.";
 
   useEffect(() => {
     setQueryValue(query || "");
@@ -114,11 +106,6 @@ export default function ProductReportPage({ type }) {
           >
             {row.productTitle || "-"}
           </Link>
-          {type === REPORT_TYPES.margin ? (
-            <Text as="span" variant="bodySm" tone="subdued">
-              Open product in Shopify admin
-            </Text>
-          ) : null}
         </BlockStack>
       </IndexTable.Cell>
       <IndexTable.Cell>
@@ -176,36 +163,13 @@ export default function ProductReportPage({ type }) {
 
       <Card padding="0">
         <BlockStack gap="0">
-          <Box padding="500">
-            <InlineStack align="space-between" blockAlign="start" gap="400">
-              <BlockStack gap="100">
-                <Text as="h2" variant="headingMd">
-                  {title}
-                </Text>
-                <Text as="p" tone="subdued">
-                  {reportDescription}
-                </Text>
-              </BlockStack>
-
-              <InlineStack gap="200" blockAlign="center">
-                <Badge tone="info">{totalRows} rows</Badge>
-                <Text as="span" tone="subdued">
-                  Generated {formatDate(report.generatedAt || report.createdAt)}
-                </Text>
-              </InlineStack>
-            </InlineStack>
-          </Box>
-
-          <Divider />
-
           <Box padding="400" background="bg-surface-secondary">
             <InlineGrid
               columns={type === REPORT_TYPES.margin ? "1fr 240px" : "1fr"}
               gap="400"
             >
               <TextField
-                label="Search"
-                labelHidden
+                label="Search Products"
                 value={queryValue}
                 onChange={setQueryValue}
                 placeholder="Product, variant, or SKU"
