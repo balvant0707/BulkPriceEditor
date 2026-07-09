@@ -121,18 +121,47 @@ export const action = async ({ request, params }) => {
     throw new Response("Task not found", { status: 404 });
   }
 
-  if (intent !== "delete") {
-    return json({ ok: false, message: "Invalid action" }, { status: 400 });
+  if (intent === "disable_auto_reapply") {
+    const task = await db.task.findFirst({
+      where: {
+        id: taskId,
+        shop: session.shop,
+      },
+    });
+
+    if (!task) {
+      throw new Response("Task not found", { status: 404 });
+    }
+
+    await db.task.update({
+      where: { id: task.id },
+      data: {
+        autoReapply: false,
+        autoReapplyChanges: false,
+        configuration: getDisabledAutoReapplyConfiguration(task.configuration),
+        executionSummary: {
+          ...(task.executionSummary || {}),
+          autoReapplyDisabled: true,
+          autoReapplyDisabledAt: new Date().toISOString(),
+        },
+      },
+    });
+
+    return json({ ok: true, disabledAutoReapply: true });
   }
 
-  await db.task.deleteMany({
-    where: {
-      id: taskId,
-      shop: session.shop,
-    },
-  });
+  if (intent === "delete") {
+    await db.task.deleteMany({
+      where: {
+        id: taskId,
+        shop: session.shop,
+      },
+    });
 
-  return json({ ok: true, deleted: true });
+    return json({ ok: true, deleted: true });
+  }
+
+  return json({ ok: false, message: "Invalid action" }, { status: 400 });
 };
 
 function humanize(value) {
@@ -213,18 +242,50 @@ function isEnabledValue(value) {
   if (value === true) return true;
   if (value === false || value === null || value === undefined) return false;
 
-  return ["1", "true", "yes", "on"].includes(String(value).toLowerCase());
+  return ["1", "true", "yes", "on", "enabled"].includes(
+    String(value).toLowerCase(),
+  );
 }
 
 function isAutoReapplyEnabled(task) {
   const configuration = task.configuration || {};
 
   return (
-    Boolean(task.autoReapplyChanges) ||
+    Boolean(task.autoReapply || task.autoReapplyChanges) ||
     isEnabledValue(configuration.auto_reapply_changes) ||
     isEnabledValue(configuration.auto_reapply_changes_enabled)
   );
 }
+
+function getObjectValue(value) {
+  if (!value) return {};
+  if (typeof value === "object" && !Array.isArray(value)) return { ...value };
+
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? { ...parsed }
+        : {};
+    } catch {
+      return {};
+    }
+  }
+
+  return {};
+}
+
+function getDisabledAutoReapplyConfiguration(configuration) {
+  const nextConfiguration = getObjectValue(configuration);
+
+  nextConfiguration.auto_reapply_changes = "";
+  nextConfiguration.auto_reapply_changes_enabled = "disabled";
+
+  return nextConfiguration;
+}
+
+const AUTO_REAPPLY_TEXT =
+  "Automatically re-apply price changes (every hour, up to 10,000 changes)";
 
 function getAutoReapplyLastRun(task) {
   return (
@@ -300,12 +361,12 @@ function ChangeDetails({ task }) {
           </svg>
 
           <Text as="p" tone="subdued">
-            Automatically re-apply price changes (every hour, up to 10,000 changes)
+            {AUTO_REAPPLY_TEXT}
           </Text>
         </div>
       )}
 
-      {autoReapplyLastRun ? (
+      {showAutoReapply && autoReapplyLastRun ? (
         <Text as="p" tone="subdued">
           Last run {formatDate(autoReapplyLastRun)}
         </Text>
@@ -2197,12 +2258,15 @@ export default function TaskDetailsPage() {
   const navigate = useNavigate();
   const revalidator = useRevalidator();
   const deleteFetcher = useFetcher();
+  const autoReapplyFetcher = useFetcher();
   const submit = useSubmit();
 
   const rollbackState = getRollbackState(task);
   const taskCompleted = isTaskCompleted(task);
   const taskProcessing = isTaskProcessing(task);
   const taskPending = isTaskPending(task);
+  const autoReapplyEnabled = isAutoReapplyEnabled(task);
+  const isAutoReapplySubmitting = autoReapplyFetcher.state !== "idle";
 
   const [rollbackModalOpen, setRollbackModalOpen] = useState(false);
   const [clientRollbackStarted, setClientRollbackStarted] = useState(false);
@@ -2312,30 +2376,58 @@ export default function TaskDetailsPage() {
     );
   };
 
-  const pageSecondaryActions = rollbackProcessing || rollbackFailed
-    ? []
-    : rollbackCompleted
-      ? [
-        {
-          content: deleteFetcher.state === "idle" ? "Delete" : "Deleting...",
-          destructive: true,
-          disabled: deleteFetcher.state !== "idle",
-          onAction: handleDelete,
-        },
-      ]
-      : [
-        {
-          content: "Rollback",
-          disabled: !taskCompleted,
-          onAction: openRollbackModal,
-        },
-      ];
+  const handleDisableAutoReapply = () => {
+    if (!autoReapplyEnabled || isAutoReapplySubmitting) return;
+
+    autoReapplyFetcher.submit(
+      { intent: "disable_auto_reapply" },
+      {
+        method: "post",
+        action: `/app/tasks/${task.id}`,
+      },
+    );
+  };
+
+  const pageSecondaryActions = [];
+
+  if (!rollbackProcessing && !rollbackFailed) {
+    if (rollbackCompleted) {
+      pageSecondaryActions.push({
+        content: deleteFetcher.state === "idle" ? "Delete" : "Deleting...",
+        destructive: true,
+        disabled: deleteFetcher.state !== "idle",
+        onAction: handleDelete,
+      });
+    } else {
+      pageSecondaryActions.push({
+        content: "Rollback",
+        disabled: !taskCompleted,
+        onAction: openRollbackModal,
+      });
+
+      if (taskCompleted && autoReapplyEnabled) {
+        pageSecondaryActions.push({
+          content: isAutoReapplySubmitting
+            ? "Disabling auto-reapply..."
+            : "Disable auto-reapply",
+          disabled: isAutoReapplySubmitting,
+          onAction: handleDisableAutoReapply,
+        });
+      }
+    }
+  }
 
   useEffect(() => {
     if (deleteFetcher.data?.deleted) {
       navigate("/app/tasks");
     }
   }, [deleteFetcher.data, navigate]);
+
+  useEffect(() => {
+    if (autoReapplyFetcher.data?.disabledAutoReapply) {
+      revalidator.revalidate();
+    }
+  }, [autoReapplyFetcher.data, revalidator]);
 
   useEffect(() => {
     if (rollbackCompleted || rollbackFailed) {
