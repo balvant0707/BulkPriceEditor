@@ -45,6 +45,14 @@ export default function ProductReportPage({ type }) {
   const [searchParams] = useSearchParams();
   const [queryValue, setQueryValue] = useState(query || "");
   const [filterValue, setFilterValue] = useState(filter || "all");
+  const title =
+    type === REPORT_TYPES.margin
+      ? "Products Margin Report"
+      : "Products Discount Report";
+  const reportDescription =
+    type === REPORT_TYPES.margin
+      ? "Review price, cost, and gross margin for each variant."
+      : "Review variants that still have compare-at prices and discount values.";
 
   useEffect(() => {
     setQueryValue(query || "");
