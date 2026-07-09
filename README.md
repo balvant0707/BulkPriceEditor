@@ -142,6 +142,12 @@ Configure your server cron to call the endpoint once per hour:
 https://your-app-domain.com/cron/auto-reapply?secret=YOUR_SECRET
 ```
 
+Use the same secret for scheduled sale activation and ending:
+
+```text
+https://your-app-domain.com/cron/sales?secret=YOUR_SECRET
+```
+
 ### Hosting on Vercel
 
 Using the Vercel Preset is recommended when hosting your Shopify Remix app on Vercel. You'll also want to ensure imports that would normally come from `@remix-run/node` are imported from `@vercel/remix` instead. Learn more about hosting Remix apps on Vercel [here](https://vercel.com/docs/frameworks/remix).

@@ -195,7 +195,7 @@ const SALE_TAGS_REMOVE = `#graphql
   }
 `;
 
-const MAX_SALE_VARIANTS = 250;
+const MAX_SALE_VARIANTS = 10000;
 const SALE_VARIANT_PAGE_SIZE = 100;
 
 export async function loader({ request, params }) {
@@ -397,7 +397,7 @@ async function prepareSaleExecution(admin, saleData) {
         ok: true,
         scheduled: true,
         message:
-          "Sale saved as scheduled. A scheduler is required to activate it automatically.",
+          "Sale saved as scheduled. The sales cron endpoint activates it automatically.",
       },
       startedAt: null,
       completedAt: null,

@@ -1,6 +1,11 @@
 // app/routes/app.tools.jsx
 import { json } from "@remix-run/node";
-import { useFetcher, useLoaderData } from "@remix-run/react";
+import {
+  Outlet,
+  useFetcher,
+  useLoaderData,
+  useLocation,
+} from "@remix-run/react";
 import { useEffect, useState } from "react";
 import {
   BlockStack,
@@ -121,11 +126,16 @@ function ToolCard({
 
 export default function ToolsPage() {
   const { latestMarginReportUrl, latestDiscountReportUrl } = useLoaderData();
+  const location = useLocation();
   const [toast, setToast] = useState("");
   const [marginReportUrl, setMarginReportUrl] = useState(latestMarginReportUrl);
   const [discountReportUrl, setDiscountReportUrl] = useState(
     latestDiscountReportUrl,
   );
+
+  if (location.pathname !== "/app/tools") {
+    return <Outlet />;
+  }
 
   return (
     <Frame>
