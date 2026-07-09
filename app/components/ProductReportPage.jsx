@@ -6,10 +6,12 @@ import {
 } from "@remix-run/react";
 import { useEffect, useMemo, useState } from "react";
 import {
+  Badge,
   BlockStack,
   Box,
   Button,
   Card,
+  Divider,
   IndexTable,
   InlineGrid,
   InlineStack,
@@ -47,6 +49,10 @@ export default function ProductReportPage({ type }) {
     type === REPORT_TYPES.margin
       ? "Products Margin Report"
       : "Products Discount Report";
+  const reportDescription =
+    type === REPORT_TYPES.margin
+      ? "Review price, cost, and gross margin for each variant."
+      : "Review variants that still have compare-at prices and discount values.";
 
   useEffect(() => {
     setQueryValue(query || "");
@@ -101,28 +107,54 @@ export default function ProductReportPage({ type }) {
   const rowMarkup = rows.map((row, index) => (
     <IndexTable.Row id={String(row.id)} key={row.id} position={index}>
       <IndexTable.Cell>
-        <Link url={getProductAdminUrl(shopifyStoreHandle, row.productId)}>
-          {row.productTitle || "-"}
-        </Link>
+        <BlockStack gap="050">
+          <Link
+            url={getProductAdminUrl(shopifyStoreHandle, row.productId)}
+            external
+          >
+            {row.productTitle || "-"}
+          </Link>
+          {type === REPORT_TYPES.margin ? (
+            <Text as="span" variant="bodySm" tone="subdued">
+              Open product in Shopify admin
+            </Text>
+          ) : null}
+        </BlockStack>
       </IndexTable.Cell>
-      <IndexTable.Cell>{row.variantTitle || "-"}</IndexTable.Cell>
-      <IndexTable.Cell>{row.sku || "-"}</IndexTable.Cell>
-      <IndexTable.Cell>{formatMoney(row.price, row.currencyCode)}</IndexTable.Cell>
+      <IndexTable.Cell>
+        <Text as="span">{row.variantTitle || "-"}</Text>
+      </IndexTable.Cell>
+      <IndexTable.Cell>
+        <Text as="span" tone={row.sku ? undefined : "subdued"}>
+          {row.sku || "-"}
+        </Text>
+      </IndexTable.Cell>
+      <IndexTable.Cell>
+        <Text as="span" alignment="end" numeric>
+          {formatMoney(row.price, row.currencyCode)}
+        </Text>
+      </IndexTable.Cell>
       {type === REPORT_TYPES.margin ? (
         <>
-          <IndexTable.Cell>{formatMoney(row.cost, row.currencyCode)}</IndexTable.Cell>
           <IndexTable.Cell>
-            <Text as="span" tone={getMarginTone(row.marginPercent)}>
-              {formatPercent(row.marginPercent)}
+            <Text as="span" alignment="end" numeric>
+              {formatMoney(row.cost, row.currencyCode)}
             </Text>
           </IndexTable.Cell>
+          <IndexTable.Cell>{renderMargin(row.marginPercent)}</IndexTable.Cell>
         </>
       ) : (
         <>
           <IndexTable.Cell>
-            {formatMoney(row.compareAtPrice, row.currencyCode)}
+            <Text as="span" alignment="end" numeric>
+              {formatMoney(row.compareAtPrice, row.currencyCode)}
+            </Text>
           </IndexTable.Cell>
-          <IndexTable.Cell>{formatDiscount(row.discountPercent)}</IndexTable.Cell>
+          <IndexTable.Cell>
+            <Text as="span" alignment="end" numeric>
+              {formatDiscount(row.discountPercent)}
+            </Text>
+          </IndexTable.Cell>
         </>
       )}
     </IndexTable.Row>
@@ -143,8 +175,30 @@ export default function ProductReportPage({ type }) {
       <TitleBar title={title} />
 
       <Card padding="0">
-        <Box padding="400">
-          <BlockStack gap="400">
+        <BlockStack gap="0">
+          <Box padding="500">
+            <InlineStack align="space-between" blockAlign="start" gap="400">
+              <BlockStack gap="100">
+                <Text as="h2" variant="headingMd">
+                  {title}
+                </Text>
+                <Text as="p" tone="subdued">
+                  {reportDescription}
+                </Text>
+              </BlockStack>
+
+              <InlineStack gap="200" blockAlign="center">
+                <Badge tone="info">{totalRows} rows</Badge>
+                <Text as="span" tone="subdued">
+                  Generated {formatDate(report.generatedAt || report.createdAt)}
+                </Text>
+              </InlineStack>
+            </InlineStack>
+          </Box>
+
+          <Divider />
+
+          <Box padding="400" background="bg-surface-secondary">
             <InlineGrid
               columns={type === REPORT_TYPES.margin ? "1fr 240px" : "1fr"}
               gap="400"
@@ -171,7 +225,11 @@ export default function ProductReportPage({ type }) {
                 />
               ) : null}
             </InlineGrid>
+          </Box>
 
+          <Divider />
+
+          <Box paddingBlockStart="200">
             <IndexTable
               resourceName={{ singular: "row", plural: "rows" }}
               itemCount={rows.length}
@@ -198,15 +256,19 @@ export default function ProductReportPage({ type }) {
             >
               {rowMarkup}
             </IndexTable>
+          </Box>
 
             {!rows.length ? (
-              <Box paddingBlock="400">
+              <Box padding="500">
                 <Text as="p" tone="subdued">
                   No report rows found.
                 </Text>
               </Box>
             ) : null}
 
+          <Divider />
+
+          <Box padding="400">
             <InlineStack align="space-between" blockAlign="center">
               <Text as="span" tone="subdued">
                 {formatRangeLabel(totalRows, currentPage, rows.length)}
@@ -218,12 +280,8 @@ export default function ProductReportPage({ type }) {
                 onNext={handleNext}
               />
             </InlineStack>
-
-            <Text as="p" tone="subdued">
-              Generated {formatDate(report.generatedAt || report.createdAt)}
-            </Text>
-          </BlockStack>
-        </Box>
+          </Box>
+        </BlockStack>
       </Card>
     </Page>
   );
@@ -249,9 +307,19 @@ function formatDiscount(value) {
   return `${Number(value).toFixed(2)}% off`;
 }
 
-function getMarginTone(value) {
-  if (value == null) return "subdued";
-  return Number(value) < 0 ? "critical" : "success";
+function renderMargin(value) {
+  if (value == null) {
+    return <Badge tone="attention">No cost</Badge>;
+  }
+
+  const number = Number(value);
+  return (
+    <InlineStack align="end">
+      <Badge tone={number < 0 ? "critical" : "success"}>
+        {formatPercent(number)}
+      </Badge>
+    </InlineStack>
+  );
 }
 
 function getProductAdminUrl(shopifyStoreHandle, productId) {
