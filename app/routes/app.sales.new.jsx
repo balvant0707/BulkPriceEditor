@@ -368,7 +368,6 @@ function buildSaleData(shop, title, payload) {
     endAt,
     addTagsEnabled: Boolean(form.addTagsEnabled),
     removeTagsEnabled: Boolean(form.removeTagsEnabled),
-    trackConditionChanges: Boolean(form.trackConditionChanges),
     autoReapplyChanges: Boolean(form.autoReapplyChanges),
   };
 }
@@ -1661,9 +1660,6 @@ export default function NewSalePage() {
     removeTagsEnabled: Boolean(
       initialForm.removeTagsEnabled ?? sale?.removeTagsEnabled,
     ),
-    trackConditionChanges: Boolean(
-      initialForm.trackConditionChanges ?? sale?.trackConditionChanges,
-    ),
     autoReapplyChanges: Boolean(
       initialForm.autoReapplyChanges ?? sale?.autoReapplyChanges,
     ),
@@ -2354,13 +2350,6 @@ export default function NewSalePage() {
                   ) : null}
 
                   <Divider />
-
-                  <Checkbox
-                    label="Track changes in condition automatically (every hour)"
-                    helpText="New matching products will be added, non matching products will be excluded."
-                    checked={form.trackConditionChanges}
-                    onChange={setField("trackConditionChanges")}
-                  />
 
                   <Checkbox
                     label="Automatically re-apply price changes (every hour)"

@@ -33,6 +33,12 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import db from "../db.server";
 import { authenticate } from "../shopify.server";
+import {
+  DISCOUNTED_SKIP_REASONS,
+  isVariantDiscounted,
+  normalizeDiscountedScope,
+  splitVariantsByDiscountedScope,
+} from "../lib/task-discounted-exclusion.server";
 
 const MARKETS_QUERY = `#graphql
   query GetMarkets {
@@ -266,11 +272,14 @@ const TASK_INVENTORY_ITEM_UPDATE = `#graphql
   }
 `;
 
-const MAX_TASK_VARIANTS = 250;
+const MAX_TASK_VARIANTS = 10000;
+const MAX_AUTO_REAPPLY_PRICE_CHANGES = 10000;
 const VARIANT_PAGE_SIZE = 100;
-const TASK_UPDATE_CONCURRENCY = 16;
+const TASK_UPDATE_CONCURRENCY = 4;
 const PROGRESS_UPDATE_MIN_INTERVAL_MS = 500;
 const PROGRESS_UPDATE_MIN_DELTA = 2;
+const GRAPHQL_MAX_RETRIES = 4;
+const GRAPHQL_RETRY_BASE_MS = 500;
 
 export async function loader({ request, params }) {
   const { admin, session } = await authenticate.admin(request);
@@ -330,6 +339,21 @@ export async function action({ request, params }) {
     return json({ error: validationError }, { status: 400 });
   }
 
+  const estimatedAutoReapplyChanges = estimateTaskDataPriceChanges(data);
+  if (
+    (data.autoReapply || data.autoReapplyChanges) &&
+    estimatedAutoReapplyChanges != null &&
+    estimatedAutoReapplyChanges > MAX_AUTO_REAPPLY_PRICE_CHANGES
+  ) {
+    return json(
+      {
+        error:
+          "Automatic re-apply is only available for tasks affecting up to 10,000 price changes.",
+      },
+      { status: 400 },
+    );
+  }
+
   if (taskId) {
     const existingTask = await db.task.findFirst({
       where: {
@@ -363,7 +387,7 @@ export async function action({ request, params }) {
       },
     });
 
-    scheduleTaskExecution(admin, taskId, data);
+    scheduleTaskExecution(admin, taskId, data, session.shop);
 
     return redirect(`/app/tasks/${taskId}`);
   }
@@ -377,14 +401,14 @@ export async function action({ request, params }) {
     },
   });
 
-  scheduleTaskExecution(admin, task.id, data);
+  scheduleTaskExecution(admin, task.id, data, session.shop);
 
   return redirect(`/app/tasks/${task.id}`);
 }
 
-function scheduleTaskExecution(admin, taskId, data) {
+function scheduleTaskExecution(admin, taskId, data, shop) {
   setTimeout(() => {
-    void runTaskExecution(admin, taskId, data);
+    void runTaskExecution(admin, taskId, data, shop);
   }, 10);
 }
 
@@ -424,7 +448,7 @@ function createProgressUpdater(taskId) {
   };
 }
 
-async function runTaskExecution(admin, taskId, data) {
+async function runTaskExecution(admin, taskId, data, shop) {
   try {
     const updateProgress = createProgressUpdater(taskId);
 
@@ -437,12 +461,21 @@ async function runTaskExecution(admin, taskId, data) {
       },
     });
 
-    const execution = await executeTask(admin, data, updateProgress);
+    const execution = await executeTask(admin, data, updateProgress, {
+      taskId,
+      shop: shop || data.shop,
+    });
 
     await db.task.update({
       where: { id: taskId },
       data: {
         status: "Completed",
+        autoReapply:
+          Boolean(data.autoReapply || data.autoReapplyChanges) &&
+          execution.totalPriceChanges <= MAX_AUTO_REAPPLY_PRICE_CHANGES,
+        autoReapplyChanges:
+          Boolean(data.autoReapply || data.autoReapplyChanges) &&
+          execution.totalPriceChanges <= MAX_AUTO_REAPPLY_PRICE_CHANGES,
         executionSummary: {
           ...execution,
           progress: 100,
@@ -593,7 +626,9 @@ function buildTaskData(shop, formData) {
     costPerItemChange: buildChangeData(formData, "cost_per_item"),
     applyScope: getFormValue(formData, "condition", "whole_store"),
     excludeScope: getFormValue(formData, "exclude", "nothing"),
-    discountedScope: getFormValue(formData, "exclude_discounted", "nothing"),
+    discountedScope: normalizeDiscountedScope(
+      getFormValue(formData, "exclude_discounted", "nothing"),
+    ),
     applyResources: {
       scope: getFormValue(formData, "apply_scope"),
       saleFilter: getFormValue(formData, "apply_sale_filter"),
@@ -607,7 +642,9 @@ function buildTaskData(shop, formData) {
     },
     excludeResources: {
       scope: getFormValue(formData, "exclude_scope"),
-      discountedScope: getFormValue(formData, "discounted_exclusion_scope"),
+      discountedScope: normalizeDiscountedScope(
+        getFormValue(formData, "discounted_exclusion_scope"),
+      ),
       collectionIds: getFormValues(formData, "exclude_collection_ids[]"),
       collections: excludeCollections,
       productIds: getFormValues(formData, "exclude_product_ids[]"),
@@ -617,6 +654,7 @@ function buildTaskData(shop, formData) {
       tagNames: getFormValues(formData, "exclude_tag_names[]"),
     },
     configuration: formDataToConfiguration(formData),
+    autoReapply: hasFormValue(formData, "auto_reapply_changes"),
     autoReapplyChanges: hasFormValue(formData, "auto_reapply_changes"),
   };
 }
@@ -642,6 +680,30 @@ function validateTaskData(taskData) {
   }
 
   return "";
+}
+
+function estimateTaskDataPriceChanges(taskData) {
+  if (taskData.applyScope === "selected_products_with_variants") {
+    return taskData.applyResources?.variantIds?.length || 0;
+  }
+
+  if (taskData.applyScope === "selected_products") {
+    return taskData.applyResources?.productIds?.length || 0;
+  }
+
+  if (taskData.applyScope === "selected_collections") {
+    const totalProducts = (taskData.applyResources?.collections || []).reduce(
+      (total, collection) => {
+        const count = Number(collection.productsCount);
+        return Number.isFinite(count) ? total + count : total;
+      },
+      0,
+    );
+
+    return totalProducts || null;
+  }
+
+  return null;
 }
 
 function validateChangeData(field, label, change) {
@@ -684,7 +746,12 @@ function validateChangeData(field, label, change) {
   return "";
 }
 
-async function executeTask(admin, taskData, onProgress = async () => {}) {
+async function executeTask(
+  admin,
+  taskData,
+  onProgress = async () => {},
+  options = {},
+) {
   try {
     if (taskData.applyChangesTo === "markets") {
       return {
@@ -703,26 +770,31 @@ async function executeTask(admin, taskData, onProgress = async () => {}) {
     });
 
     const discountedScope = getDiscountedScope(taskData);
-    const discountedProductTypes =
-      discountedScope === "product_types_on_sale"
-        ? getDiscountedProductTypes(targetVariants)
-        : new Set();
-    const variants = uniqueVariants(targetVariants).filter((variant) => {
-      if (excludedVariantIds.has(variant.id)) return false;
-      if (
-        (taskData.applyScope === "products_on_sale" ||
-          discountedScope === "products_on_sale") &&
-        isVariantDiscounted(variant)
-      ) {
-        return false;
-      }
-      if (
-        discountedScope === "product_types_on_sale" &&
-        discountedProductTypes.has(getProductType(variant))
-      ) {
-        return false;
-      }
-      return true;
+    const selectedVariants = uniqueVariants(targetVariants).filter(
+      (variant) => !excludedVariantIds.has(variant.id),
+    );
+    const { variants, skippedLogs } = await applyDiscountedExclusion(
+      admin,
+      selectedVariants,
+      discountedScope,
+    );
+    const auditLogs = skippedLogs.map((log) => ({
+      taskId: options.taskId,
+      shop: options.shop || taskData.shop,
+      ...log,
+    }));
+
+    excludedVariantIds.forEach((variantId) => {
+      const variant = targetVariants.find((item) => item.id === variantId);
+      if (!variant) return;
+      auditLogs.push(
+        buildAuditLogRecord(variant, {
+          action: "Skipped",
+          skipReason: "Excluded by task configuration.",
+          taskId: options.taskId,
+          shop: options.shop || taskData.shop,
+        }),
+      );
     });
 
     const productVariantUpdates = [];
@@ -734,6 +806,14 @@ async function executeTask(admin, taskData, onProgress = async () => {}) {
       const variantUpdate = buildVariantUpdate(variant, taskData);
       if (variantUpdate) {
         productVariantUpdates.push(variantUpdate);
+        auditLogs.push(
+          buildAuditLogRecord(variant, {
+            action: "Updated",
+            newPrice: variantUpdate.variant.price ?? variant.price,
+            taskId: options.taskId,
+            shop: options.shop || taskData.shop,
+          }),
+        );
       }
 
       if (variantUpdate || shouldLogPriceNoChange(variant, taskData)) {
@@ -753,6 +833,17 @@ async function executeTask(admin, taskData, onProgress = async () => {}) {
           nextCost: inventoryUpdate.input.cost,
         });
       }
+
+      if (!variantUpdate && !inventoryUpdate) {
+        auditLogs.push(
+          buildAuditLogRecord(variant, {
+            action: "Skipped",
+            skipReason: "No price or cost change required.",
+            taskId: options.taskId,
+            shop: options.shop || taskData.shop,
+          }),
+        );
+      }
     }
 
     await onProgress(40, {
@@ -760,7 +851,10 @@ async function executeTask(admin, taskData, onProgress = async () => {}) {
       variantUpdates: productVariantUpdates.length,
       inventoryUpdates: inventoryUpdates.length,
       skippedVariants:
-        targetVariants.length - variants.length + variants.length - productVariantUpdates.length,
+        targetVariants.length -
+        variants.length +
+        variants.length -
+        productVariantUpdates.length,
     });
 
     const totalUpdateSteps =
@@ -803,6 +897,7 @@ async function executeTask(admin, taskData, onProgress = async () => {}) {
       reportUpdateProgress,
     );
     const errors = [...variantResults.errors, ...inventoryResults.errors];
+    await persistTaskAuditLogs(auditLogs);
 
     return {
       ok: errors.length === 0,
@@ -811,8 +906,11 @@ async function executeTask(admin, taskData, onProgress = async () => {}) {
       inventoryUpdates: inventoryUpdates.length,
       updatedVariants: variantResults.updatedCount,
       updatedInventoryItems: inventoryResults.updatedCount,
+      totalPriceChanges: productVariantUpdates.length,
       skippedVariants:
         targetVariants.length - variants.length + variants.length - productVariantUpdates.length,
+      skippedProducts: countSkippedProducts(skippedLogs),
+      logs: auditLogs.map(({ taskId, shop, ...log }) => log),
       originalVariants,
       originalInventoryItems,
       errors,
@@ -824,6 +922,7 @@ async function executeTask(admin, taskData, onProgress = async () => {}) {
       error: error instanceof Error ? error.message : "Unable to execute task.",
       analyzedVariants: 0,
       updatedVariants: 0,
+      totalPriceChanges: 0,
     };
   }
 }
@@ -844,58 +943,176 @@ function uniqueVariants(variants) {
   return [...byId.values()];
 }
 
-function isVariantDiscounted(variant) {
-  const price = toNumber(variant.price);
-  const compareAtPrice = toNumber(variant.compareAtPrice);
-  return compareAtPrice != null && price != null && compareAtPrice > price;
-}
-
 function getDiscountedScope(taskData) {
-  const values = [
+  return normalizeDiscountedScope([
     taskData.discountedScope,
     taskData.excludeResources?.discountedScope,
+  ].find(Boolean));
+}
+
+async function applyDiscountedExclusion(admin, variants, discountedScope) {
+  const normalizedScope = normalizeDiscountedScope(discountedScope);
+
+  if (normalizedScope === "nothing") {
+    return { variants, skippedLogs: [] };
+  }
+
+  const discountedProductIds =
+    normalizedScope === "products_on_sale"
+      ? await loadDiscountedProductIds(admin, variants)
+      : new Set();
+
+  const result = splitVariantsByDiscountedScope(
+    variants,
+    normalizedScope,
+    discountedProductIds,
+  );
+
+  return {
+    variants: result.variants,
+    skippedLogs: result.skipped.map(({ variant, skipReason }) =>
+      buildAuditLogRecord(variant, {
+        action: "Skipped",
+        skipReason,
+      }),
+    ),
+  };
+}
+
+async function loadDiscountedProductIds(admin, variants) {
+  const productIds = [
+    ...new Set(variants.map((variant) => variant.product?.id).filter(Boolean)),
   ];
+  const discountedProductIds = new Set();
 
-  if (values.includes("products_on_sale") || values.includes("all_products_on_sale")) {
-    return "products_on_sale";
-  }
-
-  if (
-    values.includes("product_types_on_sale") ||
-    values.includes("all_product_types_on_sale")
-  ) {
-    return "product_types_on_sale";
-  }
-
-  return "nothing";
-}
-
-function getProductType(variant) {
-  return String(variant.product?.productType || "").trim();
-}
-
-function getDiscountedProductTypes(variants) {
-  const productTypes = new Set();
-
-  for (const variant of variants) {
-    const productType = getProductType(variant);
-    if (productType && isVariantDiscounted(variant)) {
-      productTypes.add(productType);
+  for (const productId of productIds) {
+    try {
+      const productVariants = await loadVariantsFromProductId(admin, productId);
+      if (productVariants.some(isVariantDiscounted)) {
+        discountedProductIds.add(productId);
+      }
+    } catch {
+      const selectedProductVariants = variants.filter(
+        (variant) => variant.product?.id === productId,
+      );
+      if (selectedProductVariants.some(isVariantDiscounted)) {
+        discountedProductIds.add(productId);
+      }
     }
   }
 
-  return productTypes;
+  return discountedProductIds;
+}
+
+function buildAuditLogRecord(variant, options = {}) {
+  return {
+    taskId: options.taskId,
+    shop: options.shop,
+    productId: variant.product?.id || "",
+    variantId: variant.id || "",
+    previousPrice:
+      options.previousPrice !== undefined ? options.previousPrice : variant.price,
+    newPrice: options.newPrice !== undefined ? options.newPrice : null,
+    action: options.action || "Updated",
+    skipReason: options.skipReason || null,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+function countSkippedProducts(logs) {
+  return new Set(
+    logs
+      .filter(
+        (log) => log.skipReason === DISCOUNTED_SKIP_REASONS.PRODUCT_ON_SALE,
+      )
+      .map((log) => log.productId)
+      .filter(Boolean),
+  ).size;
+}
+
+async function persistTaskAuditLogs(logs) {
+  const rows = logs
+    .filter((log) => log.taskId && log.shop)
+    .map((log) => ({
+      taskId: Number(log.taskId),
+      shop: log.shop,
+      productId: log.productId || null,
+      variantId: log.variantId || null,
+      previousPrice: log.previousPrice == null ? null : String(log.previousPrice),
+      newPrice: log.newPrice == null ? null : String(log.newPrice),
+      action: log.action,
+      skipReason: log.skipReason || null,
+    }));
+
+  if (!rows.length) return;
+
+  await db.taskAuditLog.createMany({ data: rows });
 }
 
 async function shopifyGraphql(admin, query, variables = {}) {
-  const response = await admin.graphql(query, { variables });
-  const payload = await response.json();
+  let lastError = null;
 
-  if (payload.errors) {
-    throw new Error(payload.errors.map((error) => error.message).join("; "));
+  for (let attempt = 0; attempt <= GRAPHQL_MAX_RETRIES; attempt += 1) {
+    try {
+      const response = await admin.graphql(query, { variables });
+      const payload = await response.json();
+
+      if (payload.errors) {
+        const message = payload.errors
+          .map((error) => error.message)
+          .join("; ");
+
+        if (isThrottleError(payload.errors) && attempt < GRAPHQL_MAX_RETRIES) {
+          await sleep(getGraphqlRetryDelay(attempt));
+          continue;
+        }
+
+        throw new Error(message);
+      }
+
+      return payload.data;
+    } catch (error) {
+      lastError = error;
+
+      if (!isRetryableGraphqlError(error) || attempt >= GRAPHQL_MAX_RETRIES) {
+        throw error;
+      }
+
+      await sleep(getGraphqlRetryDelay(attempt));
+    }
   }
 
-  return payload.data;
+  throw lastError || new Error("Shopify GraphQL request failed.");
+}
+
+function isThrottleError(errors = []) {
+  return errors.some((error) => {
+    const code = String(error?.extensions?.code || "").toUpperCase();
+    const message = String(error?.message || "").toLowerCase();
+
+    return code === "THROTTLED" || message.includes("throttled");
+  });
+}
+
+function isRetryableGraphqlError(error) {
+  const message = String(error?.message || "").toLowerCase();
+
+  return (
+    message.includes("throttled") ||
+    message.includes("rate limit") ||
+    message.includes("timeout") ||
+    message.includes("temporarily unavailable") ||
+    message.includes("socket") ||
+    message.includes("econnreset")
+  );
+}
+
+function getGraphqlRetryDelay(attempt) {
+  return GRAPHQL_RETRY_BASE_MS * 2 ** attempt + Math.floor(Math.random() * 250);
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function loadTargetVariants(admin, taskData) {
@@ -1439,8 +1656,8 @@ const excludeChoices = [
 
 const excludeDiscountedChoices = [
   { label: "Nothing", value: "nothing" },
-  { label: "All products on sale", value: "products_on_sale" },
-  { label: "All product types on sale", value: "product_types_on_sale" },
+  { label: "Products on sale", value: "products_on_sale" },
+  { label: "Product variants on sale", value: "variants_on_sale" },
 ];
 
 function normalizeMarkets(markets = []) {
@@ -1563,7 +1780,7 @@ function DiscountedExclusionInputs({ selected }) {
   const selectedValue = selected?.[0] || "nothing";
 
   if (selectedValue === "nothing") {
-    return <input type="hidden" name="discounted_exclusion_scope" value="none" />;
+    return <input type="hidden" name="discounted_exclusion_scope" value="nothing" />;
   }
 
   if (selectedValue === "products_on_sale") {
@@ -1571,19 +1788,47 @@ function DiscountedExclusionInputs({ selected }) {
       <input
         type="hidden"
         name="discounted_exclusion_scope"
-        value="all_products_on_sale"
+        value="products_on_sale"
       />
     );
   }
 
-  if (selectedValue === "product_types_on_sale") {
+  if (selectedValue === "variants_on_sale") {
     return (
       <input
         type="hidden"
         name="discounted_exclusion_scope"
-        value="all_product_types_on_sale"
+        value="variants_on_sale"
       />
     );
+  }
+
+  return null;
+}
+
+function estimateAutoReapplyPriceChanges({
+  applyTo,
+  selectedCollections,
+  selectedProducts,
+  selectedVariants,
+}) {
+  const scope = applyTo?.[0] || "whole_store";
+
+  if (scope === "selected_products_with_variants") {
+    return selectedVariants.length;
+  }
+
+  if (scope === "selected_products") {
+    return selectedProducts.length;
+  }
+
+  if (scope === "selected_collections") {
+    const count = selectedCollections.reduce((total, collection) => {
+      const value = Number(collection.productsCount || collection.products_count);
+      return Number.isFinite(value) ? total + value : total;
+    }, 0);
+
+    return count || null;
   }
 
   return null;
@@ -2783,9 +3028,6 @@ export default function NewTaskPage() {
   const [autoReapply, setAutoReapply] = useState(
     Boolean(task?.autoReapplyChanges || configuration.auto_reapply_changes),
   );
-  const [trackConditionChanges, setTrackConditionChanges] = useState(
-    Boolean(configuration.track_condition_changes),
-  );
 
   const [applyCollections, setApplyCollections] = useState(
     collectionConfigToSelectedItems(configuration, "apply"),
@@ -2812,6 +3054,15 @@ export default function NewTaskPage() {
   const [excludeTags, setExcludeTags] = useState(
     tagsToSelectedItems(getConfigArray(configuration, "exclude_tag_names[]")),
   );
+  const estimatedAutoReapplyPriceChanges = estimateAutoReapplyPriceChanges({
+    applyTo,
+    selectedCollections: applyCollections,
+    selectedProducts: applyProducts,
+    selectedVariants: applyVariants,
+  });
+  const autoReapplyUnavailable =
+    estimatedAutoReapplyPriceChanges != null &&
+    estimatedAutoReapplyPriceChanges > MAX_AUTO_REAPPLY_PRICE_CHANGES;
 
   useEffect(() => {
     const marketIds = new Set(markets.map((market) => market.id));
@@ -2820,6 +3071,12 @@ export default function NewTaskPage() {
       current.filter((marketId) => marketIds.has(marketId)),
     );
   }, [markets]);
+
+  useEffect(() => {
+    if (autoReapplyUnavailable) {
+      setAutoReapply(false);
+    }
+  }, [autoReapplyUnavailable]);
 
   const handleApplyChangesToChange = (value) => {
     setApplyChangesTo(value);
@@ -3072,31 +3329,27 @@ export default function NewTaskPage() {
                 <SectionCard title="Advanced">
                   <input
                     type="hidden"
-                    name="track_condition_changes_enabled"
-                    value={trackConditionChanges ? "enabled" : "disabled"}
-                  />
-                  <Checkbox
-                    label="Track changes in condition automatically (every hour)"
-                    name="track_condition_changes"
-                    checked={trackConditionChanges}
-                    onChange={setTrackConditionChanges}
-                    helpText="New matching products will be included and products that no longer match will be excluded."
-                  />
-
-                  <Divider />
-
-                  <input
-                    type="hidden"
                     name="auto_reapply_changes_enabled"
-                    value={autoReapply ? "enabled" : "disabled"}
+                    value={
+                      autoReapply && !autoReapplyUnavailable
+                        ? "enabled"
+                        : "disabled"
+                    }
                   />
                   <Checkbox
                     label="Automatically re-apply price changes (every hour)"
                     name="auto_reapply_changes"
-                    checked={autoReapply}
+                    checked={autoReapply && !autoReapplyUnavailable}
                     onChange={setAutoReapply}
+                    disabled={autoReapplyUnavailable}
                     helpText="Prevents third-party apps from overriding prices after task completion. Works for tasks with up to 10,000 price changes."
                   />
+                  {autoReapplyUnavailable ? (
+                    <Banner tone="warning">
+                      Automatic re-apply is only available for tasks affecting
+                      up to 10,000 price changes.
+                    </Banner>
+                  ) : null}
                 </SectionCard>
 
                 <InlineStack align="end" gap="200">

@@ -187,11 +187,7 @@ function formatTaskChange(task) {
     return customTitle;
   }
 
-  const changes = [
-    formatChangePayload(task.priceChange, "price"),
-    formatChangePayload(task.compareAtPriceChange, "compare at price"),
-    formatChangePayload(task.costPerItemChange, "cost per item"),
-  ].filter(Boolean);
+  const changes = Object.values(getTaskChangeColumns(task)).filter(Boolean);
 
   if (changes.length) {
     return changes.join(", ");
@@ -250,6 +246,17 @@ function formatTaskChange(task) {
   }
 
   return `Task #${task.id}`;
+}
+
+function getTaskChangeColumns(task) {
+  return {
+    price: formatChangePayload(task.priceChange, "price"),
+    compareAtPrice: formatChangePayload(
+      task.compareAtPriceChange,
+      "compare at price",
+    ),
+    costPerItem: formatChangePayload(task.costPerItemChange, "cost per item"),
+  };
 }
 
 function formatTaskType(task) {
@@ -922,6 +929,9 @@ function TasksListPage({ tasks }) {
 
   const rowMarkup = paginatedTasks.map((task, index) => {
     const taskStatus = getTaskListStatus(task, progressTick);
+    const changeColumns = getTaskChangeColumns(task);
+    const hasStructuredChanges = Object.values(changeColumns).some(Boolean);
+    const fallbackChange = hasStructuredChanges ? "" : formatTaskChange(task);
     const detailsPath = `/app/tasks/${task.id}`;
     const rollbackPath = `/app/tasks/${task.id}/rollback`;
     const deletePath = `/app/tasks/${task.id}/delete`;
@@ -941,7 +951,19 @@ function TasksListPage({ tasks }) {
       <IndexTable.Row id={String(task.id)} key={task.id} position={index}>
         <IndexTable.Cell>
           <Text as="span" variant="bodyMd">
-            {formatTaskChange(task)}
+            {changeColumns.price || fallbackChange || "-"}
+          </Text>
+        </IndexTable.Cell>
+
+        <IndexTable.Cell>
+          <Text as="span" variant="bodyMd">
+            {changeColumns.compareAtPrice || "-"}
+          </Text>
+        </IndexTable.Cell>
+
+        <IndexTable.Cell>
+          <Text as="span" variant="bodyMd">
+            {changeColumns.costPerItem || "-"}
           </Text>
         </IndexTable.Cell>
 
@@ -1070,7 +1092,13 @@ function TasksListPage({ tasks }) {
               selectable={false}
               headings={[
                 {
-                  title: "Changes",
+                  title: "Price",
+                },
+                {
+                  title: "Compare at price",
+                },
+                {
+                  title: "Cost per item",
                 },
                 {
                   title: "Type",

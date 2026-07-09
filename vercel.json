@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/tasks/auto-reapply",
+      "schedule": "0 * * * *"
+    }
+  ]
+}

@@ -73,15 +73,37 @@ model Task {
   excludeResources     Json?
   configuration        Json?
   executionSummary     Json?
+  autoReapply          Boolean   @default(false)
   autoReapplyChanges   Boolean   @default(false)
   startedAt            DateTime?
   completedAt          DateTime?
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
+  auditLogs            TaskAuditLog[]
 
   @@index([shop])
   @@index([status])
   @@map("task")
+}
+
+model TaskAuditLog {
+  id            Int      @id @default(autoincrement())
+  taskId        Int
+  shop          String   @db.VarChar(255)
+  productId     String?  @db.VarChar(255)
+  variantId     String?  @db.VarChar(255)
+  previousPrice String?  @db.VarChar(32)
+  newPrice      String?  @db.VarChar(32)
+  action        String   @db.VarChar(32)
+  skipReason    String?  @db.VarChar(500)
+  createdAt     DateTime @default(now())
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@index([shop])
+  @@index([action])
+  @@map("task_audit_log")
 }
 
 model Sale {

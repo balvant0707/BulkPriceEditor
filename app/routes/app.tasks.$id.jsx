@@ -203,6 +203,88 @@ function formatChange(task) {
   return changes.length ? changes.join(", ") : "Change";
 }
 
+function isEnabledValue(value) {
+  if (value === true) return true;
+  if (value === false || value === null || value === undefined) return false;
+
+  return ["1", "true", "yes", "on"].includes(String(value).toLowerCase());
+}
+
+function isAutoReapplyEnabled(task) {
+  const configuration = task.configuration || {};
+
+  return (
+    Boolean(task.autoReapplyChanges) ||
+    isEnabledValue(configuration.auto_reapply_changes) ||
+    isEnabledValue(configuration.auto_reapply_changes_enabled)
+  );
+}
+
+function getAutoReapplyLastRun(task) {
+  return (
+    task.autoReapplyLastRunAt ||
+    task.executionSummary?.autoReapplyLastRunAt ||
+    task.executionSummary?.lastAutoReapplyRunAt ||
+    task.configuration?.auto_reapply_last_run_at ||
+    ""
+  );
+}
+
+function getDiscountedScopeValue(task) {
+  return (
+    task.discountedScope ||
+    task.excludeResources?.discountedScope ||
+    task.configuration?.exclude_discounted ||
+    task.configuration?.discounted_exclusion_scope ||
+    "nothing"
+  );
+}
+
+function formatDiscountedScope(task) {
+  const scope = String(getDiscountedScopeValue(task) || "").toLowerCase();
+
+  if (
+    scope === "nothing" ||
+    scope === "none" ||
+    scope === "no" ||
+    scope === "false"
+  ) {
+    return "Nothing";
+  }
+
+  if (scope === "products_on_sale") return "Products on sale";
+  if (scope === "variants_on_sale") return "Product variants on sale";
+  if (scope === "product_types_on_sale") return "Product types on sale";
+
+  return humanize(scope);
+}
+
+function ChangeDetails({ task }) {
+  const autoReapplyLastRun = getAutoReapplyLastRun(task);
+  const showAutoReapply = isAutoReapplyEnabled(task);
+
+  return (
+    <BlockStack gap="150">
+      <Text as="p" fontWeight="regular">
+        {formatChange(task)}
+      </Text>
+
+      {showAutoReapply ? (
+        <Text as="p" tone="subdued">
+          Automatically re-apply price changes (every hour, up to 10,000
+          changes)
+        </Text>
+      ) : null}
+
+      {autoReapplyLastRun ? (
+        <Text as="p" tone="subdued">
+          Last run {formatDate(autoReapplyLastRun)}
+        </Text>
+      ) : null}
+    </BlockStack>
+  );
+}
+
 function formatChangePayload(change, label) {
   const action = String(change?.action || "").toLowerCase();
   if (!action) return "";
@@ -2267,6 +2349,7 @@ export default function TaskDetailsPage() {
       title="Task details"
       backAction={{ content: "Tasks", onAction: () => navigate("/app/tasks") }}
       secondaryActions={pageSecondaryActions}
+      fullWidth
     >
       <TitleBar title="Task details" />
 
@@ -2303,167 +2386,175 @@ export default function TaskDetailsPage() {
         </Modal.Section>
       </Modal>
 
-      <Layout>
-        <Layout.Section>
-          <BlockStack gap="400">
-            <Card>
-              <DetailRow label="Changes" value={formatChange(task)} />
+      <div style={{ maxWidth: 1180, margin: "0 auto" }}>
+        <Layout>
+          <Layout.Section>
+            <BlockStack gap="400">
+              <Card>
+                <DetailRow label="Changes">
+                  <ChangeDetails task={task} />
+                </DetailRow>
 
-              <DetailRow
-                label="Change type"
-                value={humanize(task.applyChangesTo || "products")}
-              />
-
-              <DetailRow label="Apply to">
-                <SelectionDetails
-                  task={task}
-                  prefix="apply"
-                  scope={task.applyScope}
-                  selectedCollections={selectedCollections}
-                  shopifyStoreHandle={shopifyStoreHandle}
-                />
-              </DetailRow>
-
-              <DetailRow label="Exclude">
-                <SelectionDetails
-                  task={task}
-                  prefix="exclude"
-                  scope={task.excludeScope}
-                  selectedCollections={[]}
-                  shopifyStoreHandle={shopifyStoreHandle}
-                />
-              </DetailRow>
-
-              <DetailRow label="Status">
-                <InlineStack gap="200" blockAlign="center" wrap={false}>
-                  <StatusBadge display={statusDisplay} />
-
-                  {showStatusPercent ? (
-                    <>
-                      <Text as="span" tone="subdued">
-                        {visibleProgress}%
-                      </Text>
-                      <Box maxWidth="320px">
-                        <ProgressBar
-                          progress={visibleProgress}
-                          size="small"
-                          tone="primary"
-                        />
-                      </Box>
-                    </>
-                  ) : null}
-                </InlineStack>
-              </DetailRow>
-
-              <DetailRow label="Created at" value={formatDate(task.createdAt)} />
-            </Card>
-
-            <Card>
-              <BlockStack gap="300">
-                <Text as="h2" variant="headingMd">
-                  Logs
-                </Text>
-
-                <TextField
-                  label="Product name"
-                  labelHidden
-                  value={searchQuery}
-                  onChange={setSearchQuery}
-                  placeholder="Product name"
-                  clearButton
-                  onClearButtonClick={() => setSearchQuery("")}
-                  autoComplete="off"
+                <DetailRow
+                  label="Change type"
+                  value={humanize(task.applyChangesTo || "products")}
                 />
 
-                <IndexTable
-                  resourceName={{ singular: "log", plural: "logs" }}
-                  itemCount={paginatedLogs.length}
-                  selectable={false}
-                  headings={[
-                    { title: "Product" },
-                    { title: "Changes" },
-                    { title: "Status" },
-                    { title: "" },
-                  ]}
-                >
-                  {paginatedLogs.map((log, index) => (
-                    <IndexTable.Row
-                      id={log.rowId}
-                      key={log.rowId}
-                      position={index}
-                    >
-                      <IndexTable.Cell>
-                        <Text as="span" fontWeight="regular">
-                          <AdminLink url={log.adminUrl}>
-                            {log.productTitle}
-                          </AdminLink>
+                <DetailRow label="Apply to">
+                  <SelectionDetails
+                    task={task}
+                    prefix="apply"
+                    scope={task.applyScope}
+                    selectedCollections={selectedCollections}
+                    shopifyStoreHandle={shopifyStoreHandle}
+                  />
+                </DetailRow>
+
+                <DetailRow label="Exclude">
+                  <SelectionDetails
+                    task={task}
+                    prefix="exclude"
+                    scope={task.excludeScope}
+                    selectedCollections={[]}
+                    shopifyStoreHandle={shopifyStoreHandle}
+                  />
+                </DetailRow>
+
+                <DetailRow
+                  label="Exclude discounted"
+                  value={formatDiscountedScope(task)}
+                />
+
+                <DetailRow label="Status">
+                  <InlineStack gap="200" blockAlign="center" wrap={false}>
+                    <StatusBadge display={statusDisplay} />
+
+                    {showStatusPercent ? (
+                      <>
+                        <Text as="span" tone="subdued">
+                          {visibleProgress}%
                         </Text>
-                      </IndexTable.Cell>
-
-                      <IndexTable.Cell>
-                        <BlockStack gap="100">
-                          <Text as="span">{log.changeSummary.primary}</Text>
-                          {log.changeSummary.moreCount > 0 ? (
-                            <Text as="span" tone="subdued">
-                              and {log.changeSummary.moreCount} more
-                            </Text>
-                          ) : null}
-                        </BlockStack>
-                      </IndexTable.Cell>
-
-                      <IndexTable.Cell>
-                        <Badge tone={statusTone}>{logStatusLabel}</Badge>
-                      </IndexTable.Cell>
-
-                      <IndexTable.Cell>
-                        <Button
-                          size="slim"
-                          disabled={!log.productId}
-                          url={
-                            log.productId
-                              ? `/app/tasks/${task.id}?productId=${log.productId}`
-                              : undefined
-                          }
-                        >
-                          Details
-                        </Button>
-                      </IndexTable.Cell>
-                    </IndexTable.Row>
-                  ))}
-                </IndexTable>
-
-                {!filteredLogs.length ? (
-                  <Box padding="400">
-                    <Text as="p" tone="subdued">
-                      {searchQuery
-                        ? "No logs found for your search."
-                        : "No product changes were recorded for this task."}
-                    </Text>
-                  </Box>
-                ) : null}
-
-                {filteredLogs.length > LOGS_PER_PAGE ? (
-                  <InlineStack align="center">
-                    <Pagination
-                      hasPrevious={safeCurrentPage > 1}
-                      onPrevious={() =>
-                        setCurrentPage((page) => Math.max(1, page - 1))
-                      }
-                      hasNext={safeCurrentPage < totalPages}
-                      onNext={() =>
-                        setCurrentPage((page) =>
-                          Math.min(totalPages, page + 1),
-                        )
-                      }
-                    />
+                        <Box maxWidth="320px">
+                          <ProgressBar
+                            progress={visibleProgress}
+                            size="small"
+                            tone="primary"
+                          />
+                        </Box>
+                      </>
+                    ) : null}
                   </InlineStack>
-                ) : null}
+                </DetailRow>
 
-              </BlockStack>
-            </Card>
-          </BlockStack>
-        </Layout.Section>
-      </Layout>
+                <DetailRow label="Created at" value={formatDate(task.createdAt)} />
+              </Card>
+
+              <Card>
+                <BlockStack gap="300">
+                  <Text as="h2" variant="headingMd">
+                    Logs
+                  </Text>
+
+                  <TextField
+                    label="Product name"
+                    labelHidden
+                    value={searchQuery}
+                    onChange={setSearchQuery}
+                    placeholder="Product name"
+                    clearButton
+                    onClearButtonClick={() => setSearchQuery("")}
+                    autoComplete="off"
+                  />
+
+                  <IndexTable
+                    resourceName={{ singular: "log", plural: "logs" }}
+                    itemCount={paginatedLogs.length}
+                    selectable={false}
+                    headings={[
+                      { title: "Product" },
+                      { title: "Changes" },
+                      { title: "Status" },
+                      { title: "" },
+                    ]}
+                  >
+                    {paginatedLogs.map((log, index) => (
+                      <IndexTable.Row
+                        id={log.rowId}
+                        key={log.rowId}
+                        position={index}
+                      >
+                        <IndexTable.Cell>
+                          <Text as="span" fontWeight="regular">
+                            <AdminLink url={log.adminUrl}>
+                              {log.productTitle}
+                            </AdminLink>
+                          </Text>
+                        </IndexTable.Cell>
+
+                        <IndexTable.Cell>
+                          <BlockStack gap="100">
+                            <Text as="span">{log.changeSummary.primary}</Text>
+                            {log.changeSummary.moreCount > 0 ? (
+                              <Text as="span" tone="subdued">
+                                and {log.changeSummary.moreCount} more
+                              </Text>
+                            ) : null}
+                          </BlockStack>
+                        </IndexTable.Cell>
+
+                        <IndexTable.Cell>
+                          <Badge tone={statusTone}>{logStatusLabel}</Badge>
+                        </IndexTable.Cell>
+
+                        <IndexTable.Cell>
+                          <Button
+                            size="slim"
+                            disabled={!log.productId}
+                            url={
+                              log.productId
+                                ? `/app/tasks/${task.id}?productId=${log.productId}`
+                                : undefined
+                            }
+                          >
+                            Details
+                          </Button>
+                        </IndexTable.Cell>
+                      </IndexTable.Row>
+                    ))}
+                  </IndexTable>
+
+                  {!filteredLogs.length ? (
+                    <Box padding="400">
+                      <Text as="p" tone="subdued">
+                        {searchQuery
+                          ? "No logs found for your search."
+                          : "No product changes were recorded for this task."}
+                      </Text>
+                    </Box>
+                  ) : null}
+
+                  {filteredLogs.length > LOGS_PER_PAGE ? (
+                    <InlineStack align="center">
+                      <Pagination
+                        hasPrevious={safeCurrentPage > 1}
+                        onPrevious={() =>
+                          setCurrentPage((page) => Math.max(1, page - 1))
+                        }
+                        hasNext={safeCurrentPage < totalPages}
+                        onNext={() =>
+                          setCurrentPage((page) =>
+                            Math.min(totalPages, page + 1),
+                          )
+                        }
+                      />
+                    </InlineStack>
+                  ) : null}
+                </BlockStack>
+              </Card>
+            </BlockStack>
+          </Layout.Section>
+        </Layout>
+      </div>
     </Page>
   );
 }
