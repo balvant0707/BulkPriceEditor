@@ -132,7 +132,7 @@ export default function ProductReportPage({ type }) {
       {type === REPORT_TYPES.margin ? (
         <>
           <IndexTable.Cell>
-            <Text as="span" alignment="end" numeric>
+            <Text as="span" alignment="start" align="start" numeric>
               {formatMoney(row.cost, row.currencyCode)}
             </Text>
           </IndexTable.Cell>
