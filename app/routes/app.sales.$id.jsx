@@ -369,20 +369,7 @@ function ReapplyIcon() {
 
 function TrackingIcon() {
   return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 20 20"
-      width="16"
-      height="16"
-      fill="currentColor"
-      aria-hidden="true"
-    >
-      <path
-        fillRule="evenodd"
-        d="M11.92 2.62a1 1 0 0 0-1.84 0l-.34.78a6.9 6.9 0 0 0-1.12.46l-.8-.31a1 1 0 0 0-1.3.54l-.65 1.56a1 1 0 0 0 .54 1.3l.78.32a6.6 6.6 0 0 0 0 1.46l-.78.32a1 1 0 0 0-.54 1.3l.65 1.56a1 1 0 0 0 1.3.54l.8-.31c.36.2.73.36 1.12.46l.34.78a1 1 0 0 0 1.84 0l.34-.78c.39-.1.76-.26 1.12-.46l.8.31a1 1 0 0 0 1.3-.54l.65-1.56a1 1 0 0 0-.54-1.3l-.78-.32a6.6 6.6 0 0 0 0-1.46l.78-.32a1 1 0 0 0 .54-1.3l-.65-1.56a1 1 0 0 0-1.3-.54l-.8.31a6.9 6.9 0 0 0-1.12-.46l-.34-.78Zm-.92 7.88a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"
-        clipRule="evenodd"
-      />
-    </svg>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M7.377.5c-.926 0-1.676.75-1.676 1.676v.688c0 .056-.043.17-.198.251q-.23.12-.448.262c-.147.097-.268.076-.318.048l-.6-.346a1.676 1.676 0 0 0-2.29.613l-.622 1.08a1.675 1.675 0 0 0 .613 2.289l.648.374c.048.028.124.12.119.29l-.003.177q0 .144.008.288c.009.175-.07.27-.119.299l-.653.377a1.676 1.676 0 0 0-.613 2.29l.623 1.08a1.68 1.68 0 0 0 2.29.613l.7-.405c.048-.028.166-.048.312.043q.173.107.353.202c.155.08.198.195.198.251v.811c0 .926.75 1.676 1.676 1.676h1.246c.926 0 1.676-.75 1.676-1.676v-.81a.75.75 0 1 0-1.5 0v.81a.176.176 0 0 1-.176.176h-1.246a.176.176 0 0 1-.176-.176v-.81c0-.73-.462-1.3-1.003-1.582a4 4 0 0 1-.255-.146c-.514-.32-1.23-.428-1.855-.068l-.7.405a.177.177 0 0 1-.241-.065l-.623-1.08a.175.175 0 0 1 .064-.24l.653-.377c.637-.368.899-1.062.867-1.677a4 4 0 0 1-.006-.21q0-.064.002-.127c.02-.604-.245-1.278-.868-1.638l-.648-.374a.175.175 0 0 1-.064-.24l.623-1.08a.175.175 0 0 1 .24-.064l.6.346c.638.368 1.37.247 1.888-.09a4 4 0 0 1 .323-.19c.54-.282 1.003-.852 1.003-1.58v-.688c0-.097.078-.176.176-.176h1.246c.097 0 .176.079.176.176v.688c0 .728.462 1.298 1.003 1.58q.166.087.323.19c.517.337 1.25.458 1.888.09l.6-.346a.175.175 0 0 1 .24.064l.623 1.08a.175.175 0 0 1-.064.24l-.648.374c-.623.36-.888 1.034-.868 1.638l.002.128c0 .082-.002.247-.006.309a.75.75 0 0 0 1.498.078 9 9 0 0 0 .005-.563c-.005-.171.07-.263.12-.291l.647-.374a1.677 1.677 0 0 0 .613-2.29l-.623-1.079a1.676 1.676 0 0 0-2.29-.613l-.6.346c-.049.028-.17.048-.318-.048a5 5 0 0 0-.448-.262c-.155-.081-.197-.195-.197-.251v-.688c0-.926-.75-1.676-1.676-1.676z"></path><path fill-rule="evenodd" d="M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6m0-1.5a1.5 1.5 0 1 0-.001-3.001 1.5 1.5 0 0 0 .001 3.001"></path><path d="M12.035 9.839a.501.501 0 0 0-.785.411v4.5a.5.5 0 0 0 .785.411l3.25-2.25a.5.5 0 0 0 0-.822z"></path></svg>
   );
 }
 
@@ -546,40 +533,40 @@ export default function SaleDetailsPage() {
       <TitleBar title="Pryxo Bulk Price Editor" />
 
       <Page
-  title={sale.title}
-  backAction={{
-    content: "Sales",
-    url: "/app/sales",
-  }}
-  primaryAction={{
-    content: "Edit sale",
-    disabled: isBusySale,
-    onAction: () => navigate(`${EDIT_SALE_URL}?id=${sale.id}`),
-  }}
-  actionGroups={[
-    {
-      title: "Actions",
-      actions: [
-        {
-          content: "Check changes",
-          disabled: isSubmitting || !isCompletedSale,
-          onAction: () => submitAction("check_changes"),
-        },
-        {
-          content: "Disable",
-          destructive: true,
-          disabled: isSubmitting || !canRollbackSale(sale),
-          onAction: () => setRollbackConfirmOpen(true),
-        },
-        {
-          content: "Duplicate",
-          disabled: isSubmitting,
-          onAction: () => submitAction("duplicate_sale"),
-        },
-      ],
-    },
-  ]}
->
+        title={sale.title}
+        backAction={{
+          content: "Sales",
+          url: "/app/sales",
+        }}
+        primaryAction={{
+          content: "Edit sale",
+          disabled: isBusySale,
+          onAction: () => navigate(`${EDIT_SALE_URL}?id=${sale.id}`),
+        }}
+        actionGroups={[
+          {
+            title: "Actions",
+            actions: [
+              {
+                content: "Check changes",
+                disabled: isSubmitting || !isCompletedSale,
+                onAction: () => submitAction("check_changes"),
+              },
+              {
+                content: "Disable",
+                destructive: true,
+                disabled: isSubmitting || !canRollbackSale(sale),
+                onAction: () => setRollbackConfirmOpen(true),
+              },
+              {
+                content: "Duplicate",
+                disabled: isSubmitting,
+                onAction: () => submitAction("duplicate_sale"),
+              },
+            ],
+          },
+        ]}
+      >
         <Layout>
           <Layout.Section>
             <BlockStack gap="400">
@@ -608,7 +595,7 @@ export default function SaleDetailsPage() {
                         </Text>
                       </InlineStack>
                     ) : null}
-                     
+
                   </BlockStack>
                 </DetailRow>
 
