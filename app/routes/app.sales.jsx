@@ -226,6 +226,60 @@ function getSaleChangeText(sale) {
   return changes;
 }
 
+function ReapplyIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 16 16"
+      width="16"
+      height="16"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <path d="M1.5 7.25a.75.75 0 0 0 1.5 0 3 3 0 0 1 3-3h6.566l-1.123 1.248a.75.75 0 1 0 1.115 1.004l2.25-2.5a.75.75 0 0 0-.028-1.032l-2.25-2.25a.749.749 0 1 0-1.06 1.06l.97.97h-6.44a4.5 4.5 0 0 0-4.5 4.5" />
+      <path d="M14.5 8.75a.75.75 0 0 0-1.5 0 3 3 0 0 1-3 3h-6.566l1.123-1.248a.75.75 0 1 0-1.115-1.004l-2.25 2.5a.75.75 0 0 0 .028 1.032l2.25 2.25a.749.749 0 1 0 1.06-1.06l-.97-.97h6.44a4.5 4.5 0 0 0 4.5-4.5" />
+    </svg>
+  );
+}
+
+function TrackingIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 20 20"
+      width="16"
+      height="16"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <path
+        fillRule="evenodd"
+        d="M11.92 2.62a1 1 0 0 0-1.84 0l-.34.78a6.9 6.9 0 0 0-1.12.46l-.8-.31a1 1 0 0 0-1.3.54l-.65 1.56a1 1 0 0 0 .54 1.3l.78.32a6.6 6.6 0 0 0 0 1.46l-.78.32a1 1 0 0 0-.54 1.3l.65 1.56a1 1 0 0 0 1.3.54l.8-.31c.36.2.73.36 1.12.46l.34.78a1 1 0 0 0 1.84 0l.34-.78c.39-.1.76-.26 1.12-.46l.8.31a1 1 0 0 0 1.3-.54l.65-1.56a1 1 0 0 0-.54-1.3l-.78-.32a6.6 6.6 0 0 0 0-1.46l.78-.32a1 1 0 0 0 .54-1.3l-.65-1.56a1 1 0 0 0-1.3-.54l-.8.31a6.9 6.9 0 0 0-1.12-.46l-.34-.78Zm-.92 7.88a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"
+        clipRule="evenodd"
+      />
+    </svg>
+  );
+}
+
+function SearchIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 20 20"
+      width="18"
+      height="18"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <path
+        fillRule="evenodd"
+        d="M8.5 3.5a5 5 0 1 0 3.16 8.87l2.98 2.99a.75.75 0 1 0 1.06-1.06l-2.99-2.98A5 5 0 0 0 8.5 3.5Zm-3.5 5a3.5 3.5 0 1 1 7 0 3.5 3.5 0 0 1-7 0Z"
+        clipRule="evenodd"
+      />
+    </svg>
+  );
+}
+
 function formatChange(change, label) {
   const action = String(change?.action || "").toLowerCase();
   if (!action) return "";
@@ -442,31 +496,46 @@ export default function SalesPage() {
                 {sale.title}
               </Link>
             </Text>
-            <Text as="span" variant="bodySm" tone="subdued">
-              Created {formatDate(sale.createdAt)}
-            </Text>
           </BlockStack>
         </IndexTable.Cell>
         <IndexTable.Cell>
           <BlockStack gap="050">
             {getSaleChangeText(sale).map((change) => (
-              <Text as="span" key={change}>
-                {change}
-              </Text>
+              change === "Auto re-apply changes" ? (
+                <InlineStack key={change} gap="150" blockAlign="center" wrap={false}>
+                  <ReapplyIcon />
+                  <Text as="span" tone="subdued">
+                    {change}
+                  </Text>
+                </InlineStack>
+              ) : (
+                <Text as="span" key={change} fontWeight="semibold">
+                  {change}
+                </Text>
+              )
             ))}
           </BlockStack>
         </IndexTable.Cell>
         <IndexTable.Cell>
           <BlockStack gap="050">
-            <Text as="span">{sale.changeType === "markets" ? "Markets" : "Products"}</Text>
+            <Text as="span" fontWeight="semibold">
+              {sale.changeType === "markets" ? "Markets" : "Products"}
+            </Text>
             {sale.changeType === "markets" ? (
               <Text as="span" tone="subdued" variant="bodySm">
-                {getMarketNames(sale).join(", ") || "Selected markets"}
+                {getMarketNames(sale).map((name) => `- ${name}`).join(", ") || "Selected markets"}
               </Text>
             ) : null}
           </BlockStack>
         </IndexTable.Cell>
-        <IndexTable.Cell>{formatApplyScope(sale)}</IndexTable.Cell>
+        <IndexTable.Cell>
+          <InlineStack gap="150" blockAlign="center" wrap={false}>
+            <Text as="span" fontWeight="semibold">
+              {formatApplyScope(sale)}
+            </Text>
+            {sale.trackConditionChanges ? <TrackingIcon /> : null}
+          </InlineStack>
+        </IndexTable.Cell>
         <IndexTable.Cell>
           <BlockStack gap="050">
             <Text as="span">From {formatDate(sale.startAt || sale.createdAt)}</Text>
@@ -506,7 +575,7 @@ export default function SalesPage() {
                 loading={isSubmitting}
                 onClick={() => setRollbackSale(sale)}
               >
-                Rollback
+                Disable
               </Button>
             ) : null}
             {canDeleteSale(sale) ? (
@@ -555,7 +624,8 @@ export default function SalesPage() {
                     labelHidden
                     value={queryValue}
                     onChange={setQueryValue}
-                    placeholder="Search sales by title, status, or change"
+                    placeholder="Search sales by name, selected products, collections, or tags"
+                    prefix={<SearchIcon />}
                     autoComplete="off"
                   />
                 </Box>

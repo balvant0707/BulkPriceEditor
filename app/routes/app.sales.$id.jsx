@@ -352,6 +352,41 @@ function FieldBadges({ items }) {
   );
 }
 
+function ReapplyIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 16 16"
+      width="16"
+      height="16"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <path d="M1.5 7.25a.75.75 0 0 0 1.5 0 3 3 0 0 1 3-3h6.566l-1.123 1.248a.75.75 0 1 0 1.115 1.004l2.25-2.5a.75.75 0 0 0-.028-1.032l-2.25-2.25a.749.749 0 1 0-1.06 1.06l.97.97h-6.44a4.5 4.5 0 0 0-4.5 4.5" />
+      <path d="M14.5 8.75a.75.75 0 0 0-1.5 0 3 3 0 0 1-3 3h-6.566l1.123-1.248a.75.75 0 1 0-1.115-1.004l-2.25 2.5a.75.75 0 0 0 .028 1.032l2.25 2.25a.749.749 0 1 0 1.06-1.06l-.97-.97h6.44a4.5 4.5 0 0 0 4.5-4.5" />
+    </svg>
+  );
+}
+
+function TrackingIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 20 20"
+      width="16"
+      height="16"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <path
+        fillRule="evenodd"
+        d="M11.92 2.62a1 1 0 0 0-1.84 0l-.34.78a6.9 6.9 0 0 0-1.12.46l-.8-.31a1 1 0 0 0-1.3.54l-.65 1.56a1 1 0 0 0 .54 1.3l.78.32a6.6 6.6 0 0 0 0 1.46l-.78.32a1 1 0 0 0-.54 1.3l.65 1.56a1 1 0 0 0 1.3.54l.8-.31c.36.2.73.36 1.12.46l.34.78a1 1 0 0 0 1.84 0l.34-.78c.39-.1.76-.26 1.12-.46l.8.31a1 1 0 0 0 1.3-.54l.65-1.56a1 1 0 0 0-.54-1.3l-.78-.32a6.6 6.6 0 0 0 0-1.46l.78-.32a1 1 0 0 0 .54-1.3l-.65-1.56a1 1 0 0 0-1.3-.54l-.8.31a6.9 6.9 0 0 0-1.12-.46l-.34-.78Zm-.92 7.88a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"
+        clipRule="evenodd"
+      />
+    </svg>
+  );
+}
+
 function getSaleLogs(sale) {
   return sale.executionSummary?.logs || [];
 }
@@ -490,7 +525,7 @@ export default function SaleDetailsPage() {
       onAction: () => submitAction("check_changes"),
     },
     {
-      content: "Rollback",
+      content: "Disable",
       destructive: true,
       disabled: isSubmitting || !canRollbackSale(sale),
       onAction: () => setRollbackConfirmOpen(true),
@@ -523,30 +558,12 @@ export default function SaleDetailsPage() {
                     ))}
 
                     {sale.autoReapplyChanges ? (
-                          <div
-                              style={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: "6px",
-                                marginTop: "8px",
-                              }}
-                            >
-                              <svg
-                                xmlns="http://www.w3.org/2000/svg"
-                                viewBox="0 0 16 16"
-                                width="16"
-                                height="16"
-                                fill="currentColor"
-                                aria-hidden="true"
-                              >
-                                <path d="M1.5 7.25a.75.75 0 0 0 1.5 0 3 3 0 0 1 3-3h6.566l-1.123 1.248a.75.75 0 1 0 1.115 1.004l2.25-2.5a.75.75 0 0 0-.028-1.032l-2.25-2.25a.749.749 0 1 0-1.06 1.06l.97.97h-6.44a4.5 4.5 0 0 0-4.5 4.5" />
-                                <path d="M14.5 8.75a.75.75 0 0 0-1.5 0 3 3 0 0 1-3 3h-6.566l1.123-1.248a.75.75 0 1 0-1.115-1.004l-2.25 2.5a.75.75 0 0 0 .028 1.032l2.25 2.25a.749.749 0 1 0 1.06-1.06l-.97-.97h6.44a4.5 4.5 0 0 0 4.5-4.5" />
-                              </svg>
-                    
-                              <Text as="p" tone="subdued">
-                                Automatically re-apply price changes (every hour, up to 10,000 changes)
-                              </Text>
-                            </div>
+                      <InlineStack gap="150" blockAlign="center" wrap={false}>
+                        <ReapplyIcon />
+                        <Text as="p" tone="subdued">
+                          Automatically re-apply price changes (every hour, up to 10,000 changes)
+                        </Text>
+                      </InlineStack>
                     ) : null}
                      
                   </BlockStack>
@@ -580,9 +597,12 @@ export default function SaleDetailsPage() {
                       {formatScope(sale.applyScope, sale.applyResources || {})}
                     </Text>
                     {sale.trackConditionChanges ? (
-                      <Text as="p" tone="subdued">
-                        Tracking changes in condition automatically (every hour)
-                      </Text>
+                      <InlineStack gap="150" blockAlign="center" wrap={false}>
+                        <TrackingIcon />
+                        <Text as="p" tone="subdued">
+                          Tracking changes in condition automatically (every hour)
+                        </Text>
+                      </InlineStack>
                     ) : null}
                   </BlockStack>
                 </DetailRow>
@@ -744,7 +764,7 @@ export default function SaleDetailsPage() {
         onClose={() => setRollbackConfirmOpen(false)}
         title="Rollback sale?"
         primaryAction={{
-          content: "Rollback",
+          content: "Disable",
           destructive: true,
           loading: isSubmitting,
           onAction: () => {
