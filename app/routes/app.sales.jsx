@@ -395,11 +395,6 @@ export default function SalesPage() {
                 </Text>
               ) : null}
             </InlineStack>
-            {statusDisplay.showProgress ? (
-              <Box maxWidth="140px">
-                <ProgressBar progress={statusDisplay.progress} size="small" />
-              </Box>
-            ) : null}
           </BlockStack>
         </IndexTable.Cell>
         <IndexTable.Cell>{formatDate(sale.startAt || sale.createdAt)}</IndexTable.Cell>

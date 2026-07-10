@@ -2563,13 +2563,6 @@ export default function TaskDetailsPage() {
                         <Text as="span" tone="subdued">
                           {visibleProgress}%
                         </Text>
-                        <Box maxWidth="320px">
-                          <ProgressBar
-                            progress={visibleProgress}
-                            size="small"
-                            tone="primary"
-                          />
-                        </Box>
                       </>
                     ) : null}
                   </InlineStack>
