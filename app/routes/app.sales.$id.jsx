@@ -19,6 +19,7 @@ import {
   Page,
   Pagination,
   ProgressBar,
+  Spinner,
   Text,
   TextField,
 } from "@shopify/polaris";
@@ -155,7 +156,7 @@ export const action = async ({ request, params }) => {
           executionSummary: {
             ...(sale.executionSummary || {}),
             status: "Canceling",
-            progress: 5,
+            progress: 0,
             rollbackStartedAt: new Date().toISOString(),
           },
         },
@@ -493,7 +494,7 @@ function getEstimatedProcessingProgress(sale, baseProgress) {
   if (!Number.isFinite(startedMs)) return Math.max(baseProgress, 1);
 
   const elapsedSeconds = Math.max(0, Math.floor((Date.now() - startedMs) / 1000));
-  return Math.min(99, Math.max(baseProgress, elapsedSeconds + 1));
+  return Math.min(99, Math.max(baseProgress, elapsedSeconds));
 }
 
 function DetailRow({ label, value, children }) {
@@ -502,7 +503,7 @@ function DetailRow({ label, value, children }) {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "minmax(160px, 260px) minmax(0, 1fr)",
+          gridTemplateColumns: "minmax(160px, 200px) minmax(0, 1fr)",
           gap: 24,
           alignItems: "start",
         }}
@@ -530,8 +531,8 @@ export default function SaleDetailsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [rollbackConfirmOpen, setRollbackConfirmOpen] = useState(false);
-  const rawProgress = getSaleProgressValue(sale);
-  const statusDisplay = getSaleStatusDisplay(sale);
+  const [optimisticRollbackStartedAt, setOptimisticRollbackStartedAt] = useState("");
+  const [progressTick, setProgressTick] = useState(0);
   const logs = useMemo(() => getVisibleSaleLogs(sale), [sale]);
   const filteredLogs = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
@@ -551,8 +552,26 @@ export default function SaleDetailsPage() {
     safeCurrentPage * LOGS_PER_PAGE,
   );
   const isSubmitting = actionFetcher.state !== "idle";
-  const normalizedStatus = normalizeSaleStatus(sale.status);
-  const progress = getEstimatedProcessingProgress(sale, rawProgress);
+  const isRollbackSubmitting =
+    actionFetcher.state !== "idle" &&
+    String(actionFetcher.formData?.get("intent") || "") === "rollback_sale";
+  const visibleSale = isRollbackSubmitting
+    ? {
+        ...sale,
+        status: SALE_STATUS.CANCELING,
+        executionSummary: {
+          ...(sale.executionSummary || {}),
+          status: "Canceling",
+          progress: 0,
+          rollbackStartedAt: optimisticRollbackStartedAt || new Date().toISOString(),
+        },
+      }
+    : sale;
+  const rawProgress = getSaleProgressValue(visibleSale);
+  const statusDisplay = getSaleStatusDisplay(visibleSale);
+  const normalizedStatus = normalizeSaleStatus(visibleSale.status);
+  void progressTick;
+  const progress = getEstimatedProcessingProgress(visibleSale, rawProgress);
   const isCompletedSale = normalizedStatus === SALE_STATUS.COMPLETED;
   const isBusySale = [
     SALE_STATUS.PENDING,
@@ -576,6 +595,13 @@ export default function SaleDetailsPage() {
     const interval = setInterval(() => revalidator.revalidate(), 1000);
     return () => clearInterval(interval);
   }, [revalidator, normalizedStatus]);
+
+  useEffect(() => {
+    if (!statusDisplay.showProgress && !isSubmitting) return undefined;
+
+    const interval = setInterval(() => setProgressTick((tick) => tick + 1), 1000);
+    return () => clearInterval(interval);
+  }, [isSubmitting, statusDisplay.showProgress]);
 
   useEffect(() => {
     if (
@@ -734,9 +760,12 @@ export default function SaleDetailsPage() {
                     <InlineStack gap="200" blockAlign="center" wrap={false}>
                       <Badge tone={statusDisplay.tone}>{statusDisplay.label}</Badge>
                       {statusDisplay.showProgress ? (
-                        <Text as="span" tone="subdued">
-                          Progress: {progress}%
-                        </Text>
+                        <InlineStack gap="150" blockAlign="center" wrap={false}>
+                          <Spinner size="small" accessibilityLabel={`${statusDisplay.label} sale`} />
+                          <Text as="span" tone="subdued">
+                            {progress}%
+                          </Text>
+                        </InlineStack>
                       ) : null}
                     </InlineStack>
                     {statusDisplay.showProgress ? (
@@ -877,6 +906,7 @@ export default function SaleDetailsPage() {
           destructive: true,
           loading: isSubmitting,
           onAction: () => {
+            setOptimisticRollbackStartedAt(new Date().toISOString());
             setRollbackConfirmOpen(false);
             submitAction("rollback_sale");
           },

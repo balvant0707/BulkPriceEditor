@@ -27,6 +27,7 @@ import {
   Page,
   Pagination,
   ProgressBar,
+  Spinner,
   Tabs,
   Text,
   TextField,
@@ -149,7 +150,7 @@ export const action = async ({ request }) => {
         executionSummary: {
           ...(sale.executionSummary || {}),
           status: "Canceling",
-          progress: 5,
+          progress: 0,
           rollbackStartedAt: new Date().toISOString(),
         },
       },
@@ -349,7 +350,7 @@ function getEstimatedProcessingProgress(sale, baseProgress) {
   if (!Number.isFinite(startedMs)) return Math.max(baseProgress, 1);
 
   const elapsedSeconds = Math.max(0, Math.floor((Date.now() - startedMs) / 1000));
-  return Math.min(99, Math.max(baseProgress, elapsedSeconds + 1));
+  return Math.min(99, Math.max(baseProgress, elapsedSeconds));
 }
 
 function saleMatchesSearch(sale, query) {
@@ -389,11 +390,14 @@ export default function SalesPage() {
   const navigation = useNavigation();
   const revalidator = useRevalidator();
   const actionFetcher = useFetcher();
+  const processFetcher = useFetcher();
   const [searchParams, setSearchParams] = useSearchParams();
   const [queryValue, setQueryValue] = useState(searchParams.get("q") || "");
   const [deleteSale, setDeleteSale] = useState(null);
   const [rollbackSale, setRollbackSale] = useState(null);
   const [cancelSale, setCancelSale] = useState(null);
+  const [optimisticAction, setOptimisticAction] = useState(null);
+  const [progressTick, setProgressTick] = useState(0);
 
   const isOpeningNewSale =
     navigation.location?.pathname === CREATE_SALE_URL ||
@@ -442,16 +446,48 @@ export default function SalesPage() {
       setDeleteSale(null);
       setRollbackSale(null);
       setCancelSale(null);
+      setOptimisticAction(null);
+      revalidator.revalidate();
     }
-  }, [actionFetcher.data]);
+  }, [actionFetcher.data, revalidator]);
 
   useEffect(() => {
-    const hasProgressSale = sales.some((sale) => getSaleStatusDisplay(sale).showProgress);
+    const hasProgressSale = sales.some(
+      (sale) =>
+        getSaleStatusDisplay(sale).showProgress ||
+        normalizeSaleStatus(sale.status) === SALE_STATUS.PENDING,
+    );
     if (!hasProgressSale) return undefined;
 
     const interval = setInterval(() => revalidator.revalidate(), 1500);
     return () => clearInterval(interval);
   }, [revalidator, sales]);
+
+  useEffect(() => {
+    const pendingSale = sales.find(
+      (sale) => normalizeSaleStatus(sale.status) === SALE_STATUS.PENDING,
+    );
+
+    if (!pendingSale || processFetcher.state !== "idle") return;
+
+    processFetcher.submit(null, {
+      method: "post",
+      action: `/app/sales/process/${pendingSale.id}`,
+    });
+  }, [processFetcher, sales]);
+
+  useEffect(() => {
+    const hasActiveProgress =
+      Boolean(optimisticAction) ||
+      processFetcher.state !== "idle" ||
+      actionFetcher.state !== "idle" ||
+      sales.some((sale) => getSaleStatusDisplay(sale).showProgress);
+
+    if (!hasActiveProgress) return undefined;
+
+    const interval = setInterval(() => setProgressTick((tick) => tick + 1), 1000);
+    return () => clearInterval(interval);
+  }, [actionFetcher.state, optimisticAction, processFetcher.state, sales]);
 
   if (location.pathname !== SALES_URL) {
     return <Outlet />;
@@ -479,12 +515,39 @@ export default function SalesPage() {
     const formData = new FormData();
     formData.set("intent", intent);
     formData.set("saleId", String(sale.id));
+    if (intent === "rollback_sale") {
+      setRollbackSale(null);
+      setOptimisticAction({
+        intent,
+        saleId: String(sale.id),
+        startedAt: new Date().toISOString(),
+      });
+    }
     actionFetcher.submit(formData, { method: "post", action: SALES_URL });
   };
 
   const rowMarkup = paginatedSales.map((sale, index) => {
-    const statusDisplay = getSaleStatusDisplay(sale);
-    const progress = getEstimatedProcessingProgress(sale, getSaleProgressValue(sale));
+    const isOptimisticRollback =
+      optimisticAction?.intent === "rollback_sale" &&
+      optimisticAction.saleId === String(sale.id);
+    const visibleSale = isOptimisticRollback
+      ? {
+          ...sale,
+          status: SALE_STATUS.CANCELING,
+          executionSummary: {
+            ...(sale.executionSummary || {}),
+            status: "Canceling",
+            progress: 0,
+            rollbackStartedAt: optimisticAction.startedAt,
+          },
+        }
+      : sale;
+    const statusDisplay = getSaleStatusDisplay(visibleSale);
+    void progressTick;
+    const progress = getEstimatedProcessingProgress(
+      visibleSale,
+      getSaleProgressValue(visibleSale),
+    );
     const normalizedStatus = normalizeSaleStatus(sale.status);
     const isSubmitting =
       actionFetcher.state !== "idle" &&
@@ -547,9 +610,12 @@ export default function SalesPage() {
             <InlineStack gap="200" blockAlign="center">
               <Badge tone={statusDisplay.tone}>{statusDisplay.label}</Badge>
               {statusDisplay.showProgress ? (
-                <Text as="span" tone="subdued" variant="bodySm">
-                  {progress}%
-                </Text>
+                <InlineStack gap="150" blockAlign="center" wrap={false}>
+                  <Spinner size="small" accessibilityLabel={`${statusDisplay.label} sale`} />
+                  <Text as="span" tone="subdued" variant="bodySm">
+                    {progress}%
+                  </Text>
+                </InlineStack>
               ) : null}
             </InlineStack>
             {statusDisplay.showProgress ? <ProgressBar progress={progress} size="small" /> : null}

@@ -52,7 +52,7 @@ async function processSale(request, params) {
       executionSummary: {
         ...(sale.executionSummary || {}),
         ...createSaleExecutionSummary(SALE_STATUS.APPLYING, {
-          progress: 5,
+          progress: 0,
           processingStartedAt: new Date().toISOString(),
         }),
       },
