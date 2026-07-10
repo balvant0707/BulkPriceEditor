@@ -1,3 +1,8 @@
+import {
+  rollbackMarketPrices,
+  updateMarketPrices,
+} from "../services/market-pricing.server";
+
 const SALE_VARIANTS_QUERY = `#graphql
   query SaleProductVariants($first: Int!, $after: String, $query: String) {
     productVariants(first: $first, after: $after, query: $query) {
@@ -135,6 +140,38 @@ export async function executeSaleRecord(admin, sale) {
   const originalVariants = [];
   const logs = [];
 
+  if (sale.changeType === "markets") {
+    const marketResult = await updateMarketPrices({
+      admin,
+      ownerType: "sale",
+      ownerId: sale.id,
+      shop: sale.shop,
+      markets: sale.markets,
+      variants,
+      priceChange: sale.priceChange,
+      compareAtPriceChange: sale.compareAtPriceChange,
+      applyToFixedPrices: sale.applyToFixedPrices,
+    });
+
+    return {
+      ok: marketResult.ok,
+      status: marketResult.ok ? "Completed" : "Failed",
+      progress: 100,
+      analyzedVariants: variants.length,
+      variantUpdates: marketResult.updatedCount,
+      updatedVariants: marketResult.updatedCount,
+      taggedProducts: 0,
+      skippedVariants: marketResult.skippedCount,
+      originalVariants: [],
+      originalMarketPrices: marketResult.originalMarketPrices,
+      logs: marketResult.logs,
+      errors: marketResult.errors,
+      cappedAt: MAX_SALE_VARIANTS,
+      endAt: sale.endAt,
+      needsRevert: Boolean(sale.endAt),
+    };
+  }
+
   for (const variant of variants) {
     const update = buildSaleVariantUpdate(variant, sale);
     if (!update) continue;
@@ -175,6 +212,7 @@ export async function executeSaleRecord(admin, sale) {
 
 export async function executeSaleConditionChangeRecord(admin, sale) {
   const existingOriginalVariants = sale.executionSummary?.originalVariants || [];
+  const existingOriginalMarketPrices = sale.executionSummary?.originalMarketPrices || [];
   const existingOriginalsById = new Map(
     existingOriginalVariants
       .filter((variant) => variant?.id)
@@ -183,6 +221,53 @@ export async function executeSaleConditionChangeRecord(admin, sale) {
   const { variants } = await loadSaleMatchingVariants(admin, sale, {
     respectDiscountedScope: false,
   });
+
+  if (sale.changeType === "markets") {
+    const existingMarketKeys = new Set(
+      existingOriginalMarketPrices.map((item) =>
+        [item.priceListId, item.variantId].filter(Boolean).join(":"),
+      ),
+    );
+    const marketResult = await updateMarketPrices({
+      admin,
+      ownerType: "sale",
+      ownerId: sale.id,
+      shop: sale.shop,
+      markets: sale.markets,
+      variants: variants.filter((variant) => {
+        if (!variant?.id) return false;
+        return !(sale.discountedScope === "products_on_sale" && isSaleVariantDiscounted(variant));
+      }),
+      priceChange: sale.priceChange,
+      compareAtPriceChange: sale.compareAtPriceChange,
+      applyToFixedPrices: sale.applyToFixedPrices,
+    });
+    const nextOriginalMarketPrices = [
+      ...existingOriginalMarketPrices,
+      ...marketResult.originalMarketPrices.filter((item) => {
+        const key = [item.priceListId, item.variantId].filter(Boolean).join(":");
+        if (existingMarketKeys.has(key)) return false;
+        existingMarketKeys.add(key);
+        return true;
+      }),
+    ];
+
+    return {
+      ok: marketResult.ok,
+      status: marketResult.ok ? "Completed" : "Failed",
+      progress: 100,
+      analyzedVariants: variants.length,
+      addedVariants: marketResult.updatedCount,
+      removedVariants: 0,
+      taggedProducts: 0,
+      originalVariants: [],
+      originalMarketPrices: nextOriginalMarketPrices,
+      logs: marketResult.logs,
+      errors: marketResult.errors,
+      checkedAt: new Date().toISOString(),
+    };
+  }
+
   const matchingIds = new Set(variants.map((variant) => variant.id).filter(Boolean));
   const removedOriginalVariants = existingOriginalVariants.filter(
     (variant) => variant?.id && !matchingIds.has(variant.id),
@@ -248,6 +333,21 @@ export async function executeSaleConditionChangeRecord(admin, sale) {
 }
 
 export async function endSaleRecord(admin, sale) {
+  if (sale.changeType === "markets") {
+    const marketRollback = await rollbackMarketPrices(
+      admin,
+      sale.executionSummary?.originalMarketPrices || [],
+    );
+
+    return {
+      ok: marketRollback.ok,
+      restoredVariants: marketRollback.updatedCount,
+      restoredTags: 0,
+      errors: marketRollback.errors,
+      endedAt: new Date().toISOString(),
+    };
+  }
+
   const originalVariants = sale.executionSummary?.originalVariants || [];
   const errors = [];
   const variantsByProduct = new Map();

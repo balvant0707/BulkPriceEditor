@@ -35,6 +35,7 @@ import {
 import { TitleBar } from "@shopify/app-bridge-react";
 import db from "../db.server";
 import { authenticate } from "../shopify.server";
+import { updateMarketPrices } from "../services/market-pricing.server";
 
 const BACK_URL = "/app/sales";
 
@@ -50,6 +51,15 @@ const MARKETS_QUERY = `#graphql
         handle
         enabled
         primary
+        catalogs(first: 10) {
+          nodes {
+            id
+            title
+            priceList {
+              id
+            }
+          }
+        }
         currencySettings {
           baseCurrency {
             currencyCode
@@ -263,6 +273,10 @@ export async function action({ request, params }) {
   }
 
   const data = buildSaleData(session.shop, title, payload);
+  const validationError = validateSaleData(data);
+  if (validationError) {
+    return json({ error: validationError }, { status: 400 });
+  }
   const executionState = await prepareSaleExecution(admin, data);
   const saleData = {
     ...data,
@@ -285,6 +299,20 @@ export async function action({ request, params }) {
     return redirect(`/app/sales/${saleId}`);
   } else {
     const sale = await db.sale.create({ data: saleData });
+    if (sale.executionSummary?.logs?.length) {
+      await db.sale.update({
+        where: { id: sale.id },
+        data: {
+          executionSummary: {
+            ...(sale.executionSummary || {}),
+            logs: sale.executionSummary.logs.map((log) => ({
+              ...log,
+              saleId: sale.id,
+            })),
+          },
+        },
+      });
+    }
     return redirect(`/app/sales/${sale.id}`);
   }
 }
@@ -377,25 +405,20 @@ function buildSaleData(shop, title, payload) {
   };
 }
 
+function validateSaleData(saleData) {
+  if (saleData.changeType !== "markets") return "";
+
+  const markets = saleData.markets || [];
+  if (!markets.length) return "Choose at least one Shopify Market.";
+  if (!markets.some((market) => market.priceListIds?.length)) {
+    return "Selected Shopify Markets do not have price lists available.";
+  }
+
+  return "";
+}
+
 async function prepareSaleExecution(admin, saleData) {
   const now = new Date();
-
-  if (saleData.changeType === "markets") {
-    return {
-      status: "failed",
-      executionSummary: {
-        ok: false,
-        status: "Failed",
-        progress: 100,
-        error:
-          "Market price-list sales are not executed yet. Product price sales are supported.",
-        analyzedVariants: 0,
-        updatedVariants: 0,
-      },
-      startedAt: now,
-      completedAt: new Date(),
-    };
-  }
 
   if (saleData.startAt && saleData.startAt > now) {
     return {
@@ -439,6 +462,38 @@ async function executeSale(admin, saleData) {
     const variantUpdates = [];
     const originalVariants = [];
     const logs = [];
+
+    if (saleData.changeType === "markets") {
+      const marketResult = await updateMarketPrices({
+        admin,
+        ownerType: "sale",
+        ownerId: null,
+        shop: saleData.shop,
+        markets: saleData.markets,
+        variants,
+        priceChange: saleData.priceChange,
+        compareAtPriceChange: saleData.compareAtPriceChange,
+        applyToFixedPrices: saleData.applyToFixedPrices,
+      });
+
+      return {
+        ok: marketResult.ok,
+        status: marketResult.ok ? "Completed" : "Failed",
+        progress: 100,
+        analyzedVariants: variants.length,
+        variantUpdates: marketResult.updatedCount,
+        updatedVariants: marketResult.updatedCount,
+        taggedProducts: 0,
+        skippedVariants: marketResult.skippedCount,
+        originalVariants: [],
+        originalMarketPrices: marketResult.originalMarketPrices,
+        logs: marketResult.logs,
+        errors: marketResult.errors,
+        cappedAt: MAX_SALE_VARIANTS,
+        endAt: saleData.endAt,
+        needsRevert: Boolean(saleData.endAt),
+      };
+    }
 
     for (const variant of variants) {
       const update = buildSaleVariantUpdate(variant, saleData);
@@ -892,6 +947,10 @@ function normalizeMarkets(markets = []) {
       enabled: Boolean(market.enabled),
       primary: Boolean(market.primary),
       regions,
+      catalogs: market.catalogs?.nodes || [],
+      priceListIds: (market.catalogs?.nodes || [])
+        .map((catalog) => catalog.priceList?.id)
+        .filter(Boolean),
       label: `${market.name}${currencyLabel}${primaryLabel}`,
     };
   });

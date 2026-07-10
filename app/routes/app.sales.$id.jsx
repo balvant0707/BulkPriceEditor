@@ -116,6 +116,10 @@ export const action = async ({ request, params }) => {
         executionSummary: {
           ...(sale.executionSummary || {}),
           originalVariants: tracked.originalVariants,
+          originalMarketPrices:
+            tracked.originalMarketPrices ||
+            sale.executionSummary?.originalMarketPrices ||
+            [],
           progress: 100,
           trackConditionLastRunAt: checkedAt,
           trackConditionLastResult: {
@@ -321,6 +325,24 @@ function getResourceTitles(items = []) {
   return items.map((item) => item.title).filter(Boolean);
 }
 
+function getMarketLabel(market) {
+  if (!market) return "";
+
+  const currencyCode =
+    market.currencyCode ||
+    market.currencySettings?.baseCurrency?.currencyCode ||
+    "";
+  return `${market.name || market.label || "Market"}${currencyCode ? ` (${currencyCode})` : ""}`;
+}
+
+function getSaleMarkets(sale) {
+  return Array.isArray(sale.markets) ? sale.markets : [];
+}
+
+function getTagRuleTitles(sale, key) {
+  return getResourceTitles(sale.tagRules?.[key] || []);
+}
+
 function formatScope(scope, resources = {}) {
   const normalized = normalizeStatus(scope);
 
@@ -357,6 +379,24 @@ function formatSchedule(sale) {
   if (sale.startAt) lines.push(`From ${formatDate(sale.startAt)}`);
   if (sale.endAt) lines.push(`Until ${formatDate(sale.endAt)}`);
   return lines.length ? lines : ["Not scheduled"];
+}
+
+function FieldBadges({ items }) {
+  if (!items.length) {
+    return (
+      <Text as="span" tone="subdued">
+        -
+      </Text>
+    );
+  }
+
+  return (
+    <InlineStack gap="150" wrap>
+      {items.map((item) => (
+        <Badge key={item}>{item}</Badge>
+      ))}
+    </InlineStack>
+  );
 }
 
 function getSaleLogs(sale) {
@@ -433,6 +473,9 @@ export default function SaleDetailsPage() {
   const isCompletedSale = ["complete", "completed", "finished", "ended"].includes(
     normalizeStatus(sale.status),
   );
+  const saleMarkets = getSaleMarkets(sale);
+  const tagsToAdd = getTagRuleTitles(sale, "add");
+  const tagsToRemove = getTagRuleTitles(sale, "remove");
 
   useEffect(() => {
     if (!statusDisplay.showProgress) return undefined;
@@ -505,24 +548,55 @@ export default function SaleDetailsPage() {
 
               <Card>
                 <DetailRow label="Changes">
-                  <BlockStack gap="100">
+                  <BlockStack gap="300">
                     {getSaleChanges(sale, shopCurrency).map((change) => (
                       <Text as="p" key={change}>
                         {change}
                       </Text>
                     ))}
+
+                    {sale.autoReapplyChanges ? (
+                      <Text as="p" tone="subdued">
+                        Automatically re-apply price changes (every hour, up to 10,000 changes)
+                      </Text>
+                    ) : null}
                   </BlockStack>
                 </DetailRow>
 
-                <DetailRow
-                  label="Change type"
-                  value={humanize(sale.changeType || "products")}
-                />
+                <DetailRow label="Change type">
+                  <BlockStack gap="100">
+                    <Text as="p" fontWeight="semibold">
+                      {humanize(sale.changeType || "products")}
+                    </Text>
+                    {sale.changeType === "markets" && saleMarkets.length ? (
+                      <BlockStack gap="050">
+                        {saleMarkets.map((market) => (
+                          <Text as="p" key={market.id || market.name}>
+                            - {market.name || market.label}
+                          </Text>
+                        ))}
+                      </BlockStack>
+                    ) : null}
+                    {sale.changeType === "markets" && sale.applyToFixedPrices ? (
+                      <Text as="p" tone="subdued">
+                        Applies only to fixed market prices.
+                      </Text>
+                    ) : null}
+                  </BlockStack>
+                </DetailRow>
 
-                <DetailRow
-                  label="Apply to"
-                  value={formatScope(sale.applyScope, sale.applyResources || {})}
-                />
+                <DetailRow label="Apply to">
+                  <BlockStack gap="300">
+                    <Text as="p" fontWeight="semibold">
+                      {formatScope(sale.applyScope, sale.applyResources || {})}
+                    </Text>
+                    {sale.trackConditionChanges ? (
+                      <Text as="p" tone="subdued">
+                        Tracking changes in condition automatically (every hour)
+                      </Text>
+                    ) : null}
+                  </BlockStack>
+                </DetailRow>
 
                 <DetailRow
                   label="Exclude"
@@ -559,8 +633,30 @@ export default function SaleDetailsPage() {
                   </BlockStack>
                 </DetailRow>
 
+                {saleMarkets.length ? (
+                  <DetailRow label="Markets">
+                    <FieldBadges items={saleMarkets.map(getMarketLabel).filter(Boolean)} />
+                  </DetailRow>
+                ) : null}
+
                 <DetailRow label="Created at" value={formatDate(sale.createdAt)} />
                 <DetailRow label="Started at" value={formatDate(sale.startedAt)} />
+
+                {sale.completedAt ? (
+                  <DetailRow label="Completed at" value={formatDate(sale.completedAt)} />
+                ) : null}
+
+                {tagsToAdd.length ? (
+                  <DetailRow label="Add tags">
+                    <FieldBadges items={tagsToAdd} />
+                  </DetailRow>
+                ) : null}
+
+                {tagsToRemove.length ? (
+                  <DetailRow label="Remove tags">
+                    <FieldBadges items={tagsToRemove} />
+                  </DetailRow>
+                ) : null}
               </Card>
 
               <Card>

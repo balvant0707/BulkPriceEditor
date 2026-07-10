@@ -13,6 +13,7 @@ import {
 import { TitleBar } from "@shopify/app-bridge-react";
 import db from "../db.server";
 import { authenticate } from "../shopify.server";
+import { rollbackMarketPrices } from "../services/market-pricing.server";
 
 const ROLLBACK_UPDATE_CONCURRENCY = 24;
 const ROLLBACK_VARIANT_BATCH_SIZE = 200;
@@ -388,13 +389,14 @@ async function rollbackTask(
   startedAt = new Date().toISOString(),
 ) {
   const originalVariants = task.executionSummary?.originalVariants || [];
+  const originalMarketPrices = task.executionSummary?.originalMarketPrices || [];
   const originalInventoryItems =
     task.executionSummary?.originalInventoryItems || [];
   const errors = [];
   let updatedVariants = 0;
   let updatedInventoryItems = 0;
 
-  if (!originalVariants.length && !originalInventoryItems.length) {
+  if (!originalVariants.length && !originalMarketPrices.length && !originalInventoryItems.length) {
     return {
       ok: false,
       status: "Cancelled",
@@ -402,6 +404,21 @@ async function rollbackTask(
       error: "Rollback data is not available for this task.",
       updatedVariants,
       updatedInventoryItems,
+      startedAt,
+      completedAt: new Date().toISOString(),
+    };
+  }
+
+  if (task.applyChangesTo === "markets" || originalMarketPrices.length) {
+    const marketRollback = await rollbackMarketPrices(admin, originalMarketPrices);
+
+    return {
+      ok: marketRollback.ok,
+      status: "Cancelled",
+      progress: 100,
+      updatedVariants: marketRollback.updatedCount,
+      updatedInventoryItems: 0,
+      errors: marketRollback.errors,
       startedAt,
       completedAt: new Date().toISOString(),
     };

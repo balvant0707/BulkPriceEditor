@@ -39,6 +39,7 @@ import {
   normalizeDiscountedScope,
   splitVariantsByDiscountedScope,
 } from "../lib/task-discounted-exclusion";
+import { updateMarketPrices } from "../services/market-pricing.server";
 
 const MARKETS_QUERY = `#graphql
   query GetMarkets {
@@ -52,6 +53,15 @@ const MARKETS_QUERY = `#graphql
         handle
         enabled
         primary
+        catalogs(first: 10) {
+          nodes {
+            id
+            title
+            priceList {
+              id
+            }
+          }
+        }
         currencySettings {
           baseCurrency {
             currencyCode
@@ -630,6 +640,11 @@ function buildTaskData(shop, formData) {
     formData,
     "selected_market_currency_codes[]",
   );
+  const selectedMarketNames = getFormValues(formData, "selected_market_names[]");
+  const selectedMarketPriceListIds = getFormValues(
+    formData,
+    "selected_market_price_list_ids[]",
+  );
   const applyCollections = buildSelectedCollectionRecords(formData, "apply");
   const excludeCollections = buildSelectedCollectionRecords(formData, "exclude");
   const applyProducts = buildSelectedProductRecords(formData, "apply");
@@ -644,8 +659,13 @@ function buildTaskData(shop, formData) {
     applyToFixedPrices: hasFormValue(formData, "apply_to_fixed_prices"),
     selectedMarkets: selectedMarketIds.map((id, index) => ({
       id,
+      name: selectedMarketNames[index] || "",
       handle: selectedMarketHandles[index] || "",
       currencyCode: selectedMarketCurrencyCodes[index] || "",
+      priceListIds: String(selectedMarketPriceListIds[index] || "")
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean),
     })),
     priceChange: buildChangeData(formData, "price"),
     compareAtPriceChange: buildChangeData(formData, "compare_at_price"),
@@ -687,7 +707,14 @@ function buildTaskData(shop, formData) {
 
 function validateTaskData(taskData) {
   if (taskData.applyChangesTo === "markets") {
-    return "Market price-list tasks are not supported yet. Use Product prices.";
+    const markets = taskData.selectedMarkets || [];
+    if (!markets.length) return "Choose at least one Shopify Market.";
+    if (!markets.some((market) => market.priceListIds?.length)) {
+      return "Selected Shopify Markets do not have price lists available.";
+    }
+    if (taskData.costPerItemChange?.action) {
+      return "Cost per item changes are available only for Product prices.";
+    }
   }
 
   const changes = [
@@ -791,16 +818,6 @@ async function executeTask(
       };
     }
 
-    if (taskData.applyChangesTo === "markets") {
-      return {
-        ok: false,
-        error:
-          "Market price-list updates are not executed yet. Product variant tasks are supported.",
-        analyzedVariants: 0,
-        updatedVariants: 0,
-      };
-    }
-
     const targetVariants = await loadTargetVariants(admin, taskData);
     const excludedVariantIds = await loadExcludedVariantIds(admin, taskData);
     await onProgress(25, {
@@ -839,6 +856,55 @@ async function executeTask(
     const inventoryUpdates = [];
     const originalVariants = [];
     const originalInventoryItems = [];
+
+    if (taskData.applyChangesTo === "markets") {
+      const marketResult = await updateMarketPrices({
+        admin,
+        ownerType: "task",
+        ownerId: options.taskId,
+        shop,
+        markets: taskData.selectedMarkets,
+        variants,
+        priceChange: taskData.priceChange,
+        compareAtPriceChange: taskData.compareAtPriceChange,
+        applyToFixedPrices: taskData.applyToFixedPrices,
+      });
+      const marketAuditLogs = marketResult.logs.map((log) => ({
+        taskId: options.taskId,
+        shop,
+        productId: log.productId,
+        variantId: log.variantId,
+        previousPrice: log.oldPrice,
+        newPrice: log.newPrice,
+        action: log.status,
+        skipReason: log.errors?.join("; ") || null,
+      }));
+
+      await persistTaskAuditLogs([...auditLogs, ...marketAuditLogs]);
+      await onProgress(95, {
+        analyzedVariants: variants.length,
+        marketUpdates: marketResult.updatedCount,
+        skippedVariants: marketResult.skippedCount,
+      });
+
+      return {
+        ok: marketResult.ok,
+        analyzedVariants: variants.length,
+        variantUpdates: marketResult.updatedCount,
+        inventoryUpdates: 0,
+        updatedVariants: marketResult.updatedCount,
+        updatedInventoryItems: 0,
+        totalPriceChanges: marketResult.totalPriceChanges,
+        skippedVariants: marketResult.skippedCount,
+        skippedProducts: countSkippedProducts(skippedLogs),
+        logs: [...auditLogs.map(({ taskId, shop, ...log }) => log), ...marketResult.logs],
+        originalVariants: [],
+        originalMarketPrices: marketResult.originalMarketPrices,
+        originalInventoryItems: [],
+        errors: marketResult.errors,
+        cappedAt: MAX_TASK_VARIANTS,
+      };
+    }
 
     for (const variant of variants) {
       const variantUpdate = buildVariantUpdate(variant, taskData);
@@ -1739,8 +1805,12 @@ function normalizeMarkets(markets = []) {
       enabled: Boolean(market.enabled),
       primary: Boolean(market.primary),
       regions,
+      catalogs: market.catalogs?.nodes || [],
+      priceListIds: (market.catalogs?.nodes || [])
+        .map((catalog) => catalog.priceList?.id)
+        .filter(Boolean),
       label: `${market.name}${currencyLabel}${primaryLabel}`,
-      disabled: true,
+      disabled: false,
     };
   });
 }
@@ -2905,7 +2975,6 @@ function PriceChangeFields({
 
   const isPriceField = fieldPrefix === "price";
   const isCompareAtPriceField = fieldPrefix === "compare_at_price";
-  const isCostPerItemField = fieldPrefix === "cost_per_item";
   const isIncreaseOrDecrease = action === "increase" || action === "decrease";
   const isCompareNoFieldsAction =
     isCompareAtPriceField &&
@@ -3214,16 +3283,11 @@ export default function NewTaskPage() {
 
                     <Button
                       pressed={applyChangesTo === "markets"}
-                      disabled
                       onClick={() => handleApplyChangesToChange("markets")}
                     >
                       Market prices
                     </Button>
                   </ButtonGroup>
-
-                  <Text as="p" tone="subdued">
-                    Market price-list tasks are not available yet.
-                  </Text>
 
                   {applyChangesTo === "markets" && (
                     <BlockStack>
@@ -3268,6 +3332,11 @@ export default function NewTaskPage() {
                               />
                               <input
                                 type="hidden"
+                                name="selected_market_names[]"
+                                value={market.name}
+                              />
+                              <input
+                                type="hidden"
                                 name="selected_market_handles[]"
                                 value={market.handle}
                               />
@@ -3275,6 +3344,11 @@ export default function NewTaskPage() {
                                 type="hidden"
                                 name="selected_market_currency_codes[]"
                                 value={market.currencyCode}
+                              />
+                              <input
+                                type="hidden"
+                                name="selected_market_price_list_ids[]"
+                                value={(market.priceListIds || []).join(",")}
                               />
                             </div>
                           ))}

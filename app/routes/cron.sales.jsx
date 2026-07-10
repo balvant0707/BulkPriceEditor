@@ -326,6 +326,10 @@ async function trackSaleCondition(sale) {
         executionSummary: {
           ...(sale.executionSummary || {}),
           originalVariants: tracked.originalVariants,
+          originalMarketPrices:
+            tracked.originalMarketPrices ||
+            sale.executionSummary?.originalMarketPrices ||
+            [],
           progress: 100,
           trackConditionLastRunAt: now,
           trackConditionLastResult: {

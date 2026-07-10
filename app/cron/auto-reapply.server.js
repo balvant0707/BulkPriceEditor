@@ -10,6 +10,7 @@ import {
   normalizeDiscountedScope,
   splitVariantsByDiscountedScope,
 } from "../lib/task-discounted-exclusion";
+import { updateMarketPrices } from "../services/market-pricing.server";
 
 const AUTO_REAPPLY_INTERVAL_MS = 60 * 60 * 1000;
 const AUTO_REAPPLY_RUNNING_LOCK_MS = 55 * 60 * 1000;
@@ -219,7 +220,6 @@ const TASK_INVENTORY_ITEM_UPDATE = `#graphql
 `;
 
 const MAX_TASK_VARIANTS = 10000;
-const MAX_AUTO_REAPPLY_PRICE_CHANGES = 10000;
 const VARIANT_PAGE_SIZE = 100;
 const TASK_UPDATE_CONCURRENCY = 4;
 const PROGRESS_UPDATE_MIN_INTERVAL_MS = 500;
@@ -234,16 +234,6 @@ async function executeTask(
   options = {},
 ) {
   try {
-    if (taskData.applyChangesTo === "markets") {
-      return {
-        ok: false,
-        error:
-          "Market price-list updates are not executed yet. Product variant tasks are supported.",
-        analyzedVariants: 0,
-        updatedVariants: 0,
-      };
-    }
-
     const targetVariants = await loadTargetVariants(admin, taskData);
     const excludedVariantIds = await loadExcludedVariantIds(admin, taskData);
     await onProgress(25, {
@@ -282,6 +272,57 @@ async function executeTask(
     const inventoryUpdates = [];
     const originalVariants = [];
     const originalInventoryItems = [];
+
+    if (taskData.applyChangesTo === "markets") {
+      const marketResult = await updateMarketPrices({
+        admin,
+        ownerType: "task",
+        ownerId: options.taskId,
+        shop: options.shop || taskData.shop,
+        markets: taskData.selectedMarkets,
+        variants,
+        priceChange: taskData.priceChange,
+        compareAtPriceChange: taskData.compareAtPriceChange,
+        applyToFixedPrices: taskData.applyToFixedPrices,
+      });
+      const marketAuditLogs = marketResult.logs.map((log) => ({
+        taskId: options.taskId,
+        shop: options.shop || taskData.shop,
+        productId: log.productId,
+        variantId: log.variantId,
+        previousPrice: log.oldPrice,
+        newPrice: log.newPrice,
+        action: log.status,
+        skipReason: log.errors?.join("; ") || null,
+      }));
+
+      await persistTaskAuditLogs([...auditLogs, ...marketAuditLogs]);
+      await onProgress(95, {
+        analyzedVariants: variants.length,
+        variantUpdates: marketResult.updatedCount,
+        inventoryUpdates: 0,
+        skippedVariants: marketResult.skippedCount,
+      });
+
+      return {
+        ok: marketResult.ok,
+        analyzedVariants: variants.length,
+        variantUpdates: marketResult.updatedCount,
+        inventoryUpdates: 0,
+        updatedVariants: marketResult.updatedCount,
+        updatedInventoryItems: 0,
+        totalPriceChanges: marketResult.totalPriceChanges,
+        skippedVariants:
+          targetVariants.length - variants.length + marketResult.skippedCount,
+        skippedProducts: countSkippedProducts(skippedLogs),
+        logs: [...auditLogs, ...marketAuditLogs].map(({ taskId, shop, ...log }) => log),
+        originalVariants: [],
+        originalInventoryItems: [],
+        originalMarketPrices: marketResult.originalMarketPrices,
+        errors: marketResult.errors,
+        cappedAt: MAX_TASK_VARIANTS,
+      };
+    }
 
     for (const variant of variants) {
       const variantUpdate = buildVariantUpdate(variant, taskData);

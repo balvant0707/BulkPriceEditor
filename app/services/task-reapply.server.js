@@ -3,6 +3,7 @@ import {
   normalizeDiscountedScope,
   splitVariantsByDiscountedScope,
 } from "../lib/task-discounted-exclusion";
+import { updateMarketPrices } from "./market-pricing.server";
 
 const TASK_VARIANTS_QUERY = `#graphql
   query TaskProductVariants($first: Int!, $after: String, $query: String) {
@@ -201,6 +202,42 @@ export async function executeAutoReapplyTask(admin, task) {
   }));
   const productVariantUpdates = [];
   const inventoryUpdates = [];
+
+  if (task.applyChangesTo === "markets") {
+    const marketResult = await updateMarketPrices({
+      admin,
+      ownerType: "task",
+      ownerId: task.id,
+      shop,
+      markets: task.selectedMarkets,
+      variants,
+      priceChange: task.priceChange,
+      compareAtPriceChange: task.compareAtPriceChange,
+      applyToFixedPrices: task.applyToFixedPrices,
+    });
+    const marketAuditLogs = marketResult.logs.map((log) => ({
+      taskId: task.id,
+      shop,
+      productId: log.productId,
+      variantId: log.variantId,
+      previousPrice: log.oldPrice,
+      newPrice: log.newPrice,
+      action: log.status,
+      skipReason: log.errors?.join("; ") || null,
+    }));
+
+    await persistTaskAuditLogs([...auditLogs, ...marketAuditLogs]);
+
+    return {
+      ok: marketResult.ok,
+      analyzedVariants: variants.length,
+      totalPriceChanges: marketResult.totalPriceChanges,
+      updatedVariants: marketResult.updatedCount,
+      updatedInventoryItems: 0,
+      skippedVariants: marketResult.skippedCount,
+      errors: marketResult.errors,
+    };
+  }
 
   for (const variant of variants) {
     const variantUpdate = buildVariantUpdate(variant, task);
