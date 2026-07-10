@@ -497,55 +497,40 @@ export default function SaleDetailsPage() {
 
   return (
     <>
-      <TitleBar title={sale.title} />
+      <TitleBar title="Pryxo Bulk Price Editor" />
 
       <Page
-        title={sale.title}
-        backAction={{ content: "Sales", url: "/app/sales" }}
-      >
+  title={sale.title}
+  backAction={{
+    content: "Sales",
+    url: "/app/sales",
+  }}
+  primaryAction={{
+    content: "Edit sale",
+    onAction: () => navigate(`${EDIT_SALE_URL}?id=${sale.id}`),
+  }}
+  secondaryActions={[
+    {
+      content: "Check changes",
+      disabled: isSubmitting || !isActiveSale,
+      onAction: () => submitAction("check_changes"),
+    },
+    {
+      content: "Disable",
+      destructive: true,
+      disabled: isSubmitting || isCompletedSale,
+      onAction: () => submitAction("disable_sale"),
+    },
+    {
+      content: "Duplicate",
+      disabled: isSubmitting,
+      onAction: () => submitAction("duplicate_sale"),
+    },
+  ]}
+>
         <Layout>
           <Layout.Section>
             <BlockStack gap="400">
-              <InlineStack align="end" gap="200">
-                <Button onClick={() => navigate(`${EDIT_SALE_URL}?id=${sale.id}`)}>
-                  Edit sale
-                </Button>
-                <Popover
-                  active={actionsOpen}
-                  activator={
-                    <Button
-                      disclosure
-                      loading={isSubmitting}
-                      onClick={() => setActionsOpen((open) => !open)}
-                    >
-                      Actions
-                    </Button>
-                  }
-                  onClose={() => setActionsOpen(false)}
-                >
-                  <ActionList
-                    items={[
-                      {
-                        content: "Check changes",
-                        disabled: isSubmitting || !isActiveSale,
-                        onAction: () => submitAction("check_changes"),
-                      },
-                      {
-                        content: "Disable",
-                        destructive: true,
-                        disabled: isSubmitting || isCompletedSale,
-                        onAction: () => submitAction("disable_sale"),
-                      },
-                      {
-                        content: "Duplicate",
-                        disabled: isSubmitting,
-                        onAction: () => submitAction("duplicate_sale"),
-                      },
-                    ]}
-                  />
-                </Popover>
-              </InlineStack>
-
               <Card>
                 <DetailRow label="Changes">
                   <BlockStack gap="300">
@@ -625,11 +610,6 @@ export default function SaleDetailsPage() {
                         </Text>
                       ) : null}
                     </InlineStack>
-                    {statusDisplay.showProgress ? (
-                      <Box maxWidth="320px">
-                        <ProgressBar progress={progress} size="small" />
-                      </Box>
-                    ) : null}
                   </BlockStack>
                 </DetailRow>
 
