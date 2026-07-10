@@ -242,25 +242,6 @@ function ReapplyIcon() {
   );
 }
 
-function TrackingIcon() {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 20 20"
-      width="16"
-      height="16"
-      fill="currentColor"
-      aria-hidden="true"
-    >
-      <path
-        fillRule="evenodd"
-        d="M11.92 2.62a1 1 0 0 0-1.84 0l-.34.78a6.9 6.9 0 0 0-1.12.46l-.8-.31a1 1 0 0 0-1.3.54l-.65 1.56a1 1 0 0 0 .54 1.3l.78.32a6.6 6.6 0 0 0 0 1.46l-.78.32a1 1 0 0 0-.54 1.3l.65 1.56a1 1 0 0 0 1.3.54l.8-.31c.36.2.73.36 1.12.46l.34.78a1 1 0 0 0 1.84 0l.34-.78c.39-.1.76-.26 1.12-.46l.8.31a1 1 0 0 0 1.3-.54l.65-1.56a1 1 0 0 0-.54-1.3l-.78-.32a6.6 6.6 0 0 0 0-1.46l.78-.32a1 1 0 0 0 .54-1.3l-.65-1.56a1 1 0 0 0-1.3-.54l-.8.31a6.9 6.9 0 0 0-1.12-.46l-.34-.78Zm-.92 7.88a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"
-        clipRule="evenodd"
-      />
-    </svg>
-  );
-}
-
 function SearchIcon() {
   return (
     <svg
@@ -551,12 +532,9 @@ export default function SalesPage() {
           </BlockStack>
         </IndexTable.Cell>
         <IndexTable.Cell>
-          <InlineStack gap="150" blockAlign="center" wrap={false}>
-            <Text as="span" fontWeight="semibold">
-              {formatApplyScope(sale)}
-            </Text>
-            {sale.trackConditionChanges ? <TrackingIcon /> : null}
-          </InlineStack>
+          <Text as="span" fontWeight="semibold">
+            {formatApplyScope(sale)}
+          </Text>
         </IndexTable.Cell>
         <IndexTable.Cell>
           <BlockStack gap="050">

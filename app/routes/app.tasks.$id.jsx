@@ -101,8 +101,11 @@ export const loader = async ({ request, params }) => {
         select: { currency: true },
       })
     )?.currency || "";
-  const selectedCollections = isCollectionScope(task)
-    ? await getSelectedCollectionDetails(admin, task, shopifyStoreHandle)
+  const selectedApplyCollections = isCollectionScope(task, "apply")
+    ? await getSelectedCollectionDetails(admin, task, shopifyStoreHandle, "apply")
+    : [];
+  const selectedExcludeCollections = isCollectionScope(task, "exclude")
+    ? await getSelectedCollectionDetails(admin, task, shopifyStoreHandle, "exclude")
     : [];
 
   return json({
@@ -110,7 +113,9 @@ export const loader = async ({ request, params }) => {
     shop: session.shop,
     shopifyStoreHandle,
     selectedProductId,
-    selectedCollections,
+    selectedCollections: selectedApplyCollections,
+    selectedApplyCollections,
+    selectedExcludeCollections,
     productDetails: selectedProductId
       ? getProductDetails(
         task,
@@ -887,22 +892,28 @@ function getCollectionAdminUrl(shopifyStoreHandle, collectionId) {
   return `https://admin.shopify.com/store/${shopifyStoreHandle}/collections/${collectionId}`;
 }
 
-function isCollectionScope(task) {
+function isCollectionScope(task, prefix = "") {
   const values = [
-    task?.applyScope,
-    task?.scope,
-    task?.targetScope,
-    task?.selectionScope,
-    task?.applyTo?.scope,
-    task?.selection?.scope,
-    task?.target?.scope,
-    task?.executionSummary?.applyScope,
-    task?.executionSummary?.scope,
-    task?.executionSummary?.targetScope,
-    task?.executionSummary?.selectionScope,
-    task?.executionSummary?.applyTo?.scope,
-    task?.executionSummary?.selection?.scope,
-    task?.executionSummary?.target?.scope,
+    prefix === "exclude" ? task?.excludeScope : task?.applyScope,
+    prefix === "exclude" ? task?.excludeResources?.scope : task?.applyResources?.scope,
+    !prefix ? task?.scope : "",
+    !prefix ? task?.targetScope : "",
+    !prefix ? task?.selectionScope : "",
+    !prefix ? task?.applyTo?.scope : "",
+    !prefix ? task?.selection?.scope : "",
+    !prefix ? task?.target?.scope : "",
+    prefix === "exclude"
+      ? task?.executionSummary?.excludeScope
+      : task?.executionSummary?.applyScope,
+    prefix === "exclude"
+      ? task?.executionSummary?.excludeResources?.scope
+      : task?.executionSummary?.applyResources?.scope,
+    !prefix ? task?.executionSummary?.scope : "",
+    !prefix ? task?.executionSummary?.targetScope : "",
+    !prefix ? task?.executionSummary?.selectionScope : "",
+    !prefix ? task?.executionSummary?.applyTo?.scope : "",
+    !prefix ? task?.executionSummary?.selection?.scope : "",
+    !prefix ? task?.executionSummary?.target?.scope : "",
   ]
     .filter(Boolean)
     .join(" ")
@@ -1158,47 +1169,51 @@ function collectCollectionRecordsFromObject(value, depth = 0) {
   return found;
 }
 
-function getSelectedCollectionRecords(task) {
-  if (!isCollectionScope(task)) return [];
+function getSelectedCollectionRecords(task, prefix = "apply") {
+  if (!isCollectionScope(task, prefix)) return [];
 
   const configuration = task.configuration || {};
-  const applyResources = task.applyResources || {};
+  const resources =
+    prefix === "exclude" ? task.excludeResources || {} : task.applyResources || {};
   const summary = task.executionSummary || {};
-  const summaryApplyResources = summary.applyResources || summary.input?.applyResources || {};
+  const summaryResources =
+    prefix === "exclude"
+      ? summary.excludeResources || summary.input?.excludeResources || {}
+      : summary.applyResources || summary.input?.applyResources || {};
   const summaryConfiguration = summary.configuration || summary.input?.configuration || {};
 
   const records = [
-    ...getArrayValue(applyResources.collections),
-    ...getArrayValue(applyResources.selectedCollections),
+    ...getArrayValue(resources.collections),
+    ...getArrayValue(resources.selectedCollections),
     ...buildCollectionRecordsFromIds(
-      applyResources.collectionIds,
-      applyResources.collectionTitles,
-      applyResources.collectionHandles,
-      applyResources.collectionProductsCounts,
-      applyResources.collectionImageUrls,
+      resources.collectionIds,
+      resources.collectionTitles,
+      resources.collectionHandles,
+      resources.collectionProductsCounts,
+      resources.collectionImageUrls,
     ),
-    ...getArrayValue(summaryApplyResources.collections),
-    ...getArrayValue(summaryApplyResources.selectedCollections),
+    ...getArrayValue(summaryResources.collections),
+    ...getArrayValue(summaryResources.selectedCollections),
     ...buildCollectionRecordsFromIds(
-      summaryApplyResources.collectionIds,
-      summaryApplyResources.collectionTitles,
-      summaryApplyResources.collectionHandles,
-      summaryApplyResources.collectionProductsCounts,
-      summaryApplyResources.collectionImageUrls,
-    ),
-    ...buildCollectionRecordsFromIds(
-      getConfigArray(configuration, "apply_collection_ids[]"),
-      getConfigArray(configuration, "apply_collection_titles[]"),
-      getConfigArray(configuration, "apply_collection_handles[]"),
-      getConfigArray(configuration, "apply_collection_products_counts[]"),
-      getConfigArray(configuration, "apply_collection_image_urls[]"),
+      summaryResources.collectionIds,
+      summaryResources.collectionTitles,
+      summaryResources.collectionHandles,
+      summaryResources.collectionProductsCounts,
+      summaryResources.collectionImageUrls,
     ),
     ...buildCollectionRecordsFromIds(
-      getConfigArray(summaryConfiguration, "apply_collection_ids[]"),
-      getConfigArray(summaryConfiguration, "apply_collection_titles[]"),
-      getConfigArray(summaryConfiguration, "apply_collection_handles[]"),
-      getConfigArray(summaryConfiguration, "apply_collection_products_counts[]"),
-      getConfigArray(summaryConfiguration, "apply_collection_image_urls[]"),
+      getConfigArray(configuration, `${prefix}_collection_ids[]`),
+      getConfigArray(configuration, `${prefix}_collection_titles[]`),
+      getConfigArray(configuration, `${prefix}_collection_handles[]`),
+      getConfigArray(configuration, `${prefix}_collection_products_counts[]`),
+      getConfigArray(configuration, `${prefix}_collection_image_urls[]`),
+    ),
+    ...buildCollectionRecordsFromIds(
+      getConfigArray(summaryConfiguration, `${prefix}_collection_ids[]`),
+      getConfigArray(summaryConfiguration, `${prefix}_collection_titles[]`),
+      getConfigArray(summaryConfiguration, `${prefix}_collection_handles[]`),
+      getConfigArray(summaryConfiguration, `${prefix}_collection_products_counts[]`),
+      getConfigArray(summaryConfiguration, `${prefix}_collection_image_urls[]`),
     ),
   ].filter(Boolean);
 
@@ -1285,8 +1300,8 @@ async function fetchCollectionByText(admin, collection) {
   }
 }
 
-async function getSelectedCollectionDetails(admin, task, shopifyStoreHandle) {
-  const records = getSelectedCollectionRecords(task);
+async function getSelectedCollectionDetails(admin, task, shopifyStoreHandle, prefix = "apply") {
+  const records = getSelectedCollectionRecords(task, prefix);
 
   if (!records.length) return [];
 
@@ -2014,7 +2029,7 @@ function getSelectedResourceRecords(task, prefix, type, selectedCollections = []
   const configuration = task.configuration || {};
 
   if (type === "collection") {
-    if (prefix === "apply" && selectedCollections?.length) {
+    if (selectedCollections?.length) {
       return selectedCollections;
     }
 
@@ -2022,6 +2037,7 @@ function getSelectedResourceRecords(task, prefix, type, selectedCollections = []
       [
         ...getArrayValue(resources.collections),
         ...buildCollectionRecordsFromIds(resources.collectionIds),
+        ...getArrayValue(resources.selectedCollections),
         ...getConfiguredRecords(configuration, prefix, type),
       ].map((record, index) => normalizeCollectionRecord(record, index)),
     );
@@ -2030,6 +2046,7 @@ function getSelectedResourceRecords(task, prefix, type, selectedCollections = []
   if (type === "product") {
     return uniqueResourceRecords([
       ...getArrayValue(resources.products),
+      ...getArrayValue(resources.selectedProducts),
       ...getConfiguredRecords(configuration, prefix, type),
       ...getArrayValue(resources.productIds).map((id) => ({ id })),
     ]);
@@ -2038,6 +2055,7 @@ function getSelectedResourceRecords(task, prefix, type, selectedCollections = []
   if (type === "variant") {
     return uniqueResourceRecords([
       ...getArrayValue(resources.variants),
+      ...getArrayValue(resources.selectedVariants),
       ...getConfiguredRecords(configuration, prefix, type),
       ...getArrayValue(resources.variantIds).map((id) => ({ id })),
     ]);
@@ -2045,6 +2063,8 @@ function getSelectedResourceRecords(task, prefix, type, selectedCollections = []
 
   if (type === "tag") {
     return uniqueResourceRecords([
+      ...getArrayValue(resources.tags),
+      ...getArrayValue(resources.selectedTags),
       ...getArrayValue(resources.tagNames).map((title) => ({ id: title, title })),
       ...getConfiguredRecords(configuration, prefix, type),
     ]);
@@ -2061,13 +2081,13 @@ function ResourceList({ records, type, shopifyStoreHandle }) {
       {records.map((item, index) => {
         const productId =
           type === "variant"
-            ? getShopifyNumericId(item.productId)
-            : getShopifyNumericId(item.id || item.gid);
+            ? getProductId(item)
+            : getShopifyNumericId(item.productId || item.id || item.gid);
         const variantId =
-          type === "variant" ? getShopifyNumericId(item.id || item.gid) : "";
+          type === "variant" ? getVariantId(item) : "";
         const label =
           type === "variant"
-            ? `${item.productTitle ? `${item.productTitle} - ` : ""}${item.title || item.id || "Variant"
+            ? `${getProductTitle(item) ? `${getProductTitle(item)} - ` : ""}${getVariantTitle(item) || item.id || "Variant"
             }`
             : item.title || item.handle || item.id || humanize(type);
         const url =
@@ -2257,9 +2277,11 @@ export default function TaskDetailsPage() {
     shopifyStoreHandle,
     selectedProductId,
     productDetails,
-    selectedCollections,
+    selectedApplyCollections,
+    selectedExcludeCollections,
     shopCurrency,
   } = useLoaderData();
+  const selectedCollections = selectedApplyCollections || [];
 
   const navigate = useNavigate();
   const revalidator = useRevalidator();
@@ -2544,7 +2566,7 @@ export default function TaskDetailsPage() {
                     task={task}
                     prefix="exclude"
                     scope={task.excludeScope}
-                    selectedCollections={[]}
+                    selectedCollections={selectedExcludeCollections || []}
                     shopifyStoreHandle={shopifyStoreHandle}
                   />
                 </DetailRow>

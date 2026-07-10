@@ -377,6 +377,60 @@ function getSaleLogs(sale) {
   return sale.executionSummary?.logs || [];
 }
 
+function mergeLogStatus(currentStatus, nextStatus) {
+  const statuses = [currentStatus, nextStatus].map((status) =>
+    String(status || "").toLowerCase(),
+  );
+
+  if (statuses.some((status) => status.includes("fail") || status.includes("error"))) {
+    return "Failed";
+  }
+
+  if (statuses.some((status) => status.includes("skip"))) {
+    return "Skipped";
+  }
+
+  if (statuses.some((status) => status.includes("applied") || status.includes("updated"))) {
+    return "Applied";
+  }
+
+  return currentStatus || nextStatus || "Applied";
+}
+
+function getVisibleSaleLogs(sale) {
+  const logs = getSaleLogs(sale);
+  if (saleUsesVariantLogLinks(sale)) {
+    return logs;
+  }
+
+  const groupedLogs = new Map();
+
+  for (const log of logs) {
+    const key = log.productId || log.productTitle || log.id || log.variantId;
+    if (!key) continue;
+
+    const existingLog = groupedLogs.get(key);
+    if (!existingLog) {
+      groupedLogs.set(key, {
+        ...log,
+        id: `product-${key}`,
+        variantId: "",
+        variantTitle: "",
+        changes: Array.from(new Set(log.changes || [])),
+        status: log.status || "Applied",
+      });
+      continue;
+    }
+
+    existingLog.changes = Array.from(
+      new Set([...(existingLog.changes || []), ...(log.changes || [])]),
+    );
+    existingLog.status = mergeLogStatus(existingLog.status, log.status);
+  }
+
+  return Array.from(groupedLogs.values());
+}
+
 function getShopifyNumericId(id) {
   const match = String(id || "").match(/(\d+)$/);
   return match ? match[1] : "";
@@ -399,6 +453,25 @@ function saleUsesVariantLogLinks(sale) {
   return [sale.applyScope, sale.excludeScope]
     .map((scope) => String(scope || "").toLowerCase())
     .includes("selected_products_with_variants");
+}
+
+function getLogResourceUrl(shop, log, useVariantLogLinks) {
+  if (useVariantLogLinks && log.variantId) {
+    return (
+      getAdminVariantUrl(shop, log.productId, log.variantId) ||
+      getAdminProductUrl(shop, log.productId)
+    );
+  }
+
+  return getAdminProductUrl(shop, log.productId);
+}
+
+function getLogResourceTitle(log, useVariantLogLinks) {
+  if (useVariantLogLinks && log.variantTitle) {
+    return log.variantTitle;
+  }
+
+  return log.productTitle || "Product";
 }
 
 function getEstimatedProcessingProgress(sale, baseProgress) {
@@ -459,7 +532,7 @@ export default function SaleDetailsPage() {
   const [rollbackConfirmOpen, setRollbackConfirmOpen] = useState(false);
   const rawProgress = getSaleProgressValue(sale);
   const statusDisplay = getSaleStatusDisplay(sale);
-  const logs = useMemo(() => getSaleLogs(sale), [sale]);
+  const logs = useMemo(() => getVisibleSaleLogs(sale), [sale]);
   const filteredLogs = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
     if (!normalizedQuery) return logs;
@@ -721,33 +794,32 @@ export default function SaleDetailsPage() {
                       { title: "Status" },
                     ]}
                   >
-                    {paginatedLogs.map((log, index) => (
-                      <IndexTable.Row
-                        id={`${log.variantId || log.id || index}`}
-                        key={`${log.variantId || log.id || index}`}
-                        position={index}
-                      >
-                        <IndexTable.Cell>
-                          {useVariantLogLinks && log.variantId ? (
-                            <a
-                              href={getAdminVariantUrl(shop, log.productId, log.variantId)}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                            >
-                              {log.variantTitle || log.productTitle || "Product variant"}
-                            </a>
-                          ) : log.productId ? (
-                            <a
-                              href={getAdminProductUrl(shop, log.productId)}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                            >
-                              {log.productTitle || "Product"}
-                            </a>
-                          ) : (
-                            <Text as="span">{log.productTitle || "Product"}</Text>
-                          )}
-                        </IndexTable.Cell>
+                    {paginatedLogs.map((log, index) => {
+                      const resourceUrl = getLogResourceUrl(shop, log, useVariantLogLinks);
+                      const resourceTitle = getLogResourceTitle(log, useVariantLogLinks);
+                      const rowId = useVariantLogLinks
+                        ? log.variantId || log.id || index
+                        : log.productId || log.productTitle || log.id || index;
+
+                      return (
+                        <IndexTable.Row
+                          id={`${rowId}`}
+                          key={`${rowId}`}
+                          position={index}
+                        >
+                          <IndexTable.Cell>
+                            {resourceUrl ? (
+                              <a
+                                href={resourceUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                {resourceTitle}
+                              </a>
+                            ) : (
+                              <Text as="span">{resourceTitle}</Text>
+                            )}
+                          </IndexTable.Cell>
                         <IndexTable.Cell>
                           <BlockStack gap="100">
                             {(log.changes || []).map((change) => (
@@ -761,7 +833,8 @@ export default function SaleDetailsPage() {
                           <Badge tone="success">{log.status || "Applied"}</Badge>
                         </IndexTable.Cell>
                       </IndexTable.Row>
-                    ))}
+                      );
+                    })}
                   </IndexTable>
 
                   {!filteredLogs.length ? (
