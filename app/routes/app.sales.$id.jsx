@@ -11,7 +11,6 @@ import {
   Banner,
   BlockStack,
   Box,
-  Button,
   Card,
   IndexTable,
   InlineStack,
@@ -469,6 +468,8 @@ export default function SaleDetailsPage() {
   const saleMarkets = getSaleMarkets(sale);
   const tagsToAdd = getTagRuleTitles(sale, "add");
   const tagsToRemove = getTagRuleTitles(sale, "remove");
+  const showExcludeDiscounted =
+    String(sale.discountedScope || "").toLowerCase().trim() !== "nothing";
 
   useEffect(() => {
     if (![SALE_STATUS.PENDING, SALE_STATUS.APPLYING, SALE_STATUS.CANCELING, SALE_STATUS.CHECKING_CHANGES].includes(normalizedStatus)) {
@@ -518,22 +519,27 @@ export default function SaleDetailsPage() {
     disabled: isBusySale,
     onAction: () => navigate(`${EDIT_SALE_URL}?id=${sale.id}`),
   }}
-  secondaryActions={[
+  actionGroups={[
     {
-      content: "Check changes",
-      disabled: isSubmitting || !isCompletedSale,
-      onAction: () => submitAction("check_changes"),
-    },
-    {
-      content: "Disable",
-      destructive: true,
-      disabled: isSubmitting || !canRollbackSale(sale),
-      onAction: () => setRollbackConfirmOpen(true),
-    },
-    {
-      content: "Duplicate",
-      disabled: isSubmitting,
-      onAction: () => submitAction("duplicate_sale"),
+      title: "Actions",
+      actions: [
+        {
+          content: "Check changes",
+          disabled: isSubmitting || !isCompletedSale,
+          onAction: () => submitAction("check_changes"),
+        },
+        {
+          content: "Disable",
+          destructive: true,
+          disabled: isSubmitting || !canRollbackSale(sale),
+          onAction: () => setRollbackConfirmOpen(true),
+        },
+        {
+          content: "Duplicate",
+          disabled: isSubmitting,
+          onAction: () => submitAction("duplicate_sale"),
+        },
+      ],
     },
   ]}
 >
@@ -612,7 +618,9 @@ export default function SaleDetailsPage() {
                   value={formatScope(sale.excludeScope, sale.excludeResources || {})}
                 />
 
-                <DetailRow label="Exclude discounted" value={formatDiscountedScope(sale)} />
+                {showExcludeDiscounted ? (
+                  <DetailRow label="Exclude discounted" value={formatDiscountedScope(sale)} />
+                ) : null}
 
                 <DetailRow label="Schedule">
                   <BlockStack gap="100">
@@ -649,17 +657,13 @@ export default function SaleDetailsPage() {
                 <DetailRow label="Created at" value={formatDate(sale.createdAt)} />
                 <DetailRow label="Started at" value={formatDate(sale.startedAt)} />
 
-                {sale.completedAt ? (
-                  <DetailRow label="Completed at" value={formatDate(sale.completedAt)} />
-                ) : null}
-
-                {tagsToAdd.length ? (
+                {sale.addTagsEnabled && tagsToAdd.length ? (
                   <DetailRow label="Add tags">
                     <FieldBadges items={tagsToAdd} />
                   </DetailRow>
                 ) : null}
 
-                {tagsToRemove.length ? (
+                {sale.removeTagsEnabled && tagsToRemove.length ? (
                   <DetailRow label="Remove tags">
                     <FieldBadges items={tagsToRemove} />
                   </DetailRow>
@@ -701,13 +705,13 @@ export default function SaleDetailsPage() {
                       >
                         <IndexTable.Cell>
                           {log.productId ? (
-                            <Button
-                              variant="plain"
-                              url={getAdminProductUrl(shop, log.productId)}
-                              external
+                            <a
+                              href={getAdminProductUrl(shop, log.productId)}
+                              target="_blank"
+                              rel="noopener noreferrer"
                             >
                               {log.productTitle || "Product"}
-                            </Button>
+                            </a>
                           ) : (
                             <Text as="span">{log.productTitle || "Product"}</Text>
                           )}
