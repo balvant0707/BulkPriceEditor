@@ -401,6 +401,41 @@ function getAdminProductUrl(shop, productId) {
   return `https://${shop}/admin/products/${numericId}`;
 }
 
+function getAdminVariantUrl(shop, productId, variantId) {
+  const productNumericId = getShopifyNumericId(productId);
+  const variantNumericId = getShopifyNumericId(variantId);
+  if (!productNumericId || !variantNumericId) return "";
+  return `https://${shop}/admin/products/${productNumericId}/variants/${variantNumericId}`;
+}
+
+function saleUsesVariantLogLinks(sale) {
+  return [sale.applyScope, sale.excludeScope]
+    .map((scope) => String(scope || "").toLowerCase())
+    .includes("selected_products_with_variants");
+}
+
+function getEstimatedProcessingProgress(sale, baseProgress) {
+  const normalizedStatus = normalizeSaleStatus(sale.status);
+  if (
+    normalizedStatus !== SALE_STATUS.APPLYING &&
+    normalizedStatus !== SALE_STATUS.CANCELING
+  ) {
+    return baseProgress;
+  }
+
+  const startedAt =
+    sale.executionSummary?.processingStartedAt ||
+    sale.executionSummary?.rollbackStartedAt ||
+    sale.startedAt ||
+    sale.updatedAt ||
+    sale.createdAt;
+  const startedMs = new Date(startedAt || "").getTime();
+  if (!Number.isFinite(startedMs)) return Math.max(baseProgress, 1);
+
+  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - startedMs) / 1000));
+  return Math.min(99, Math.max(baseProgress, elapsedSeconds + 1));
+}
+
 function DetailRow({ label, value, children }) {
   return (
     <Box paddingBlock="400" borderBlockEndWidth="025" borderColor="border">
@@ -435,7 +470,7 @@ export default function SaleDetailsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [rollbackConfirmOpen, setRollbackConfirmOpen] = useState(false);
-  const progress = getSaleProgressValue(sale);
+  const rawProgress = getSaleProgressValue(sale);
   const statusDisplay = getSaleStatusDisplay(sale);
   const logs = useMemo(() => getSaleLogs(sale), [sale]);
   const filteredLogs = useMemo(() => {
@@ -457,6 +492,7 @@ export default function SaleDetailsPage() {
   );
   const isSubmitting = actionFetcher.state !== "idle";
   const normalizedStatus = normalizeSaleStatus(sale.status);
+  const progress = getEstimatedProcessingProgress(sale, rawProgress);
   const isCompletedSale = normalizedStatus === SALE_STATUS.COMPLETED;
   const isBusySale = [
     SALE_STATUS.PENDING,
@@ -466,6 +502,7 @@ export default function SaleDetailsPage() {
   ].includes(normalizedStatus);
   const processFetcher = useFetcher();
   const saleMarkets = getSaleMarkets(sale);
+  const useVariantLogLinks = saleUsesVariantLogLinks(sale);
   const tagsToAdd = getTagRuleTitles(sale, "add");
   const tagsToRemove = getTagRuleTitles(sale, "remove");
   const showExcludeDiscounted =
@@ -704,7 +741,15 @@ export default function SaleDetailsPage() {
                         position={index}
                       >
                         <IndexTable.Cell>
-                          {log.productId ? (
+                          {useVariantLogLinks && log.variantId ? (
+                            <a
+                              href={getAdminVariantUrl(shop, log.productId, log.variantId)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              {log.variantTitle || log.productTitle || "Product variant"}
+                            </a>
+                          ) : log.productId ? (
                             <a
                               href={getAdminProductUrl(shop, log.productId)}
                               target="_blank"

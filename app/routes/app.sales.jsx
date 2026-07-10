@@ -349,6 +349,28 @@ function getMarketNames(sale) {
     .filter(Boolean);
 }
 
+function getEstimatedProcessingProgress(sale, baseProgress) {
+  const normalizedStatus = normalizeSaleStatus(sale.status);
+  if (
+    normalizedStatus !== SALE_STATUS.APPLYING &&
+    normalizedStatus !== SALE_STATUS.CANCELING
+  ) {
+    return baseProgress;
+  }
+
+  const startedAt =
+    sale.executionSummary?.processingStartedAt ||
+    sale.executionSummary?.rollbackStartedAt ||
+    sale.startedAt ||
+    sale.updatedAt ||
+    sale.createdAt;
+  const startedMs = new Date(startedAt || "").getTime();
+  if (!Number.isFinite(startedMs)) return Math.max(baseProgress, 1);
+
+  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - startedMs) / 1000));
+  return Math.min(99, Math.max(baseProgress, elapsedSeconds + 1));
+}
+
 function saleMatchesSearch(sale, query) {
   const applyResources = sale.applyResources || {};
   const excludeResources = sale.excludeResources || {};
@@ -481,7 +503,7 @@ export default function SalesPage() {
 
   const rowMarkup = paginatedSales.map((sale, index) => {
     const statusDisplay = getSaleStatusDisplay(sale);
-    const progress = getSaleProgressValue(sale);
+    const progress = getEstimatedProcessingProgress(sale, getSaleProgressValue(sale));
     const normalizedStatus = normalizeSaleStatus(sale.status);
     const isSubmitting =
       actionFetcher.state !== "idle" &&
