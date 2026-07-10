@@ -29,6 +29,8 @@ import {
   Badge,
   Spinner,
   InlineGrid,
+  Popover,
+  Scrollable,
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import db from "../db.server";
@@ -279,11 +281,12 @@ export async function action({ request, params }) {
     if (!result.count) {
       throw new Response("Sale not found", { status: 404 });
     }
-  } else {
-    await db.sale.create({ data: saleData });
-  }
 
-  return redirect(BACK_URL);
+    return redirect(`/app/sales/${saleId}`);
+  } else {
+    const sale = await db.sale.create({ data: saleData });
+    return redirect(`/app/sales/${sale.id}`);
+  }
 }
 
 function getRecordId(value) {
@@ -369,6 +372,7 @@ function buildSaleData(shop, title, payload) {
     endAt,
     addTagsEnabled: Boolean(form.addTagsEnabled),
     removeTagsEnabled: Boolean(form.removeTagsEnabled),
+    trackConditionChanges: Boolean(form.trackConditionChanges),
     autoReapplyChanges: Boolean(form.autoReapplyChanges),
   };
 }
@@ -381,6 +385,8 @@ async function prepareSaleExecution(admin, saleData) {
       status: "failed",
       executionSummary: {
         ok: false,
+        status: "Failed",
+        progress: 100,
         error:
           "Market price-list sales are not executed yet. Product price sales are supported.",
         analyzedVariants: 0,
@@ -396,6 +402,8 @@ async function prepareSaleExecution(admin, saleData) {
       status: "scheduled",
       executionSummary: {
         ok: true,
+        status: "Scheduled",
+        progress: 0,
         scheduled: true,
         message:
           "Sale saved as scheduled. The sales cron endpoint activates it automatically.",
@@ -422,10 +430,7 @@ async function executeSale(admin, saleData) {
     const excludedVariantIds = await loadSaleExcludedVariantIds(admin, saleData);
     const variants = uniqueSaleVariants(targetVariants).filter((variant) => {
       if (excludedVariantIds.has(variant.id)) return false;
-      if (
-        saleData.discountedScope === "products_on_sale" &&
-        isSaleVariantDiscounted(variant)
-      ) {
+      if (isExcludedByDiscountedScope(variant, saleData.discountedScope)) {
         return false;
       }
       return true;
@@ -433,6 +438,7 @@ async function executeSale(admin, saleData) {
 
     const variantUpdates = [];
     const originalVariants = [];
+    const logs = [];
 
     for (const variant of variants) {
       const update = buildSaleVariantUpdate(variant, saleData);
@@ -445,6 +451,7 @@ async function executeSale(admin, saleData) {
         price: variant.price,
         compareAtPrice: variant.compareAtPrice,
       });
+      logs.push(buildSaleVariantLog(variant, update.variant));
     }
 
     const variantResults = await applySaleVariantUpdates(admin, variantUpdates);
@@ -454,6 +461,8 @@ async function executeSale(admin, saleData) {
 
     return {
       ok: errors.length === 0,
+      status: errors.length === 0 ? "Completed" : "Failed",
+      progress: 100,
       analyzedVariants: variants.length,
       variantUpdates: variantUpdates.length,
       updatedVariants: variantResults.updatedCount,
@@ -461,6 +470,7 @@ async function executeSale(admin, saleData) {
       skippedVariants:
         targetVariants.length - variants.length + variants.length - variantUpdates.length,
       originalVariants,
+      logs,
       errors,
       cappedAt: MAX_SALE_VARIANTS,
       endAt: saleData.endAt,
@@ -469,6 +479,8 @@ async function executeSale(admin, saleData) {
   } catch (error) {
     return {
       ok: false,
+      status: "Failed",
+      progress: 100,
       error: error instanceof Error ? error.message : "Unable to execute sale.",
       analyzedVariants: 0,
       updatedVariants: 0,
@@ -821,6 +833,47 @@ function isSaleVariantDiscounted(variant) {
   const price = toSaleNumber(variant.price);
   const compareAtPrice = toSaleNumber(variant.compareAtPrice);
   return compareAtPrice != null && price != null && compareAtPrice > price;
+}
+
+function isExcludedByDiscountedScope(variant, discountedScope) {
+  const scope = String(discountedScope || "").toLowerCase();
+  if (!scope || scope === "nothing") return false;
+
+  return (
+    ["products_on_sale", "product_types_on_sale", "variants_on_sale"].includes(scope) &&
+    isSaleVariantDiscounted(variant)
+  );
+}
+
+function buildSaleVariantLog(variant, update, status = "Applied") {
+  const changes = [];
+
+  if (update.price !== undefined) {
+    changes.push(`Price: ${formatLogValue(variant.price)} -> ${formatLogValue(update.price)}`);
+  }
+
+  if (update.compareAtPrice !== undefined) {
+    changes.push(
+      `Compare at price: ${formatLogValue(variant.compareAtPrice)} -> ${formatLogValue(
+        update.compareAtPrice,
+      )}`,
+    );
+  }
+
+  return {
+    id: variant.id,
+    variantId: variant.id,
+    productId: variant.product?.id || "",
+    productTitle: variant.product?.title || "Product",
+    variantTitle: variant.title || "",
+    changes,
+    status,
+  };
+}
+
+function formatLogValue(value) {
+  if (value === null || value === undefined || value === "") return "blank";
+  return formatSalePrice(value);
 }
 
 function normalizeMarkets(markets = []) {
@@ -1377,6 +1430,96 @@ function PickerModal({
   );
 }
 
+function InlineTagSearch({
+  label,
+  selectedTags,
+  suggestions,
+  query,
+  active,
+  loading,
+  error,
+  onQueryChange,
+  onFocus,
+  onClose,
+  onToggleTag,
+}) {
+  const selectedIds = useMemo(
+    () => new Set(selectedTags.map((tag) => tag.id)),
+    [selectedTags],
+  );
+
+  return (
+    <BlockStack gap="200">
+      <Popover
+        active={active}
+        preferredAlignment="left"
+        fullWidth
+        activator={
+          <TextField
+            label={label}
+            placeholder="Search tags"
+            value={query}
+            onChange={onQueryChange}
+            onFocus={onFocus}
+            autoComplete="off"
+          />
+        }
+        onClose={onClose}
+      >
+        <Box padding="300">
+          <BlockStack gap="300">
+            <Text as="p" fontWeight="semibold">
+              Suggestions
+            </Text>
+
+            {error ? <Banner tone="critical">{error}</Banner> : null}
+
+            {loading ? (
+              <InlineStack gap="200" blockAlign="center">
+                <Spinner accessibilityLabel="Loading tags" size="small" />
+                <Text as="span" tone="subdued">
+                  Loading tags...
+                </Text>
+              </InlineStack>
+            ) : null}
+
+            {!loading && !suggestions.length ? (
+              <Text as="p" tone="subdued">
+                No tags found.
+              </Text>
+            ) : null}
+
+            {suggestions.length ? (
+              <Scrollable style={{ maxHeight: 260 }}>
+                <BlockStack gap="250">
+                  {suggestions.map((tag) => (
+                    <Checkbox
+                      key={tag.id}
+                      label={tag.title}
+                      checked={selectedIds.has(tag.id)}
+                      onChange={() => onToggleTag(tag)}
+                    />
+                  ))}
+                </BlockStack>
+              </Scrollable>
+            ) : null}
+          </BlockStack>
+        </Box>
+      </Popover>
+
+      {selectedTags.length ? (
+        <InlineStack gap="200" wrap>
+          {selectedTags.map((tag) => (
+            <Tag key={tag.id} onRemove={() => onToggleTag(tag)}>
+              {tag.title}
+            </Tag>
+          ))}
+        </InlineStack>
+      ) : null}
+    </BlockStack>
+  );
+}
+
 function ConditionPicker({
   value,
   selectedCollections,
@@ -1605,6 +1748,7 @@ export default function NewSalePage() {
     sale = null,
   } = useLoaderData();
   const resourceFetcher = useFetcher();
+  const removeTagFetcher = useFetcher();
   const submit = useSubmit();
   const navigation = useNavigation();
   const isSubmitting = navigation.state !== "idle";
@@ -1661,6 +1805,9 @@ export default function NewSalePage() {
     removeTagsEnabled: Boolean(
       initialForm.removeTagsEnabled ?? sale?.removeTagsEnabled,
     ),
+    trackConditionChanges: Boolean(
+      initialForm.trackConditionChanges ?? sale?.trackConditionChanges,
+    ),
     autoReapplyChanges: Boolean(
       initialForm.autoReapplyChanges ?? sale?.autoReapplyChanges,
     ),
@@ -1716,8 +1863,14 @@ export default function NewSalePage() {
   const [resourceError, setResourceError] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [removeTagQuery, setRemoveTagQuery] = useState("");
+  const [removeTagSuggestionsOpen, setRemoveTagSuggestionsOpen] = useState(false);
+  const [removeTagItems, setRemoveTagItems] = useState([]);
+  const [removeTagError, setRemoveTagError] = useState("");
   const requestIdRef = useRef(0);
   const latestRequestIdRef = useRef("");
+  const removeTagRequestIdRef = useRef(0);
+  const latestRemoveTagRequestIdRef = useRef("");
 
   useEffect(() => {
     const marketIds = new Set(markets.map((market) => market.id));
@@ -1802,6 +1955,40 @@ export default function NewSalePage() {
     resourceFetcher.load(
       buildResourceUrl(picker.type, searchQuery, pageInfo.endCursor),
     );
+  };
+
+  const loadRemoveTagSuggestions = (query = "") => {
+    removeTagRequestIdRef.current += 1;
+    latestRemoveTagRequestIdRef.current = String(removeTagRequestIdRef.current);
+    const params = new URLSearchParams({
+      type: "tag",
+      requestId: latestRemoveTagRequestIdRef.current,
+    });
+
+    if (query) params.set("query", query);
+
+    removeTagFetcher.load(`/app/resource-picker?${params.toString()}`);
+  };
+
+  const openRemoveTagSuggestions = () => {
+    setRemoveTagSuggestionsOpen(true);
+    loadRemoveTagSuggestions(removeTagQuery);
+  };
+
+  const changeRemoveTagQuery = (value) => {
+    setRemoveTagQuery(value);
+    setRemoveTagSuggestionsOpen(true);
+    loadRemoveTagSuggestions(value);
+  };
+
+  const toggleRemoveTag = (tag) => {
+    setTagsToRemove((current) => {
+      if (current.some((item) => item.id === tag.id)) {
+        return current.filter((item) => item.id !== tag.id);
+      }
+
+      return [...current, tag];
+    });
   };
 
   const getPickerTitle = () => {
@@ -1892,8 +2079,20 @@ export default function NewSalePage() {
     setIsLoadingMore(false);
   }, [resourceFetcher.data, picker.type, searchQuery]);
 
+  useEffect(() => {
+    if (!removeTagFetcher.data) return;
+    if (removeTagFetcher.data.requestId !== latestRemoveTagRequestIdRef.current) {
+      return;
+    }
+
+    setRemoveTagItems(removeTagFetcher.data.items || []);
+    setRemoveTagError(removeTagFetcher.data.error || "");
+  }, [removeTagFetcher.data]);
+
   const isInitialResourceLoading =
     resourceFetcher.state !== "idle" && !isLoadingMore && resourceItems.length === 0;
+  const isRemoveTagLoading =
+    removeTagFetcher.state !== "idle" && removeTagItems.length === 0;
 
   const canCreate = form.title.trim();
   const handleCreateSale = () => {
@@ -2231,7 +2430,6 @@ export default function NewSalePage() {
                       type="time"
                       value={form.startTime}
                       onChange={setField("startTime")}
-                      helpText="Your local time will depend on your store timezone."
                       autoComplete="off"
                     />
                   </InlineGrid>
@@ -2281,7 +2479,7 @@ export default function NewSalePage() {
 
                   {form.addTagsEnabled ? (
                     <BlockStack gap="300">
-                      <InlineStack align="space-between" blockAlign="center">
+                      <InlineStack gap="10px" blockAlign="center">
                         <Text as="p" fontWeight="semibold">
                           Tags to add
                         </Text>
@@ -2322,35 +2520,19 @@ export default function NewSalePage() {
 
                   {form.removeTagsEnabled ? (
                     <BlockStack gap="300">
-                      <InlineStack align="space-between" blockAlign="center">
-                        <Text as="p" fontWeight="semibold">
-                          Tags to remove
-                        </Text>
-                        <Button onClick={() => openPicker("remove-tags", "tag")}>
-                          Browse tags
-                        </Button>
-                      </InlineStack>
-
-                      <InlineStack gap="200" wrap>
-                        {tagsToRemove.length ? (
-                          tagsToRemove.map((tag) => (
-                            <Tag
-                              key={tag.id}
-                              onRemove={() =>
-                                setTagsToRemove((items) =>
-                                  items.filter((item) => item.id !== tag.id)
-                                )
-                              }
-                            >
-                              {tag.title}
-                            </Tag>
-                          ))
-                        ) : (
-                          <Text as="p" tone="subdued">
-                            No remove tags selected.
-                          </Text>
-                        )}
-                      </InlineStack>
+                      <InlineTagSearch
+                        label="Tags to remove"
+                        selectedTags={tagsToRemove}
+                        suggestions={removeTagItems}
+                        query={removeTagQuery}
+                        active={removeTagSuggestionsOpen}
+                        loading={isRemoveTagLoading}
+                        error={removeTagError}
+                        onQueryChange={changeRemoveTagQuery}
+                        onFocus={openRemoveTagSuggestions}
+                        onClose={() => setRemoveTagSuggestionsOpen(false)}
+                        onToggleTag={toggleRemoveTag}
+                      />
 
                       <Text as="p" tone="subdued" variant="bodySm">
                         Tags will be removed when the sale is activated and restored
@@ -2362,11 +2544,19 @@ export default function NewSalePage() {
                   <Divider />
 
                   <Checkbox
+                    label="Track changes in condition automatically (every hour)"
+                    helpText="New matching products will be added, non matching products will be excluded"
+                    checked={form.trackConditionChanges}
+                    onChange={setField("trackConditionChanges")}
+                  />
+
+                  <Checkbox
                     label="Automatically re-apply price changes (every hour)"
-                    helpText="Prevents third-party apps from overriding prices for active sale."
+                    helpText="Prevents third-party apps from overriding prices for active sale. Works for sales with up to 10,000 price changes."
                     checked={form.autoReapplyChanges}
                     onChange={setField("autoReapplyChanges")}
                   />
+
                 </BlockStack>
               </SectionCard>
 

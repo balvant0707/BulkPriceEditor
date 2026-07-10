@@ -130,17 +130,10 @@ const MAX_SALE_VARIANTS = 10000;
 const SALE_VARIANT_PAGE_SIZE = 250;
 
 export async function executeSaleRecord(admin, sale) {
-  const targetVariants = await loadSaleTargetVariants(admin, sale);
-  const excludedVariantIds = await loadSaleExcludedVariantIds(admin, sale);
-  const variants = uniqueSaleVariants(targetVariants).filter((variant) => {
-    if (excludedVariantIds.has(variant.id)) return false;
-    if (sale.discountedScope === "products_on_sale" && isSaleVariantDiscounted(variant)) {
-      return false;
-    }
-    return true;
-  });
+  const { targetVariants, variants } = await loadSaleMatchingVariants(admin, sale);
   const variantUpdates = [];
   const originalVariants = [];
+  const logs = [];
 
   for (const variant of variants) {
     const update = buildSaleVariantUpdate(variant, sale);
@@ -153,6 +146,7 @@ export async function executeSaleRecord(admin, sale) {
       price: variant.price,
       compareAtPrice: variant.compareAtPrice,
     });
+    logs.push(buildSaleVariantLog(variant, update.variant));
   }
 
   const variantResults = await applySaleVariantUpdates(admin, variantUpdates);
@@ -162,6 +156,8 @@ export async function executeSaleRecord(admin, sale) {
 
   return {
     ok: errors.length === 0,
+    status: errors.length === 0 ? "Completed" : "Failed",
+    progress: 100,
     analyzedVariants: variants.length,
     variantUpdates: variantUpdates.length,
     updatedVariants: variantResults.updatedCount,
@@ -169,10 +165,85 @@ export async function executeSaleRecord(admin, sale) {
     skippedVariants:
       targetVariants.length - variants.length + variants.length - variantUpdates.length,
     originalVariants,
+    logs,
     errors,
     cappedAt: MAX_SALE_VARIANTS,
     endAt: sale.endAt,
     needsRevert: Boolean(sale.endAt),
+  };
+}
+
+export async function executeSaleConditionChangeRecord(admin, sale) {
+  const existingOriginalVariants = sale.executionSummary?.originalVariants || [];
+  const existingOriginalsById = new Map(
+    existingOriginalVariants
+      .filter((variant) => variant?.id)
+      .map((variant) => [variant.id, variant]),
+  );
+  const { variants } = await loadSaleMatchingVariants(admin, sale, {
+    respectDiscountedScope: false,
+  });
+  const matchingIds = new Set(variants.map((variant) => variant.id).filter(Boolean));
+  const removedOriginalVariants = existingOriginalVariants.filter(
+    (variant) => variant?.id && !matchingIds.has(variant.id),
+  );
+  const addedVariants = variants.filter((variant) => {
+    if (!variant?.id || existingOriginalsById.has(variant.id)) return false;
+    if (isExcludedByDiscountedScope(variant, sale.discountedScope)) {
+      return false;
+    }
+    return true;
+  });
+  const variantUpdates = [];
+  const addedOriginalVariants = [];
+  const logs = [];
+
+  for (const variant of addedVariants) {
+    const update = buildSaleVariantUpdate(variant, sale);
+    if (!update) continue;
+
+    variantUpdates.push(update);
+    addedOriginalVariants.push({
+      id: variant.id,
+      productId: variant.product?.id,
+      price: variant.price,
+      compareAtPrice: variant.compareAtPrice,
+    });
+    logs.push(buildSaleVariantLog(variant, update.variant, "Added"));
+  }
+
+  const addedResults = await applySaleVariantUpdates(admin, variantUpdates);
+  const removedResults = await restoreOriginalSaleVariants(admin, removedOriginalVariants);
+  const addedTagResults = await applySaleTagRules(admin, uniqueProductIds(addedVariants), sale);
+  const removedTagResults = await reverseSaleTagRules(
+    admin,
+    uniqueProductIdsFromOriginals(removedOriginalVariants),
+    sale,
+  );
+  const errors = [
+    ...addedResults.errors,
+    ...removedResults.errors,
+    ...addedTagResults.errors,
+    ...removedTagResults.errors,
+  ];
+  const removedIds = new Set(removedOriginalVariants.map((variant) => variant.id));
+  const nextOriginalVariants = [
+    ...existingOriginalVariants.filter((variant) => !removedIds.has(variant?.id)),
+    ...addedOriginalVariants,
+  ];
+
+  return {
+    ok: errors.length === 0,
+    status: errors.length === 0 ? "Completed" : "Failed",
+    progress: 100,
+    analyzedVariants: variants.length,
+    addedVariants: addedResults.updatedCount,
+    removedVariants: removedResults.restoredCount,
+    taggedProducts: addedTagResults.updatedCount + removedTagResults.updatedCount,
+    originalVariants: nextOriginalVariants,
+    logs,
+    errors,
+    checkedAt: new Date().toISOString(),
   };
 }
 
@@ -225,6 +296,24 @@ export async function endSaleRecord(admin, sale) {
     errors,
     endedAt: new Date().toISOString(),
   };
+}
+
+async function loadSaleMatchingVariants(admin, sale, options = {}) {
+  const respectDiscountedScope = options.respectDiscountedScope !== false;
+  const targetVariants = await loadSaleTargetVariants(admin, sale);
+  const excludedVariantIds = await loadSaleExcludedVariantIds(admin, sale);
+  const variants = uniqueSaleVariants(targetVariants).filter((variant) => {
+    if (excludedVariantIds.has(variant.id)) return false;
+    if (
+      respectDiscountedScope &&
+      isExcludedByDiscountedScope(variant, sale.discountedScope)
+    ) {
+      return false;
+    }
+    return true;
+  });
+
+  return { targetVariants, variants };
 }
 
 async function saleGraphql(admin, query, variables = {}) {
@@ -449,6 +538,43 @@ async function applySaleVariantUpdates(admin, updates) {
   return { errors, updatedCount };
 }
 
+async function restoreOriginalSaleVariants(admin, originalVariants) {
+  const errors = [];
+  let restoredCount = 0;
+  const byProduct = new Map();
+
+  for (const original of originalVariants) {
+    if (!original?.productId || !original?.id) continue;
+
+    if (!byProduct.has(original.productId)) byProduct.set(original.productId, []);
+    byProduct.get(original.productId).push({
+      id: original.id,
+      price: formatSalePrice(original.price),
+      compareAtPrice:
+        original.compareAtPrice == null
+          ? null
+          : formatSalePrice(original.compareAtPrice),
+    });
+  }
+
+  for (const [productId, variants] of byProduct) {
+    const data = await saleGraphql(admin, SALE_PRODUCT_VARIANTS_BULK_UPDATE, {
+      productId,
+      variants,
+    });
+    const result = data.productVariantsBulkUpdate;
+    const userErrors = result?.userErrors || [];
+
+    if (userErrors.length) {
+      errors.push(...userErrors.map((error) => error.message));
+    } else {
+      restoredCount += result?.productVariants?.length || 0;
+    }
+  }
+
+  return { errors, restoredCount };
+}
+
 async function applySaleTagRules(admin, productIds, sale) {
   const tagsToAdd = sale.addTagsEnabled ? getResourceTitles(sale.tagRules?.add) : [];
   const tagsToRemove = sale.removeTagsEnabled ? getResourceTitles(sale.tagRules?.remove) : [];
@@ -498,6 +624,10 @@ function uniqueProductIds(variants) {
   return [...new Set(variants.map((variant) => variant.product?.id).filter(Boolean))];
 }
 
+function uniqueProductIdsFromOriginals(originalVariants) {
+  return [...new Set(originalVariants.map((variant) => variant.productId).filter(Boolean))];
+}
+
 function getResourceIds(items = []) {
   return items.map((item) => item.id).filter(Boolean);
 }
@@ -510,6 +640,48 @@ function isSaleVariantDiscounted(variant) {
   const price = toSaleNumber(variant.price);
   const compareAtPrice = toSaleNumber(variant.compareAtPrice);
   return compareAtPrice != null && price != null && compareAtPrice > price;
+}
+
+function isExcludedByDiscountedScope(variant, discountedScope) {
+  const scope = String(discountedScope || "").toLowerCase();
+  if (!scope || scope === "nothing") return false;
+
+  return (
+    ["products_on_sale", "product_types_on_sale", "variants_on_sale"].includes(scope) &&
+    isSaleVariantDiscounted(variant)
+  );
+}
+
+function buildSaleVariantLog(variant, update, status = "Applied") {
+  const productId = variant.product?.id || "";
+  const changes = [];
+
+  if (update.price !== undefined) {
+    changes.push(`Price: ${formatLogValue(variant.price)} -> ${formatLogValue(update.price)}`);
+  }
+
+  if (update.compareAtPrice !== undefined) {
+    changes.push(
+      `Compare at price: ${formatLogValue(variant.compareAtPrice)} -> ${formatLogValue(
+        update.compareAtPrice,
+      )}`,
+    );
+  }
+
+  return {
+    id: variant.id,
+    variantId: variant.id,
+    productId,
+    productTitle: variant.product?.title || "Product",
+    variantTitle: variant.title || "",
+    changes,
+    status,
+  };
+}
+
+function formatLogValue(value) {
+  if (value === null || value === undefined || value === "") return "blank";
+  return formatSalePrice(value);
 }
 
 function clampSaleCents(value) {

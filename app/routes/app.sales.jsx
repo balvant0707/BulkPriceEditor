@@ -7,6 +7,7 @@ import {
   useLocation,
   useNavigate,
   useNavigation,
+  useRevalidator,
   useSearchParams,
 } from "@remix-run/react";
 import { useEffect, useMemo, useState } from "react";
@@ -25,6 +26,7 @@ import {
   Modal,
   Page,
   Pagination,
+  ProgressBar,
   Tabs,
   Text,
   TextField,
@@ -45,6 +47,7 @@ const SALE_TABS = [
   { id: "completed", content: "Completed" },
   { id: "failed", content: "Failed" },
 ];
+const PROGRESS_STATUSES = ["scheduled", "activating", "ending", "checking_changes"];
 
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
@@ -153,15 +156,52 @@ function isActiveSale(sale) {
 
 function getSaleStatusDisplay(sale) {
   const status = normalizeStatus(sale.status);
+  const progress = getSaleProgress(sale);
 
-  if (status === "active") return { label: "Active", tone: "success" };
+  if (PROGRESS_STATUSES.includes(status)) {
+    return {
+      label: humanize(status),
+      tone: "attention",
+      showProgress: true,
+      progress,
+    };
+  }
+
+  if (status === "active") {
+    return { label: "Active", tone: "success", showProgress: false, progress: 100 };
+  }
   if (status === "scheduled") return { label: "Scheduled", tone: "attention" };
   if (status === "failed") return { label: "Failed", tone: "critical" };
   if (["complete", "completed", "finished", "ended"].includes(status)) {
-    return { label: "Completed", tone: "subdued" };
+    return { label: "Completed", tone: "success", showProgress: false, progress: 100 };
   }
 
-  return { label: status ? humanize(status) : "Draft", tone: "subdued" };
+  return {
+    label: status ? humanize(status) : "Pending",
+    tone: "subdued",
+    showProgress: progress > 0 && progress < 100,
+    progress,
+  };
+}
+
+function getNumberValue(...values) {
+  const found = values.map((value) => Number(value)).find(Number.isFinite);
+  return Number.isFinite(found) ? found : null;
+}
+
+function getSaleProgress(sale) {
+  const progress = getNumberValue(
+    sale.executionSummary?.progress,
+    sale.executionSummary?.percent,
+    sale.executionSummary?.percentage,
+  );
+
+  if (Number.isFinite(progress)) {
+    return Math.max(0, Math.min(100, Math.round(progress)));
+  }
+
+  if (["active", "completed"].includes(normalizeStatus(sale.status))) return 100;
+  return 0;
 }
 
 function humanize(value) {
@@ -231,6 +271,7 @@ export default function SalesPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const navigation = useNavigation();
+  const revalidator = useRevalidator();
   const actionFetcher = useFetcher();
   const [searchParams, setSearchParams] = useSearchParams();
   const [queryValue, setQueryValue] = useState(searchParams.get("q") || "");
@@ -286,6 +327,14 @@ export default function SalesPage() {
     }
   }, [actionFetcher.data]);
 
+  useEffect(() => {
+    const hasProgressSale = sales.some((sale) => getSaleStatusDisplay(sale).showProgress);
+    if (!hasProgressSale) return undefined;
+
+    const interval = setInterval(() => revalidator.revalidate(), 1500);
+    return () => clearInterval(interval);
+  }, [revalidator, sales]);
+
   if (location.pathname !== SALES_URL) {
     return <Outlet />;
   }
@@ -326,7 +375,9 @@ export default function SalesPage() {
         <IndexTable.Cell>
           <BlockStack gap="050">
             <Text as="span" variant="bodyMd" fontWeight="semibold">
-              {sale.title}
+              <Link url={`/app/sales/${sale.id}`} removeUnderline>
+                {sale.title}
+              </Link>
             </Text>
             <Text as="span" variant="bodySm" tone="subdued">
               {getSaleChangeText(sale)}
@@ -335,7 +386,21 @@ export default function SalesPage() {
         </IndexTable.Cell>
         <IndexTable.Cell>{humanize(sale.changeType || "products")}</IndexTable.Cell>
         <IndexTable.Cell>
-          <Badge tone={statusDisplay.tone}>{statusDisplay.label}</Badge>
+          <BlockStack gap="100">
+            <InlineStack gap="200" blockAlign="center">
+              <Badge tone={statusDisplay.tone}>{statusDisplay.label}</Badge>
+              {statusDisplay.showProgress ? (
+                <Text as="span" tone="subdued" variant="bodySm">
+                  {statusDisplay.progress}%
+                </Text>
+              ) : null}
+            </InlineStack>
+            {statusDisplay.showProgress ? (
+              <Box maxWidth="140px">
+                <ProgressBar progress={statusDisplay.progress} size="small" />
+              </Box>
+            ) : null}
+          </BlockStack>
         </IndexTable.Cell>
         <IndexTable.Cell>{formatDate(sale.startAt || sale.createdAt)}</IndexTable.Cell>
         <IndexTable.Cell>{formatDate(sale.endAt)}</IndexTable.Cell>
@@ -347,6 +412,9 @@ export default function SalesPage() {
         <IndexTable.Cell>
           <InlineStack gap="200" wrap={false}>
             <Button size="slim" url={`/app/sales/${sale.id}`}>
+              View
+            </Button>
+            <Button size="slim" url={`/app/sales/new?id=${sale.id}`}>
               Edit
             </Button>
             {isActiveSale(sale) ? (
