@@ -2270,6 +2270,7 @@ export default function NewSalePage() {
                 </FormLayout>
               </SectionCard>
 
+
               <SectionCard title="Advanced">
                 <BlockStack gap="400">
                   <Checkbox
