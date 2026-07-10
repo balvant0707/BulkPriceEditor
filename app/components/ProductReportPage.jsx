@@ -286,7 +286,7 @@ function renderMargin(value) {
 
   const number = Number(value);
   return (
-    <InlineStack align="end">
+    <InlineStack align="start">
       <Badge tone={number < 0 ? "critical" : "success"}>
         {formatPercent(number)}
       </Badge>

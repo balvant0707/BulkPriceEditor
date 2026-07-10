@@ -28,6 +28,7 @@ import {
   Banner,
   Badge,
   Spinner,
+  InlineGrid,
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import db from "../db.server";
@@ -203,11 +204,11 @@ export async function loader({ request, params }) {
   const saleId = getRecordId(params.id || new URL(request.url).searchParams.get("id"));
   const sale = saleId
     ? await db.sale.findFirst({
-        where: {
-          id: saleId,
-          shop: session.shop,
-        },
-      })
+      where: {
+        id: saleId,
+        shop: session.shop,
+      },
+    })
     : null;
 
   if (saleId && !sale) {
@@ -251,8 +252,8 @@ export async function action({ request, params }) {
   const title = String(form.title || "").trim();
   const saleId = getRecordId(
     String(formData.get("id") || "") ||
-      params.id ||
-      new URL(request.url).searchParams.get("id"),
+    params.id ||
+    new URL(request.url).searchParams.get("id"),
   );
 
   if (!title) {
@@ -1391,7 +1392,7 @@ function ConditionPicker({
   if (value === "selected_collections") {
     return (
       <BlockStack gap="300">
-        <InlineStack align="space-between" blockAlign="center">
+        <InlineStack gap="10px" blockAlign="center">
           <Text as="p" fontWeight="semibold">
             Collections
           </Text>
@@ -1409,7 +1410,7 @@ function ConditionPicker({
   if (value === "selected_products") {
     return (
       <BlockStack gap="300">
-        <InlineStack align="space-between" blockAlign="center">
+        <InlineStack gap="10px" blockAlign="center">
           <Text as="p" fontWeight="semibold">
             Products
           </Text>
@@ -1427,7 +1428,7 @@ function ConditionPicker({
   if (value === "selected_products_with_variants") {
     return (
       <BlockStack gap="300">
-        <InlineStack align="space-between" blockAlign="center">
+        <InlineStack gap="10px" blockAlign="center">
           <Text as="p" fontWeight="semibold">
             Product variants
           </Text>
@@ -1445,7 +1446,7 @@ function ConditionPicker({
   if (value === "selected_tags") {
     return (
       <BlockStack gap="300">
-        <InlineStack align="space-between" blockAlign="center">
+        <InlineStack gap="10px" blockAlign="center">
           <Text as="p" fontWeight="semibold">
             Tags
           </Text>
@@ -2018,10 +2019,8 @@ export default function NewSalePage() {
                   <Select
                     label="Action"
                     options={[
-                      { label: "Increase", value: "increase" },
                       { label: "Decrease", value: "decrease" },
                       { label: "Set new price", value: "set_new_value" },
-                      { label: "Set to compare at price", value: "set_to_compare_at_price" },
                     ]}
                     value={form.priceAction}
                     onChange={setField("priceAction")}
@@ -2039,7 +2038,7 @@ export default function NewSalePage() {
                   ) : null}
 
                   {form.priceAction === "increase" ||
-                  form.priceAction === "decrease" ? (
+                    form.priceAction === "decrease" ? (
                     <>
                       <Select
                         label="Change type"
@@ -2103,10 +2102,6 @@ export default function NewSalePage() {
                       {
                         label: "Set to old price (discount)",
                         value: "set_to_price",
-                      },
-                      {
-                        label: "Reset compare at price",
-                        value: "reset_compare_at_price",
                       },
                     ]}
                     value={form.compareAction}
@@ -2216,7 +2211,13 @@ export default function NewSalePage() {
 
               <SectionCard title="Schedule">
                 <FormLayout>
-                  <FormLayout.Group>
+                  <InlineGrid
+                    columns={{
+                      xs: "1fr",
+                      sm: "1fr 1fr",
+                    }}
+                    gap="400"
+                  >
                     <TextField
                       label="Start date"
                       type="date"
@@ -2224,6 +2225,7 @@ export default function NewSalePage() {
                       onChange={setField("startDate")}
                       autoComplete="off"
                     />
+
                     <TextField
                       label="Start time (GMT-4)"
                       type="time"
@@ -2232,7 +2234,7 @@ export default function NewSalePage() {
                       helpText="Your local time will depend on your store timezone."
                       autoComplete="off"
                     />
-                  </FormLayout.Group>
+                  </InlineGrid>
 
                   <Checkbox
                     label="Set end date"
@@ -2240,8 +2242,14 @@ export default function NewSalePage() {
                     onChange={setField("setEndDate")}
                   />
 
-                  {form.setEndDate ? (
-                    <FormLayout.Group>
+                  {form.setEndDate && (
+                    <InlineGrid
+                      columns={{
+                        xs: "1fr",
+                        sm: "1fr 1fr",
+                      }}
+                      gap="400"
+                    >
                       <TextField
                         label="End date"
                         type="date"
@@ -2249,6 +2257,7 @@ export default function NewSalePage() {
                         onChange={setField("endDate")}
                         autoComplete="off"
                       />
+
                       <TextField
                         label="End time (GMT-4)"
                         type="time"
@@ -2256,8 +2265,8 @@ export default function NewSalePage() {
                         onChange={setField("endTime")}
                         autoComplete="off"
                       />
-                    </FormLayout.Group>
-                  ) : null}
+                    </InlineGrid>
+                  )}
                 </FormLayout>
               </SectionCard>
 
