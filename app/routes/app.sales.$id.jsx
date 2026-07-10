@@ -7,8 +7,8 @@ import {
 } from "@remix-run/react";
 import { useEffect, useMemo, useState } from "react";
 import {
-  ActionList,
   Badge,
+  Banner,
   BlockStack,
   Box,
   Button,
@@ -16,9 +16,9 @@ import {
   IndexTable,
   InlineStack,
   Layout,
+  Modal,
   Page,
   Pagination,
-  Popover,
   ProgressBar,
   Text,
   TextField,
@@ -30,9 +30,15 @@ import {
   endSaleRecord,
   executeSaleConditionChangeRecord,
 } from "../lib/sales.server";
+import {
+  canRollbackSale,
+  getSaleProgressValue,
+  getSaleStatusDisplay,
+  normalizeSaleStatus,
+  SALE_STATUS,
+} from "../lib/sale-status";
 
 const LOGS_PER_PAGE = 8;
-const ACTIVE_STATUSES = ["activating", "ending", "checking_changes"];
 const EDIT_SALE_URL = "/app/sales/new";
 
 export const loader = async ({ request, params }) => {
@@ -87,7 +93,7 @@ export const action = async ({ request, params }) => {
   }
 
   if (intent === "check_changes") {
-    if (normalizeStatus(sale.status) !== "active") {
+    if (normalizeSaleStatus(sale.status) !== SALE_STATUS.COMPLETED) {
       return json(
         { ok: false, message: "Only active sales can check changes." },
         { status: 400 },
@@ -112,7 +118,7 @@ export const action = async ({ request, params }) => {
     await db.sale.updateMany({
       where: { id: sale.id, shop: session.shop },
       data: {
-        status: sale.status,
+        status: SALE_STATUS.COMPLETED,
         executionSummary: {
           ...(sale.executionSummary || {}),
           originalVariants: tracked.originalVariants,
@@ -141,16 +147,17 @@ export const action = async ({ request, params }) => {
     return json({ ok: tracked.ok });
   }
 
-  if (intent === "disable_sale") {
-    if (normalizeStatus(sale.status) === "active") {
+  if (intent === "rollback_sale") {
+    if (canRollbackSale(sale)) {
       await db.sale.updateMany({
         where: { id: sale.id, shop: session.shop },
         data: {
-          status: "ending",
+          status: SALE_STATUS.CANCELING,
           executionSummary: {
             ...(sale.executionSummary || {}),
-            status: "Ending",
-            progress: 0,
+            status: "Canceling",
+            progress: 5,
+            rollbackStartedAt: new Date().toISOString(),
           },
         },
       });
@@ -160,11 +167,15 @@ export const action = async ({ request, params }) => {
       await db.sale.updateMany({
         where: { id: sale.id, shop: session.shop },
         data: {
-          status: ended.ok ? "completed" : "failed",
+          status: ended.ok ? SALE_STATUS.CANCELED : SALE_STATUS.FAILED,
           executionSummary: {
             ...(sale.executionSummary || {}),
+            status: ended.ok ? "Canceled" : "Failed",
             progress: 100,
+            rollback: ended,
             ended,
+            errors: ended.errors || [],
+            rollbackCompletedAt: new Date().toISOString(),
           },
           completedAt: new Date(),
         },
@@ -173,22 +184,10 @@ export const action = async ({ request, params }) => {
       return json({ ok: ended.ok });
     }
 
-    await db.sale.updateMany({
-      where: { id: sale.id, shop: session.shop },
-      data: {
-        status: "completed",
-        executionSummary: {
-          ...(sale.executionSummary || {}),
-          ok: true,
-          status: "Disabled",
-          progress: 100,
-          disabledAt: new Date().toISOString(),
-        },
-        completedAt: new Date(),
-      },
-    });
-
-    return json({ ok: true });
+    return json(
+      { ok: false, message: "Only completed sales with rollback data can be rolled back." },
+      { status: 400 },
+    );
   }
 
   if (intent === "duplicate_sale") {
@@ -196,7 +195,7 @@ export const action = async ({ request, params }) => {
       data: {
         shop: session.shop,
         title: `${sale.title} copy`,
-        status: "draft",
+        status: SALE_STATUS.PENDING,
         changeType: sale.changeType,
         applyToFixedPrices: sale.applyToFixedPrices,
         markets: sale.markets,
@@ -223,10 +222,6 @@ export const action = async ({ request, params }) => {
   return json({ ok: false, message: "Invalid action." }, { status: 400 });
 };
 
-function normalizeStatus(status) {
-  return String(status || "").toLowerCase().trim();
-}
-
 function humanize(value) {
   return String(value || "")
     .replace(/[_-]+/g, " ")
@@ -247,48 +242,6 @@ function formatDate(value) {
     hour: "numeric",
     minute: "2-digit",
   });
-}
-
-function getNumberValue(...values) {
-  const found = values.map((value) => Number(value)).find(Number.isFinite);
-  return Number.isFinite(found) ? found : null;
-}
-
-function getSaleProgress(sale) {
-  const progress = getNumberValue(
-    sale.executionSummary?.progress,
-    sale.executionSummary?.percent,
-    sale.executionSummary?.percentage,
-  );
-
-  if (Number.isFinite(progress)) {
-    return Math.max(0, Math.min(100, Math.round(progress)));
-  }
-
-  if (["active", "completed"].includes(normalizeStatus(sale.status))) return 100;
-  return 0;
-}
-
-function getSaleStatusDisplay(sale) {
-  const status = normalizeStatus(sale.status);
-  const progress = getSaleProgress(sale);
-
-  if (ACTIVE_STATUSES.includes(status)) {
-    return { label: humanize(status), tone: "attention", showProgress: true };
-  }
-
-  if (status === "active") return { label: "Active", tone: "success", showProgress: false };
-  if (status === "scheduled") return { label: "Scheduled", tone: "attention", showProgress: true };
-  if (status === "failed") return { label: "Failed", tone: "critical", showProgress: false };
-  if (["complete", "completed", "finished", "ended"].includes(status)) {
-    return { label: "Completed", tone: "success", showProgress: false };
-  }
-
-  return {
-    label: status ? humanize(status) : "Pending",
-    tone: "attention",
-    showProgress: progress < 100,
-  };
 }
 
 function formatChange(change, label, currencyCode) {
@@ -344,7 +297,7 @@ function getTagRuleTitles(sale, key) {
 }
 
 function formatScope(scope, resources = {}) {
-  const normalized = normalizeStatus(scope);
+  const normalized = String(scope || "").toLowerCase().trim();
 
   if (normalized === "whole_store") return "Whole store";
   if (normalized === "nothing") return "Nothing";
@@ -365,7 +318,7 @@ function formatScope(scope, resources = {}) {
 }
 
 function formatDiscountedScope(sale) {
-  const scope = normalizeStatus(sale.discountedScope);
+  const scope = String(sale.discountedScope || "").toLowerCase().trim();
   if (!scope || scope === "nothing") return "Nothing";
   if (scope === "products_on_sale") return "Products on sale";
   if (scope === "product_types_on_sale" || scope === "variants_on_sale") {
@@ -445,10 +398,10 @@ export default function SaleDetailsPage() {
   const navigate = useNavigate();
   const actionFetcher = useFetcher();
   const revalidator = useRevalidator();
-  const [actionsOpen, setActionsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
-  const progress = getSaleProgress(sale);
+  const [rollbackConfirmOpen, setRollbackConfirmOpen] = useState(false);
+  const progress = getSaleProgressValue(sale);
   const statusDisplay = getSaleStatusDisplay(sale);
   const logs = useMemo(() => getSaleLogs(sale), [sale]);
   const filteredLogs = useMemo(() => {
@@ -469,20 +422,41 @@ export default function SaleDetailsPage() {
     safeCurrentPage * LOGS_PER_PAGE,
   );
   const isSubmitting = actionFetcher.state !== "idle";
-  const isActiveSale = normalizeStatus(sale.status) === "active";
-  const isCompletedSale = ["complete", "completed", "finished", "ended"].includes(
-    normalizeStatus(sale.status),
-  );
+  const normalizedStatus = normalizeSaleStatus(sale.status);
+  const isCompletedSale = normalizedStatus === SALE_STATUS.COMPLETED;
+  const isBusySale = [
+    SALE_STATUS.PENDING,
+    SALE_STATUS.APPLYING,
+    SALE_STATUS.CANCELING,
+    SALE_STATUS.CHECKING_CHANGES,
+  ].includes(normalizedStatus);
+  const processFetcher = useFetcher();
   const saleMarkets = getSaleMarkets(sale);
   const tagsToAdd = getTagRuleTitles(sale, "add");
   const tagsToRemove = getTagRuleTitles(sale, "remove");
 
   useEffect(() => {
-    if (!statusDisplay.showProgress) return undefined;
+    if (![SALE_STATUS.PENDING, SALE_STATUS.APPLYING, SALE_STATUS.CANCELING, SALE_STATUS.CHECKING_CHANGES].includes(normalizedStatus)) {
+      return undefined;
+    }
 
     const interval = setInterval(() => revalidator.revalidate(), 1000);
     return () => clearInterval(interval);
-  }, [revalidator, statusDisplay.showProgress]);
+  }, [revalidator, normalizedStatus]);
+
+  useEffect(() => {
+    if (
+      normalizedStatus !== SALE_STATUS.PENDING ||
+      processFetcher.state !== "idle"
+    ) {
+      return;
+    }
+
+    processFetcher.submit(null, {
+      method: "post",
+      action: `/app/sales/process/${sale.id}`,
+    });
+  }, [normalizedStatus, processFetcher, sale.id]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -492,7 +466,6 @@ export default function SaleDetailsPage() {
     const formData = new FormData();
     formData.set("intent", intent);
     actionFetcher.submit(formData, { method: "post" });
-    setActionsOpen(false);
   };
 
   return (
@@ -507,19 +480,20 @@ export default function SaleDetailsPage() {
   }}
   primaryAction={{
     content: "Edit sale",
+    disabled: isBusySale,
     onAction: () => navigate(`${EDIT_SALE_URL}?id=${sale.id}`),
   }}
   secondaryActions={[
     {
       content: "Check changes",
-      disabled: isSubmitting || !isActiveSale,
+      disabled: isSubmitting || !isCompletedSale,
       onAction: () => submitAction("check_changes"),
     },
     {
-      content: "Disable",
+      content: "Rollback",
       destructive: true,
-      disabled: isSubmitting || isCompletedSale,
-      onAction: () => submitAction("disable_sale"),
+      disabled: isSubmitting || !canRollbackSale(sale),
+      onAction: () => setRollbackConfirmOpen(true),
     },
     {
       content: "Duplicate",
@@ -531,6 +505,14 @@ export default function SaleDetailsPage() {
         <Layout>
           <Layout.Section>
             <BlockStack gap="400">
+              {actionFetcher.data?.message && actionFetcher.data?.ok === false ? (
+                <Banner tone="critical">{actionFetcher.data.message}</Banner>
+              ) : null}
+
+              {processFetcher.data?.error ? (
+                <Banner tone="critical">{processFetcher.data.error}</Banner>
+              ) : null}
+
               <Card>
                 <DetailRow label="Changes">
                   <BlockStack gap="300">
@@ -632,6 +614,9 @@ export default function SaleDetailsPage() {
                         </Text>
                       ) : null}
                     </InlineStack>
+                    {statusDisplay.showProgress ? (
+                      <ProgressBar progress={progress} size="small" />
+                    ) : null}
                   </BlockStack>
                 </DetailRow>
 
@@ -753,6 +738,34 @@ export default function SaleDetailsPage() {
           </Layout.Section>
         </Layout>
       </Page>
+
+      <Modal
+        open={rollbackConfirmOpen}
+        onClose={() => setRollbackConfirmOpen(false)}
+        title="Rollback sale?"
+        primaryAction={{
+          content: "Rollback",
+          destructive: true,
+          loading: isSubmitting,
+          onAction: () => {
+            setRollbackConfirmOpen(false);
+            submitAction("rollback_sale");
+          },
+        }}
+        secondaryActions={[
+          {
+            content: "Cancel",
+            onAction: () => setRollbackConfirmOpen(false),
+          },
+        ]}
+      >
+        <Modal.Section>
+          <Text as="p">
+            This restores the original product, market, and tag values saved when
+            the sale was applied.
+          </Text>
+        </Modal.Section>
+      </Modal>
     </>
   );
 }

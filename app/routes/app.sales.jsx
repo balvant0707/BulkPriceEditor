@@ -35,19 +35,25 @@ import { TitleBar } from "@shopify/app-bridge-react";
 import db from "../db.server";
 import { authenticate } from "../shopify.server";
 import { endSaleRecord } from "../lib/sales.server";
+import {
+  canDeleteSale,
+  canRollbackSale,
+  getSaleProgressValue,
+  getSaleStatusDisplay,
+  normalizeSaleStatus,
+  SALE_STATUS,
+} from "../lib/sale-status";
 
 const CREATE_SALE_URL = "/app/sales/new";
 const SALES_URL = "/app/sales";
 const HELP_URL = "https://help.platmart.io/article/29-how-to-use-sales";
 const PAGE_SIZE = 10;
 const SALE_TABS = [
-  { id: "all", content: "All sales" },
+  { id: "all", content: "All" },
   { id: "active", content: "Active" },
   { id: "scheduled", content: "Scheduled" },
   { id: "completed", content: "Completed" },
-  { id: "failed", content: "Failed" },
 ];
-const PROGRESS_STATUSES = ["scheduled", "activating", "ending", "checking_changes"];
 
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
@@ -82,9 +88,9 @@ export const action = async ({ request }) => {
   }
 
   if (intent === "delete_sale") {
-    if (isActiveSale(sale)) {
+    if (!canDeleteSale(sale)) {
       return json(
-        { ok: false, message: "End the active sale before deleting it." },
+        { ok: false, message: "Only canceled or failed sales can be deleted." },
         { status: 400 },
       );
     }
@@ -99,15 +105,13 @@ export const action = async ({ request }) => {
     return json({ ok: true, deleted: true, message: "Sale deleted." });
   }
 
-  if (intent === "end_sale") {
-    if (!isActiveSale(sale)) {
+  if (intent === "cancel_scheduled") {
+    if (normalizeSaleStatus(sale.status) !== SALE_STATUS.SCHEDULED) {
       return json(
-        { ok: false, message: "Only active sales can be ended." },
+        { ok: false, message: "Only scheduled sales can be canceled." },
         { status: 400 },
       );
     }
-
-    const ended = await endSaleRecord(admin, sale);
 
     await db.sale.updateMany({
       where: {
@@ -115,10 +119,60 @@ export const action = async ({ request }) => {
         shop: session.shop,
       },
       data: {
-        status: ended.ok ? "completed" : "failed",
+        status: SALE_STATUS.CANCELED,
         executionSummary: {
           ...(sale.executionSummary || {}),
+          ok: true,
+          status: "Canceled",
+          progress: 100,
+          canceledAt: new Date().toISOString(),
+        },
+        completedAt: new Date(),
+      },
+    });
+
+    return json({ ok: true, canceled: true, message: "Scheduled sale canceled." });
+  }
+
+  if (intent === "rollback_sale") {
+    if (!canRollbackSale(sale)) {
+      return json(
+        { ok: false, message: "Only completed sales with rollback data can be rolled back." },
+        { status: 400 },
+      );
+    }
+
+    await db.sale.updateMany({
+      where: { id: sale.id, shop: session.shop, status: sale.status },
+      data: {
+        status: SALE_STATUS.CANCELING,
+        executionSummary: {
+          ...(sale.executionSummary || {}),
+          status: "Canceling",
+          progress: 5,
+          rollbackStartedAt: new Date().toISOString(),
+        },
+      },
+    });
+
+    const ended = await endSaleRecord(admin, sale);
+
+    await db.sale.updateMany({
+      where: {
+        id: sale.id,
+        shop: session.shop,
+        status: SALE_STATUS.CANCELING,
+      },
+      data: {
+        status: ended.ok ? SALE_STATUS.CANCELED : SALE_STATUS.FAILED,
+        executionSummary: {
+          ...(sale.executionSummary || {}),
+          status: ended.ok ? "Canceled" : "Failed",
+          progress: 100,
+          rollback: ended,
           ended,
+          errors: ended.errors || [],
+          rollbackCompletedAt: new Date().toISOString(),
         },
         completedAt: new Date(),
       },
@@ -126,8 +180,8 @@ export const action = async ({ request }) => {
 
     return json({
       ok: ended.ok,
-      ended: true,
-      message: ended.ok ? "Sale ended." : "Sale end completed with errors.",
+      rollback: true,
+      message: ended.ok ? "Sale canceled." : "Sale rollback completed with errors.",
     });
   }
 
@@ -137,71 +191,22 @@ export const action = async ({ request }) => {
 function saleMatchesTab(sale, activeTab) {
   if (activeTab === "all") return true;
 
-  const status = normalizeStatus(sale.status);
+  const status = normalizeSaleStatus(sale.status);
 
   if (activeTab === "completed") {
-    return ["complete", "completed", "finished", "ended"].includes(status);
+    return [
+      SALE_STATUS.COMPLETED,
+      SALE_STATUS.CANCELING,
+      SALE_STATUS.CANCELED,
+      SALE_STATUS.FAILED,
+    ].includes(status);
+  }
+
+  if (activeTab === "active") {
+    return [SALE_STATUS.PENDING, SALE_STATUS.APPLYING].includes(status);
   }
 
   return status === activeTab;
-}
-
-function normalizeStatus(status) {
-  return String(status || "").toLowerCase().trim();
-}
-
-function isActiveSale(sale) {
-  return normalizeStatus(sale.status) === "active";
-}
-
-function getSaleStatusDisplay(sale) {
-  const status = normalizeStatus(sale.status);
-  const progress = getSaleProgress(sale);
-
-  if (PROGRESS_STATUSES.includes(status)) {
-    return {
-      label: humanize(status),
-      tone: "attention",
-      showProgress: true,
-      progress,
-    };
-  }
-
-  if (status === "active") {
-    return { label: "Active", tone: "success", showProgress: false, progress: 100 };
-  }
-  if (status === "scheduled") return { label: "Scheduled", tone: "attention" };
-  if (status === "failed") return { label: "Failed", tone: "critical" };
-  if (["complete", "completed", "finished", "ended"].includes(status)) {
-    return { label: "Completed", tone: "success", showProgress: false, progress: 100 };
-  }
-
-  return {
-    label: status ? humanize(status) : "Pending",
-    tone: "subdued",
-    showProgress: progress > 0 && progress < 100,
-    progress,
-  };
-}
-
-function getNumberValue(...values) {
-  const found = values.map((value) => Number(value)).find(Number.isFinite);
-  return Number.isFinite(found) ? found : null;
-}
-
-function getSaleProgress(sale) {
-  const progress = getNumberValue(
-    sale.executionSummary?.progress,
-    sale.executionSummary?.percent,
-    sale.executionSummary?.percentage,
-  );
-
-  if (Number.isFinite(progress)) {
-    return Math.max(0, Math.min(100, Math.round(progress)));
-  }
-
-  if (["active", "completed"].includes(normalizeStatus(sale.status))) return 100;
-  return 0;
 }
 
 function humanize(value) {
@@ -216,7 +221,9 @@ function humanize(value) {
 function getSaleChangeText(sale) {
   const price = formatChange(sale.priceChange, "price");
   const compareAt = formatChange(sale.compareAtPriceChange, "compare at price");
-  return [price, compareAt].filter(Boolean).join(", ") || "Sale";
+  const changes = [price, compareAt].filter(Boolean);
+  if (sale.autoReapplyChanges) changes.push("Auto re-apply changes");
+  return changes;
 }
 
 function formatChange(change, label) {
@@ -240,6 +247,10 @@ function formatChange(change, label) {
   return `${actionLabel} ${label}${value ? ` by ${value}` : ""}`;
 }
 
+function getSaleChangesForSearch(sale) {
+  return getSaleChangeText(sale).join(" ");
+}
+
 function formatDate(value) {
   if (!value) return "-";
   const date = new Date(value);
@@ -253,12 +264,60 @@ function formatDate(value) {
   });
 }
 
+function getResourceTitles(items = []) {
+  return items.map((item) => item.title || item.name || item.label).filter(Boolean);
+}
+
+function formatApplyScope(sale) {
+  const scope = String(sale.applyScope || "whole_store").toLowerCase();
+  const resources = sale.applyResources || {};
+
+  if (scope === "whole_store") return "Whole store";
+  if (scope === "selected_products") {
+    return getResourceTitles(resources.products).join(", ") || "Selected products";
+  }
+  if (scope === "selected_products_with_variants") {
+    return getResourceTitles(resources.variants).join(", ") || "Selected product variants";
+  }
+  if (scope === "selected_collections") {
+    return getResourceTitles(resources.collections).join(", ") || "Selected collections";
+  }
+  if (scope === "selected_tags") {
+    return getResourceTitles(resources.tags).join(", ") || "Selected tags";
+  }
+
+  return humanize(scope);
+}
+
+function getMarketNames(sale) {
+  return (Array.isArray(sale.markets) ? sale.markets : [])
+    .map((market) => market.name || market.label)
+    .filter(Boolean);
+}
+
 function saleMatchesSearch(sale, query) {
+  const applyResources = sale.applyResources || {};
+  const excludeResources = sale.excludeResources || {};
+  const resourceText = [
+    ...(applyResources.products || []),
+    ...(applyResources.variants || []),
+    ...(applyResources.collections || []),
+    ...(applyResources.tags || []),
+    ...(excludeResources.products || []),
+    ...(excludeResources.variants || []),
+    ...(excludeResources.collections || []),
+    ...(excludeResources.tags || []),
+    ...(Array.isArray(sale.markets) ? sale.markets : []),
+  ]
+    .map((item) => [item.title, item.name, item.label].filter(Boolean).join(" "))
+    .join(" ");
   const text = [
     sale.title,
     sale.status,
     sale.changeType,
-    getSaleChangeText(sale),
+    getSaleChangesForSearch(sale),
+    formatApplyScope(sale),
+    resourceText,
   ]
     .join(" ")
     .toLowerCase();
@@ -276,7 +335,8 @@ export default function SalesPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [queryValue, setQueryValue] = useState(searchParams.get("q") || "");
   const [deleteSale, setDeleteSale] = useState(null);
-  const [endSale, setEndSale] = useState(null);
+  const [rollbackSale, setRollbackSale] = useState(null);
+  const [cancelSale, setCancelSale] = useState(null);
 
   const isOpeningNewSale =
     navigation.location?.pathname === CREATE_SALE_URL ||
@@ -323,7 +383,8 @@ export default function SalesPage() {
   useEffect(() => {
     if (actionFetcher.data?.ok) {
       setDeleteSale(null);
-      setEndSale(null);
+      setRollbackSale(null);
+      setCancelSale(null);
     }
   }, [actionFetcher.data]);
 
@@ -366,6 +427,8 @@ export default function SalesPage() {
 
   const rowMarkup = paginatedSales.map((sale, index) => {
     const statusDisplay = getSaleStatusDisplay(sale);
+    const progress = getSaleProgressValue(sale);
+    const normalizedStatus = normalizeSaleStatus(sale.status);
     const isSubmitting =
       actionFetcher.state !== "idle" &&
       String(actionFetcher.formData?.get("saleId")) === String(sale.id);
@@ -380,48 +443,73 @@ export default function SalesPage() {
               </Link>
             </Text>
             <Text as="span" variant="bodySm" tone="subdued">
-              {getSaleChangeText(sale)}
+              Created {formatDate(sale.createdAt)}
             </Text>
           </BlockStack>
         </IndexTable.Cell>
-        <IndexTable.Cell>{humanize(sale.changeType || "products")}</IndexTable.Cell>
         <IndexTable.Cell>
-          <BlockStack gap="100">
+          <BlockStack gap="050">
+            {getSaleChangeText(sale).map((change) => (
+              <Text as="span" key={change}>
+                {change}
+              </Text>
+            ))}
+          </BlockStack>
+        </IndexTable.Cell>
+        <IndexTable.Cell>
+          <BlockStack gap="050">
+            <Text as="span">{sale.changeType === "markets" ? "Markets" : "Products"}</Text>
+            {sale.changeType === "markets" ? (
+              <Text as="span" tone="subdued" variant="bodySm">
+                {getMarketNames(sale).join(", ") || "Selected markets"}
+              </Text>
+            ) : null}
+          </BlockStack>
+        </IndexTable.Cell>
+        <IndexTable.Cell>{formatApplyScope(sale)}</IndexTable.Cell>
+        <IndexTable.Cell>
+          <BlockStack gap="050">
+            <Text as="span">From {formatDate(sale.startAt || sale.createdAt)}</Text>
+            {sale.endAt ? <Text as="span">Until {formatDate(sale.endAt)}</Text> : null}
+          </BlockStack>
+        </IndexTable.Cell>
+        <IndexTable.Cell>
+          <BlockStack gap="150">
             <InlineStack gap="200" blockAlign="center">
               <Badge tone={statusDisplay.tone}>{statusDisplay.label}</Badge>
               {statusDisplay.showProgress ? (
                 <Text as="span" tone="subdued" variant="bodySm">
-                  {statusDisplay.progress}%
+                  {progress}%
                 </Text>
               ) : null}
             </InlineStack>
+            {statusDisplay.showProgress ? <ProgressBar progress={progress} size="small" /> : null}
           </BlockStack>
-        </IndexTable.Cell>
-        <IndexTable.Cell>{formatDate(sale.startAt || sale.createdAt)}</IndexTable.Cell>
-        <IndexTable.Cell>{formatDate(sale.endAt)}</IndexTable.Cell>
-        <IndexTable.Cell>
-          <Text as="span" tone="subdued">
-            {sale.executionSummary?.updatedVariants || 0}
-          </Text>
         </IndexTable.Cell>
         <IndexTable.Cell>
           <InlineStack gap="200" wrap={false}>
             <Button size="slim" url={`/app/sales/${sale.id}`}>
-              View
+              Details
             </Button>
-            <Button size="slim" url={`/app/sales/new?id=${sale.id}`}>
-              Edit
-            </Button>
-            {isActiveSale(sale) ? (
+            {normalizedStatus === SALE_STATUS.SCHEDULED ? (
               <Button
                 size="slim"
                 loading={isSubmitting}
-                onClick={() => setEndSale(sale)}
+                onClick={() => setCancelSale(sale)}
               >
-                End
+                Cancel
               </Button>
             ) : null}
-            {!isActiveSale(sale) ? (
+            {canRollbackSale(sale) ? (
+              <Button
+                size="slim"
+                loading={isSubmitting}
+                onClick={() => setRollbackSale(sale)}
+              >
+                Rollback
+              </Button>
+            ) : null}
+            {canDeleteSale(sale) ? (
               <Button
                 size="slim"
                 tone="critical"
@@ -476,12 +564,12 @@ export default function SalesPage() {
                   itemCount={paginatedSales.length}
                   selectable={false}
                   headings={[
-                    { title: "Sale" },
+                    { title: "Title" },
+                    { title: "Changes" },
                     { title: "Type" },
+                    { title: "Apply to" },
+                    { title: "Schedule" },
                     { title: "Status" },
-                    { title: "Start" },
-                    { title: "End" },
-                    { title: "Updated variants" },
                     { title: "Actions" },
                   ]}
                 >
@@ -549,26 +637,48 @@ export default function SalesPage() {
       </Page>
 
       <Modal
-        open={Boolean(endSale)}
-        onClose={() => setEndSale(null)}
-        title="End sale?"
+        open={Boolean(rollbackSale)}
+        onClose={() => setRollbackSale(null)}
+        title="Rollback sale?"
         primaryAction={{
-          content: "End sale",
+          content: "Rollback",
           destructive: true,
           loading: actionFetcher.state !== "idle",
-          onAction: () => submitSaleAction("end_sale", endSale),
+          onAction: () => submitSaleAction("rollback_sale", rollbackSale),
         }}
         secondaryActions={[
           {
             content: "Cancel",
-            onAction: () => setEndSale(null),
+            onAction: () => setRollbackSale(null),
           },
         ]}
       >
         <Modal.Section>
           <Text as="p">
-            This restores the product prices saved when the sale started.
+            This restores the original product, market, and tag values saved when the sale was applied.
           </Text>
+        </Modal.Section>
+      </Modal>
+
+      <Modal
+        open={Boolean(cancelSale)}
+        onClose={() => setCancelSale(null)}
+        title="Cancel scheduled sale?"
+        primaryAction={{
+          content: "Cancel sale",
+          destructive: true,
+          loading: actionFetcher.state !== "idle",
+          onAction: () => submitSaleAction("cancel_scheduled", cancelSale),
+        }}
+        secondaryActions={[
+          {
+            content: "Keep sale",
+            onAction: () => setCancelSale(null),
+          },
+        ]}
+      >
+        <Modal.Section>
+          <Text as="p">This cancels the sale before it is applied.</Text>
         </Modal.Section>
       </Modal>
 

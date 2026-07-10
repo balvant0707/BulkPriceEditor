@@ -6,6 +6,7 @@ import {
   executeSaleConditionChangeRecord,
   executeSaleRecord,
 } from "../lib/sales.server";
+import { SALE_STATUS } from "../lib/sale-status";
 
 const SALES_CRON_BATCH_SIZE = 20;
 const SALE_TRACK_CONDITION_INTERVAL_MS = 60 * 60 * 1000;
@@ -36,7 +37,7 @@ async function runSalesScheduler(request) {
     }),
     db.sale.findMany({
       where: {
-        status: "active",
+        status: { in: [SALE_STATUS.COMPLETED, "active"] },
         shop: { not: "" },
         endAt: { lte: now },
       },
@@ -45,7 +46,7 @@ async function runSalesScheduler(request) {
     }),
     db.sale.findMany({
       where: {
-        status: "active",
+        status: { in: [SALE_STATUS.COMPLETED, "active"] },
         shop: { not: "" },
         trackConditionChanges: true,
         OR: [{ endAt: null }, { endAt: { gt: now } }],
@@ -146,11 +147,11 @@ async function activateSale(sale) {
         status: "scheduled",
       },
       data: {
-        status: "activating",
+        status: SALE_STATUS.APPLYING,
         executionSummary: {
           ...(sale.executionSummary || {}),
-          status: "Activating",
-          progress: 0,
+          status: "Applying",
+          progress: 5,
         },
       },
     });
@@ -162,17 +163,17 @@ async function activateSale(sale) {
       where: {
         id: sale.id,
         shop: sale.shop,
-        status: "activating",
+        status: SALE_STATUS.APPLYING,
       },
       data: {
-        status: executionSummary.ok ? "active" : "failed",
+        status: executionSummary.ok ? SALE_STATUS.COMPLETED : SALE_STATUS.FAILED,
         executionSummary: {
           ...executionSummary,
           progress: 100,
           status: executionSummary.ok ? "Completed" : "Failed",
         },
         startedAt: new Date(),
-        completedAt: executionSummary.ok ? null : new Date(),
+        completedAt: new Date(),
       },
     });
 
@@ -189,7 +190,7 @@ async function activateSale(sale) {
         shop: sale.shop,
       },
       data: {
-        status: "failed",
+        status: SALE_STATUS.FAILED,
         executionSummary: {
           ...(sale.executionSummary || {}),
           ok: false,
@@ -214,14 +215,14 @@ async function endSale(sale) {
       where: {
         id: sale.id,
         shop: sale.shop,
-        status: "active",
+        status: sale.status,
       },
       data: {
-        status: "ending",
+        status: SALE_STATUS.CANCELING,
         executionSummary: {
           ...(sale.executionSummary || {}),
-          status: "Ending",
-          progress: 0,
+          status: "Canceling",
+          progress: 5,
         },
       },
     });
@@ -233,12 +234,13 @@ async function endSale(sale) {
       where: {
         id: sale.id,
         shop: sale.shop,
-        status: "ending",
+        status: SALE_STATUS.CANCELING,
       },
       data: {
-        status: ended.ok ? "completed" : "failed",
+        status: ended.ok ? SALE_STATUS.CANCELED : SALE_STATUS.FAILED,
         executionSummary: {
           ...(sale.executionSummary || {}),
+          status: ended.ok ? "Canceled" : "Failed",
           progress: 100,
           ended,
         },
@@ -259,7 +261,7 @@ async function endSale(sale) {
         shop: sale.shop,
       },
       data: {
-        status: "failed",
+        status: SALE_STATUS.FAILED,
         executionSummary: {
           ...(sale.executionSummary || {}),
           endError: error instanceof Error ? error.message : "Unable to end sale.",
@@ -295,10 +297,10 @@ async function trackSaleCondition(sale) {
       where: {
         id: sale.id,
         shop: sale.shop,
-        status: "active",
+        status: sale.status,
       },
       data: {
-        status: "checking_changes",
+        status: SALE_STATUS.CHECKING_CHANGES,
         executionSummary: {
           ...(sale.executionSummary || {}),
           status: "Checking changes",
@@ -315,10 +317,10 @@ async function trackSaleCondition(sale) {
       where: {
         id: sale.id,
         shop: sale.shop,
-        status: "checking_changes",
+        status: SALE_STATUS.CHECKING_CHANGES,
       },
       data: {
-        status: "active",
+        status: SALE_STATUS.COMPLETED,
         configuration: {
           ...(sale.configuration || {}),
           track_condition_changes_last_run_at: now,
@@ -364,7 +366,7 @@ async function trackSaleCondition(sale) {
         shop: sale.shop,
       },
       data: {
-        status: "active",
+        status: SALE_STATUS.COMPLETED,
         configuration: {
           ...(sale.configuration || {}),
           track_condition_changes_last_run_at: now,
