@@ -3248,7 +3248,7 @@ export default function NewTaskPage() {
               : "Running..."
             : task
               ? "Update"
-              : "Run task",
+              : "Save",
           onAction: submitTaskForm,
           loading: isSubmitting,
           disabled: isSubmitting,
@@ -3502,7 +3502,7 @@ export default function NewTaskPage() {
                     loading={isSubmitting}
                     disabled={isSubmitting}
                   >
-                    {isSubmitting ? "Running..." : task ? "Update" : "Run task"}
+                    {isSubmitting ? "Running..." : task ? "Update" : "Save"}
                   </Button>
                 </InlineStack>
               </BlockStack>

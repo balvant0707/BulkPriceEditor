@@ -35,6 +35,7 @@ const statsValueStyle = {
 const taskStatDefinitions = [
   { id: "all", label: "All tasks", url: "/app/tasks" },
   { id: "completed", label: "Completed", url: "/app/tasks?status=completed" },
+   { id: "archived", label: "Archived", url: "/app/tasks?status=archived" },
   { id: "cancelled", label: "Cancelled", url: "/app/tasks?status=cancelled" },
 ];
 

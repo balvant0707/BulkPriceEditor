@@ -444,14 +444,7 @@ export default function SalesPage() {
 
   return (
     <>
-      <TitleBar title="Sales">
-        <button
-          variant="primary"
-          onClick={() => navigate(CREATE_SALE_URL)}
-          disabled={isOpeningNewSale}
-        >
-          Create sale
-        </button>
+      <TitleBar title="Pryxo Bulk Price Editor">
       </TitleBar>
 
       <Page
@@ -462,6 +455,7 @@ export default function SalesPage() {
           loading: isOpeningNewSale,
           disabled: isOpeningNewSale,
         }}
+        fullWidth
       >
         <Layout>
           <Layout.Section>
