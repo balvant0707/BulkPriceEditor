@@ -2,6 +2,12 @@ import {
   rollbackMarketPrices,
   updateMarketPrices,
 } from "../services/market-pricing.server";
+import {
+  DISCOUNTED_SCOPE,
+  isVariantDiscounted,
+  normalizeDiscountedScope,
+  splitVariantsByDiscountedScope,
+} from "./task-discounted-exclusion";
 
 const SALE_VARIANTS_QUERY = `#graphql
   query SaleProductVariants($first: Int!, $after: String, $query: String) {
@@ -78,6 +84,30 @@ const SALE_NODES_QUERY = `#graphql
               }
             }
           }
+        }
+      }
+    }
+  }
+`;
+
+const SALE_PRODUCT_VARIANTS_FOR_PRODUCT_QUERY = `#graphql
+  query SaleProductVariantsForProduct($id: ID!, $first: Int!, $after: String) {
+    product(id: $id) {
+      variants(first: $first, after: $after) {
+        nodes {
+          id
+          title
+          price
+          compareAtPrice
+          product {
+            id
+            title
+            tags
+          }
+        }
+        pageInfo {
+          hasNextPage
+          endCursor
         }
       }
     }
@@ -218,9 +248,14 @@ export async function executeSaleConditionChangeRecord(admin, sale) {
       .filter((variant) => variant?.id)
       .map((variant) => [variant.id, variant]),
   );
-  const { variants } = await loadSaleMatchingVariants(admin, sale, {
+  const { variants: matchingVariants } = await loadSaleMatchingVariants(admin, sale, {
     respectDiscountedScope: false,
   });
+  const { variants } = await applySaleDiscountedExclusion(
+    admin,
+    matchingVariants,
+    sale.discountedScope,
+  );
 
   if (sale.changeType === "markets") {
     const existingMarketKeys = new Set(
@@ -234,10 +269,7 @@ export async function executeSaleConditionChangeRecord(admin, sale) {
       ownerId: sale.id,
       shop: sale.shop,
       markets: sale.markets,
-      variants: variants.filter((variant) => {
-        if (!variant?.id) return false;
-        return !(sale.discountedScope === "products_on_sale" && isSaleVariantDiscounted(variant));
-      }),
+      variants: variants.filter((variant) => variant?.id),
       priceChange: sale.priceChange,
       compareAtPriceChange: sale.compareAtPriceChange,
       applyToFixedPrices: sale.applyToFixedPrices,
@@ -274,9 +306,6 @@ export async function executeSaleConditionChangeRecord(admin, sale) {
   );
   const addedVariants = variants.filter((variant) => {
     if (!variant?.id || existingOriginalsById.has(variant.id)) return false;
-    if (isExcludedByDiscountedScope(variant, sale.discountedScope)) {
-      return false;
-    }
     return true;
   });
   const variantUpdates = [];
@@ -402,18 +431,15 @@ async function loadSaleMatchingVariants(admin, sale, options = {}) {
   const respectDiscountedScope = options.respectDiscountedScope !== false;
   const targetVariants = await loadSaleTargetVariants(admin, sale);
   const excludedVariantIds = await loadSaleExcludedVariantIds(admin, sale);
-  const variants = uniqueSaleVariants(targetVariants).filter((variant) => {
+  const selectedVariants = uniqueSaleVariants(targetVariants).filter((variant) => {
     if (excludedVariantIds.has(variant.id)) return false;
-    if (
-      respectDiscountedScope &&
-      isExcludedByDiscountedScope(variant, sale.discountedScope)
-    ) {
-      return false;
-    }
     return true;
   });
+  const { variants, skipped } = respectDiscountedScope
+    ? await applySaleDiscountedExclusion(admin, selectedVariants, sale.discountedScope)
+    : { variants: selectedVariants, skipped: [] };
 
-  return { targetVariants, variants };
+  return { targetVariants, variants, skippedDiscountedVariants: skipped };
 }
 
 async function saleGraphql(admin, query, variables = {}) {
@@ -513,7 +539,15 @@ function saleVariantsFromNodes(nodes) {
 }
 
 async function loadSaleVariantsFromProductIds(admin, productIds) {
-  return saleVariantsFromNodes(await loadSaleNodes(admin, productIds));
+  const variants = [];
+  const cleanProductIds = [...new Set((productIds || []).filter(Boolean))];
+
+  for (const productId of cleanProductIds) {
+    variants.push(...(await loadSaleVariantsFromProductId(admin, productId)));
+    if (variants.length >= MAX_SALE_VARIANTS) break;
+  }
+
+  return variants.slice(0, MAX_SALE_VARIANTS);
 }
 
 async function loadSaleVariantsFromVariantIds(admin, variantIds) {
@@ -522,6 +556,24 @@ async function loadSaleVariantsFromVariantIds(admin, variantIds) {
 
 async function loadSaleVariantsFromCollectionIds(admin, collectionIds) {
   return saleVariantsFromNodes(await loadSaleNodes(admin, collectionIds));
+}
+
+async function loadSaleVariantsFromProductId(admin, productId) {
+  const variants = [];
+  let after = null;
+
+  do {
+    const data = await saleGraphql(admin, SALE_PRODUCT_VARIANTS_FOR_PRODUCT_QUERY, {
+      id: productId,
+      first: Math.min(SALE_VARIANT_PAGE_SIZE, MAX_SALE_VARIANTS - variants.length),
+      after,
+    });
+    const connection = data.product?.variants;
+    variants.push(...(connection?.nodes || []));
+    after = connection?.pageInfo?.hasNextPage ? connection.pageInfo.endCursor : null;
+  } while (after && variants.length < MAX_SALE_VARIANTS);
+
+  return variants;
 }
 
 async function loadSaleVariantsFromTags(admin, tagNames) {
@@ -736,20 +788,37 @@ function getResourceTitles(items = []) {
   return items.map((item) => item.title).filter(Boolean);
 }
 
-function isSaleVariantDiscounted(variant) {
-  const price = toSaleNumber(variant.price);
-  const compareAtPrice = toSaleNumber(variant.compareAtPrice);
-  return compareAtPrice != null && price != null && compareAtPrice > price;
+async function applySaleDiscountedExclusion(admin, variants, discountedScope) {
+  const normalizedScope = normalizeDiscountedScope(discountedScope);
+
+  if (normalizedScope === DISCOUNTED_SCOPE.NONE) {
+    return { variants, skipped: [] };
+  }
+
+  const discountedProductIds =
+    normalizedScope === DISCOUNTED_SCOPE.PRODUCTS_ON_SALE
+      ? await loadSaleDiscountedProductIds(admin, variants)
+      : new Set();
+
+  return splitVariantsByDiscountedScope(
+    variants,
+    normalizedScope,
+    discountedProductIds,
+  );
 }
 
-function isExcludedByDiscountedScope(variant, discountedScope) {
-  const scope = String(discountedScope || "").toLowerCase();
-  if (!scope || scope === "nothing") return false;
+async function loadSaleDiscountedProductIds(admin, variants) {
+  const productIds = uniqueProductIds(variants);
+  const discountedProductIds = new Set();
 
-  return (
-    ["products_on_sale", "product_types_on_sale", "variants_on_sale"].includes(scope) &&
-    isSaleVariantDiscounted(variant)
-  );
+  for (const productId of productIds) {
+    const productVariants = await loadSaleVariantsFromProductId(admin, productId);
+    if (productVariants.some(isVariantDiscounted)) {
+      discountedProductIds.add(productId);
+    }
+  }
+
+  return discountedProductIds;
 }
 
 function buildSaleVariantLog(variant, update, status = "Applied") {

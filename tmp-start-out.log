@@ -1,0 +1,9 @@
+
+> start
+> node ./scripts/start-remix-server.js
+
+[shopify-api/INFO] version 13.1.0, environment Remix
+[remix-serve] http://localhost:3226 (http://10.236.216.92:3226)
+GET /api/inngest 200 - - 30.706 ms
+GET /api/inngest?fnId=bulk-price-editor-sales-scheduler&stepId=step 401 - - 1.780 ms
+POST /api/inngest?fnId=bulk-price-editor-sales-scheduler&stepId=step 401 - - 6.495 ms

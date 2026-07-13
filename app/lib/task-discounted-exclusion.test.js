@@ -41,6 +41,10 @@ describe("discounted task exclusions", () => {
       normalizeDiscountedScope("product_variants_on_sale"),
       DISCOUNTED_SCOPE.VARIANTS_ON_SALE,
     );
+    assert.equal(
+      normalizeDiscountedScope("product_types_on_sale"),
+      DISCOUNTED_SCOPE.VARIANTS_ON_SALE,
+    );
   });
 
   it("detects a discounted variant when compare-at price is greater than price", () => {

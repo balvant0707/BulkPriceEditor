@@ -31,6 +31,7 @@ export function normalizeDiscountedScope(value) {
   if (
     normalized === "variants_on_sale" ||
     normalized === "variant_on_sale" ||
+    normalized === "product_types_on_sale" ||
     normalized === "product_variants_on_sale" ||
     normalized === "all_variants_on_sale" ||
     normalized === "all_product_variants_on_sale"
