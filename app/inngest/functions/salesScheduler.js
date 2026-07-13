@@ -1,29 +1,73 @@
-import { json } from "@remix-run/node";
-import db from "../db.server";
-import { unauthenticated } from "../shopify.server";
+import db from "../../db.server";
+import { unauthenticated } from "../../shopify.server";
 import {
   endSaleRecord,
   executeSaleConditionChangeRecord,
   executeSaleRecord,
-} from "../lib/sales.server";
-import { SALE_STATUS } from "../lib/sale-status";
+} from "../../lib/sales.server";
+import { SALE_STATUS } from "../../lib/sale-status";
+import { inngest } from "../client";
 
 const SALES_CRON_BATCH_SIZE = 20;
 const SALE_TRACK_CONDITION_INTERVAL_MS = 60 * 60 * 1000;
 const runningConditionSaleIds = new Set();
 
-export async function loader({ request }) {
-  return runSalesScheduler(request);
-}
+export const salesScheduler = inngest.createFunction(
+  {
+    id: "sales-scheduler",
+    name: "Sales Scheduler",
+    triggers: [{ cron: "* * * * *" }],
+  },
+  async ({ logger }) => {
+    const log = logger || console;
+    const startedAt = Date.now();
 
-export async function action({ request }) {
-  return runSalesScheduler(request);
-}
+    log.info("[inngest:sales-scheduler] Function started");
 
-async function runSalesScheduler(request) {
-  const authResponse = authorizeCronRequest(request);
-  if (authResponse) return authResponse;
+    try {
+      const result = await runSalesScheduler();
+      const errors = result.results.filter((item) => item.ok === false);
 
+      log.info("[inngest:sales-scheduler] Task count", {
+        scheduled: result.scheduledCount,
+        ending: result.endingCount,
+        tracking: result.trackingCount,
+        processed: result.processed,
+      });
+
+      if (errors.length) {
+        log.error("[inngest:sales-scheduler] Errors", { errors });
+      }
+
+      log.info("[inngest:sales-scheduler] Completed", {
+        durationMs: Date.now() - startedAt,
+        errors: errors.length,
+      });
+
+      return {
+        ...result,
+        ok: errors.length === 0,
+        durationMs: Date.now() - startedAt,
+      };
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Sales scheduler failed.";
+
+      log.error("[inngest:sales-scheduler] Failed", {
+        error: message,
+        durationMs: Date.now() - startedAt,
+      });
+
+      return {
+        ok: false,
+        error: message,
+        durationMs: Date.now() - startedAt,
+      };
+    }
+  },
+);
+
+async function runSalesScheduler() {
   const now = new Date();
   const [scheduledSales, endingSales, trackConditionSales] = await Promise.all([
     db.sale.findMany({
@@ -73,11 +117,14 @@ async function runSalesScheduler(request) {
     results.push(await trackSaleCondition(sale));
   }
 
-  return json({
+  return {
     ok: results.every((result) => result.ok),
+    scheduledCount: scheduledSales.length,
+    endingCount: endingSales.length,
+    trackingCount: dueTrackConditionSales.length,
     processed: results.length,
     results,
-  });
+  };
 }
 
 function getObjectValue(value) {
@@ -120,17 +167,6 @@ function shouldTrackSaleCondition(sale) {
   if (Number.isNaN(lastRunAt)) return true;
 
   return Date.now() - lastRunAt >= SALE_TRACK_CONDITION_INTERVAL_MS;
-}
-
-function authorizeCronRequest(request) {
-  const configuredSecret = process.env.CRON_SECRET || "";
-  const authHeader = request.headers.get("authorization") || "";
-
-  if (!configuredSecret || authHeader !== `Bearer ${configuredSecret}`) {
-    return json({ ok: false, error: "Unauthorized" }, { status: 401 });
-  }
-
-  return null;
 }
 
 async function activateSale(sale) {

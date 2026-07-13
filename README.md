@@ -39,71 +39,82 @@ shopify app init --template=https://github.com/Shopify/shopify-app-template-remi
 shopify app dev
 ```
 
-## Vercel Cron Jobs
+## Inngest Scheduled Functions
 
-This app defines Vercel Cron Jobs in `vercel.json`.
+This app uses [Inngest](https://www.inngest.com/) for scheduled background jobs. Vercel Cron Jobs are not used.
 
-The committed schedules are compatible with Vercel Hobby deployments:
-
-- `/cron/auto-reapply` runs once per day at `00:00` UTC.
-- `/cron/sales` runs once per day at `00:05` UTC.
-
-Vercel Hobby projects cannot deploy cron jobs that run more than once per day. If the project is on Vercel Pro or Enterprise, these are the intended production schedules:
-
-```json
-{
-  "crons": [
-    {
-      "path": "/cron/auto-reapply",
-      "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/cron/sales",
-      "schedule": "* * * * *"
-    }
-  ]
-}
-```
-
-Both endpoints require Vercel's cron authorization header:
+The Inngest serve endpoint is:
 
 ```text
-Authorization: Bearer <CRON_SECRET>
+/api/inngest
+```
+
+Registered schedules:
+
+- `auto-reapply` runs every 5 minutes with `*/5 * * * *`.
+- `sales-scheduler` runs every minute with `* * * * *`.
+
+The Inngest package is installed with:
+
+```shell
+npm install inngest
 ```
 
 ### Required Vercel environment variables
 
-Add this environment variable in the Vercel project settings for Production:
+Add these environment variables in the Vercel project settings for Production:
 
 ```text
-CRON_SECRET=<random string of at least 16 characters>
+INNGEST_EVENT_KEY=<from Inngest app settings>
+INNGEST_SIGNING_KEY=<from Inngest app settings>
 ```
 
-Vercel automatically sends `CRON_SECRET` as the `Authorization` bearer token when it invokes configured cron paths. Do not add `?secret=` to the cron paths in `vercel.json`.
+Keep the existing Shopify and database environment variables configured as before. No separate cron secret is required for these scheduled jobs.
 
-### Deploy
+### Local development
 
-1. Commit `vercel.json` and the cron handler changes.
+Run the Shopify app locally:
+
+```shell
+npm run dev
+```
+
+In a second terminal, start the Inngest dev server and point it to the local serve endpoint:
+
+```shell
+npx inngest-cli@latest dev -u http://localhost:3000/api/inngest
+```
+
+Open the Inngest dev server UI printed by the CLI to inspect, invoke, and replay local function runs.
+
+### Connect to app.inngest.com
+
+1. Create or open the Inngest app at `https://app.inngest.com/`.
+2. Copy the app's `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY`.
+3. Add both values to the Vercel project environment variables.
+4. Deploy the app so Inngest can reach `https://your-app-domain.com/api/inngest`.
+
+### Deploy on Vercel
+
+1. Commit the Inngest files, package changes, and route removal.
 2. Push to the branch connected to the Vercel production deployment, or run:
 
 ```shell
 vercel --prod
 ```
 
-3. Confirm the deployment succeeds. Vercel creates or updates cron jobs from the `crons` array during deployment.
-
-### Verify cron execution
-
-1. In Vercel, open the project.
-2. Go to Settings -> Cron Jobs and confirm both jobs are listed.
-3. Use View Logs for each job, or filter runtime logs by request path:
+3. In Inngest Cloud, sync the app using the production endpoint:
 
 ```text
-requestPath:/cron/auto-reapply
-requestPath:/cron/sales
+https://your-app-domain.com/api/inngest
 ```
 
-Expected successful responses are JSON objects with `ok`, `processed`, and `results` fields. A `401 Unauthorized` response means `CRON_SECRET` is missing or does not match the `Authorization` header.
+### Verify scheduled execution
+
+1. In Inngest Cloud, confirm `Auto Reapply Tasks` and `Sales Scheduler` are listed.
+2. Open each function and check the run history after the next scheduled minute.
+3. Check Vercel function logs for `/api/inngest`.
+4. Successful runs return summary objects with `ok`, counts, `durationMs`, and `results`.
 
 
 
@@ -194,25 +205,9 @@ When you're ready to set up your app in production, you can follow [our deployme
 
 When you reach the step for [setting up environment variables](https://shopify.dev/docs/apps/deployment/web#set-env-vars), you also need to set the variable `NODE_ENV=production`.
 
-### Auto Re-Apply Cron
+### Scheduled background jobs
 
-Set a cron secret in your environment:
-
-```shell
-CRON_SECRET=change-this-secret
-```
-
-Configure your server cron to call the endpoint once per hour:
-
-```text
-https://your-app-domain.com/cron/auto-reapply?secret=YOUR_SECRET
-```
-
-Use the same secret for scheduled sale activation and ending:
-
-```text
-https://your-app-domain.com/cron/sales?secret=YOUR_SECRET
-```
+Auto re-apply and sale activation/expiration are scheduled through Inngest at `/api/inngest`. Do not configure Vercel Cron Jobs for `/cron/auto-reapply` or `/cron/sales`; those routes have been removed.
 
 ### Hosting on Vercel
 
