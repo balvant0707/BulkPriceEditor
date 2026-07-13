@@ -296,8 +296,12 @@ function getSaleChanges(sale, currencyCode) {
   ].filter(Boolean);
 }
 
+function getResourceTitle(item) {
+  return item?.title || item?.name || item?.label || "";
+}
+
 function getResourceTitles(items = []) {
-  return items.map((item) => item.title).filter(Boolean);
+  return items.map(getResourceTitle).filter(Boolean);
 }
 
 function getMarketLabel(market) {
@@ -318,25 +322,27 @@ function getTagRuleTitles(sale, key) {
   return getResourceTitles(sale.tagRules?.[key] || []);
 }
 
-function formatScope(scope, resources = {}) {
+function formatScope(scope) {
   const normalized = String(scope || "").toLowerCase().trim();
 
   if (normalized === "whole_store") return "Whole store";
   if (normalized === "nothing") return "Nothing";
-  if (normalized === "selected_collections") {
-    return getResourceTitles(resources.collections).join(", ") || "Selected collections";
-  }
-  if (normalized === "selected_products") {
-    return getResourceTitles(resources.products).join(", ") || "Selected products";
-  }
-  if (normalized === "selected_products_with_variants") {
-    return getResourceTitles(resources.variants).join(", ") || "Selected product variants";
-  }
-  if (normalized === "selected_tags") {
-    return getResourceTitles(resources.tags).join(", ") || "Selected tags";
-  }
+  if (normalized === "selected_collections") return "Selected collections";
+  if (normalized === "selected_products") return "Selected products";
+  if (normalized === "selected_products_with_variants") return "Selected products with variants";
+  if (normalized === "selected_tags") return "Selected tags";
 
   return humanize(scope);
+}
+
+function getScopeItems(scope, resources = {}) {
+  const normalized = String(scope || "").toLowerCase().trim();
+
+  if (normalized === "selected_collections") return resources.collections || [];
+  if (normalized === "selected_products") return resources.products || [];
+  if (normalized === "selected_products_with_variants") return resources.variants || [];
+  if (normalized === "selected_tags") return resources.tags || [];
+  return [];
 }
 
 function formatDiscountedScope(sale) {
@@ -465,6 +471,12 @@ function getAdminProductUrl(shop, productId) {
   return `https://${shop}/admin/products/${numericId}`;
 }
 
+function getAdminCollectionUrl(shop, collectionId) {
+  const numericId = getShopifyNumericId(collectionId);
+  if (!numericId) return "";
+  return `https://${shop}/admin/collections/${numericId}`;
+}
+
 function getAdminVariantUrl(shop, productId, variantId) {
   const productNumericId = getShopifyNumericId(productId);
   const variantNumericId = getShopifyNumericId(variantId);
@@ -495,6 +507,91 @@ function getLogResourceTitle(log, useVariantLogLinks) {
   }
 
   return log.productTitle || "Product";
+}
+
+function getScopeResourceUrl(shop, scope, item) {
+  const normalized = String(scope || "").toLowerCase().trim();
+
+  if (normalized === "selected_collections") return getAdminCollectionUrl(shop, item.id);
+  if (normalized === "selected_products") return getAdminProductUrl(shop, item.id);
+  if (normalized === "selected_products_with_variants") {
+    return (
+      getAdminVariantUrl(shop, item.productId, item.id) ||
+      getAdminProductUrl(shop, item.productId)
+    );
+  }
+
+  return "";
+}
+
+function ResourceThumb({ item }) {
+  const title = getResourceTitle(item);
+  const first = title.charAt(0).toUpperCase() || "?";
+
+  return (
+    <span
+      style={{
+        alignItems: "center",
+        background: "#F6F6F7",
+        border: "1px solid #E1E3E5",
+        borderRadius: 8,
+        color: "#6D7175",
+        display: "inline-flex",
+        flexShrink: 0,
+        fontSize: 12,
+        fontWeight: 600,
+        height: 40,
+        justifyContent: "center",
+        overflow: "hidden",
+        width: 40,
+      }}
+    >
+      {item?.imageUrl ? (
+        <img
+          src={item.imageUrl}
+          alt={item.imageAlt || title}
+          style={{ display: "block", height: "100%", objectFit: "cover", width: "100%" }}
+        />
+      ) : (
+        first
+      )}
+    </span>
+  );
+}
+
+function ScopeResourceList({ sale, scope, resources }) {
+  const items = getScopeItems(scope, resources);
+
+  if (!items.length) return null;
+
+  return (
+    <BlockStack gap="250">
+      {items.map((item) => {
+        const title = getResourceTitle(item) || "Resource";
+        const url = getScopeResourceUrl(sale.shop, scope, item);
+
+        return (
+          <InlineStack key={item.id || title} gap="300" blockAlign="center" wrap={false}>
+            <ResourceThumb item={item} />
+            <BlockStack gap="050">
+              {url ? (
+                <a href={url} target="_blank" rel="noopener noreferrer">
+                  {title}
+                </a>
+              ) : (
+                <Text as="span">{title}</Text>
+              )}
+              {item.productTitle ? (
+                <Text as="span" tone="subdued" variant="bodySm">
+                  {item.productTitle}
+                </Text>
+              ) : null}
+            </BlockStack>
+          </InlineStack>
+        );
+      })}
+    </BlockStack>
+  );
 }
 
 function DetailRow({ label, value, children }) {
@@ -733,8 +830,13 @@ function SaleDetailsContent() {
                 <DetailRow label="Apply to">
                   <BlockStack gap="300">
                     <Text as="p" fontWeight="semibold">
-                      {formatScope(sale.applyScope, sale.applyResources || {})}
+                      {formatScope(sale.applyScope)}
                     </Text>
+                    <ScopeResourceList
+                      sale={sale}
+                      scope={sale.applyScope}
+                      resources={sale.applyResources || {}}
+                    />
                     {sale.trackConditionChanges ? (
                       <InlineStack gap="150" blockAlign="center" wrap={false}>
                         <TrackingIcon />
@@ -746,10 +848,18 @@ function SaleDetailsContent() {
                   </BlockStack>
                 </DetailRow>
 
-                <DetailRow
-                  label="Exclude"
-                  value={formatScope(sale.excludeScope, sale.excludeResources || {})}
-                />
+                <DetailRow label="Exclude">
+                  <BlockStack gap="300">
+                    <Text as="p" fontWeight="semibold">
+                      {formatScope(sale.excludeScope)}
+                    </Text>
+                    <ScopeResourceList
+                      sale={sale}
+                      scope={sale.excludeScope}
+                      resources={sale.excludeResources || {}}
+                    />
+                  </BlockStack>
+                </DetailRow>
 
                 {showExcludeDiscounted ? (
                   <DetailRow label="Exclude discounted" value={formatDiscountedScope(sale)} />

@@ -314,29 +314,37 @@ function getResourceTitles(items = []) {
   return items.map((item) => item.title || item.name || item.label).filter(Boolean);
 }
 
-function formatApplyScope(sale) {
-  const scope = String(sale.applyScope || "whole_store").toLowerCase();
-  const resources = sale.applyResources || {};
+function formatScopeSummary(scope, resources = {}) {
+  const normalized = String(scope || "").toLowerCase();
 
-  if (scope === "whole_store") return "Whole store";
-  if (scope === "selected_products") {
+  if (normalized === "whole_store") return "Whole store";
+  if (normalized === "nothing") return "Nothing";
+  if (normalized === "selected_products") {
     const titles = getResourceTitles(resources.products).join(", ");
     return titles ? `Selected products: ${titles}` : "Selected products";
   }
-  if (scope === "selected_products_with_variants") {
+  if (normalized === "selected_products_with_variants") {
     const titles = getResourceTitles(resources.variants).join(", ");
     return titles ? `Selected product variants: ${titles}` : "Selected product variants";
   }
-  if (scope === "selected_collections") {
+  if (normalized === "selected_collections") {
     const titles = getResourceTitles(resources.collections).join(", ");
     return titles ? `Selected collections: ${titles}` : "Selected collections";
   }
-  if (scope === "selected_tags") {
+  if (normalized === "selected_tags") {
     const titles = getResourceTitles(resources.tags).join(", ");
     return titles ? `Selected tags: ${titles}` : "Selected tags";
   }
 
-  return humanize(scope);
+  return humanize(normalized);
+}
+
+function formatApplyScope(sale) {
+  return formatScopeSummary(sale.applyScope || "whole_store", sale.applyResources || {});
+}
+
+function formatExcludeScope(sale) {
+  return formatScopeSummary(sale.excludeScope || "nothing", sale.excludeResources || {});
 }
 
 function CompactSpinner({ label }) {
@@ -375,6 +383,7 @@ function saleMatchesSearch(sale, query) {
     sale.changeType,
     getSaleChangesForSearch(sale),
     formatApplyScope(sale),
+    formatExcludeScope(sale),
     resourceText,
   ]
     .join(" ")
@@ -595,6 +604,11 @@ export default function SalesPage() {
           </Text>
         </IndexTable.Cell>
         <IndexTable.Cell>
+          <Text as="span" fontWeight="semibold">
+            {formatExcludeScope(sale)}
+          </Text>
+        </IndexTable.Cell>
+        <IndexTable.Cell>
           <BlockStack gap="050">
             <Text as="span">From {formatDate(sale.startAt || sale.createdAt)}</Text>
             {sale.endAt ? <Text as="span">Until {formatDate(sale.endAt)}</Text> : null}
@@ -700,6 +714,7 @@ export default function SalesPage() {
                     { title: "Changes" },
                     { title: "Type" },
                     { title: "Apply to" },
+                    { title: "Exclude" },
                     { title: "Schedule" },
                     { title: "Status" },
                     { title: "Actions" },
