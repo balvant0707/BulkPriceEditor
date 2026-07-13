@@ -44,6 +44,12 @@ import NewSalePage, {
 const LOGS_PER_PAGE = 8;
 const EDIT_SALE_URL = "/app/sales/new";
 
+const confirmationModalContentStyle = {
+  fontSize: 16,
+  fontWeight: 600,
+  lineHeight: 1.45,
+};
+
 function isNewSaleRoute(params) {
   return String(params.id || "").toLowerCase() === "new";
 }
@@ -886,10 +892,10 @@ function SaleDetailsContent() {
       <Modal
         open={rollbackConfirmOpen}
         onClose={() => setRollbackConfirmOpen(false)}
-        title="Rollback sale?"
+        title="Disable sale?"
+        size="small"
         primaryAction={{
           content: "Disable",
-          destructive: true,
           loading: isSubmitting,
           onAction: () => {
             setOptimisticRollbackStartedAt(new Date().toISOString());
@@ -899,16 +905,16 @@ function SaleDetailsContent() {
         }}
         secondaryActions={[
           {
-            content: "Cancel",
+            content: "Close",
             onAction: () => setRollbackConfirmOpen(false),
           },
         ]}
       >
         <Modal.Section>
-          <Text as="p">
-            This restores the original product, market, and tag values saved when
-            the sale was applied.
-          </Text>
+          <p style={confirmationModalContentStyle}>
+            The sale will be stopped and prices return to old values. Do you want
+            to continue?
+          </p>
         </Modal.Section>
       </Modal>
     </>

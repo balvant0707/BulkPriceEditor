@@ -10,7 +10,7 @@ import {
   useRevalidator,
   useSearchParams,
 } from "@remix-run/react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Badge,
   BlockStack,
@@ -54,6 +54,12 @@ const SALE_TABS = [
   { id: "scheduled", content: "Scheduled" },
   { id: "completed", content: "Completed" },
 ];
+
+const confirmationModalContentStyle = {
+  fontSize: 16,
+  fontWeight: 600,
+  lineHeight: 1.45,
+};
 
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
@@ -203,7 +209,11 @@ function saleMatchesTab(sale, activeTab) {
   }
 
   if (activeTab === "active") {
-    return [SALE_STATUS.PENDING, SALE_STATUS.APPLYING].includes(status);
+    return [
+      SALE_STATUS.PENDING,
+      SALE_STATUS.APPLYING,
+      SALE_STATUS.COMPLETED,
+    ].includes(status);
   }
 
   return status === activeTab;
@@ -374,6 +384,7 @@ export default function SalesPage() {
   const [rollbackSale, setRollbackSale] = useState(null);
   const [cancelSale, setCancelSale] = useState(null);
   const [optimisticAction, setOptimisticAction] = useState(null);
+  const previousActionFetcherState = useRef(actionFetcher.state);
 
   const isOpeningNewSale =
     navigation.location?.pathname === CREATE_SALE_URL ||
@@ -424,14 +435,20 @@ export default function SalesPage() {
   }, [queryValue, searchParams, setSearchParams]);
 
   useEffect(() => {
-    if (actionFetcher.data?.ok) {
+    const completedSubmit =
+      previousActionFetcherState.current !== "idle" &&
+      actionFetcher.state === "idle";
+
+    previousActionFetcherState.current = actionFetcher.state;
+
+    if (completedSubmit && actionFetcher.data?.ok) {
       setDeleteSale(null);
       setRollbackSale(null);
       setCancelSale(null);
       setOptimisticAction(null);
       revalidator.revalidate();
     }
-  }, [actionFetcher.data, revalidator]);
+  }, [actionFetcher.data, actionFetcher.state, revalidator]);
 
   useEffect(() => {
     const hasProgressSale = sales.some(
@@ -481,6 +498,8 @@ export default function SalesPage() {
   };
 
   const submitSaleAction = (intent, sale) => {
+    if (!sale) return;
+
     const formData = new FormData();
     formData.set("intent", intent);
     formData.set("saleId", String(sale.id));
@@ -740,24 +759,25 @@ export default function SalesPage() {
       <Modal
         open={Boolean(rollbackSale)}
         onClose={() => setRollbackSale(null)}
-        title="Rollback sale?"
+        title="Disable sale?"
+        size="small"
         primaryAction={{
-          content: "Rollback",
-          destructive: true,
+          content: "Disable",
           loading: actionFetcher.state !== "idle",
           onAction: () => submitSaleAction("rollback_sale", rollbackSale),
         }}
         secondaryActions={[
           {
-            content: "Cancel",
+            content: "Close",
             onAction: () => setRollbackSale(null),
           },
         ]}
       >
         <Modal.Section>
-          <Text as="p">
-            This restores the original product, market, and tag values saved when the sale was applied.
-          </Text>
+          <p style={confirmationModalContentStyle}>
+            The sale will be stopped and prices return to old values. Do you want
+            to continue?
+          </p>
         </Modal.Section>
       </Modal>
 
@@ -787,6 +807,7 @@ export default function SalesPage() {
         open={Boolean(deleteSale)}
         onClose={() => setDeleteSale(null)}
         title="Delete sale?"
+        size="small"
         primaryAction={{
           content: "Delete",
           destructive: true,
@@ -795,13 +816,16 @@ export default function SalesPage() {
         }}
         secondaryActions={[
           {
-            content: "Cancel",
+            content: "Close",
             onAction: () => setDeleteSale(null),
           },
         ]}
       >
         <Modal.Section>
-          <Text as="p">This deletes the saved sale record.</Text>
+          <p style={confirmationModalContentStyle}>
+            The sale will be deleted and you won't be able to recover it. Do you
+            want to continue?
+          </p>
         </Modal.Section>
       </Modal>
     </>

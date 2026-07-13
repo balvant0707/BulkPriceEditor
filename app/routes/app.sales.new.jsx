@@ -2,6 +2,7 @@
 import { json, redirect } from "@remix-run/node";
 import {
   useFetcher,
+  useActionData,
   useLoaderData,
   useNavigation,
   useSubmit,
@@ -141,6 +142,33 @@ export async function action({ request, params }) {
 
   if (!title) {
     return json({ error: "Sale title is required." }, { status: 400 });
+  }
+
+  const activeSaleWithSameTitle = await db.sale.findFirst({
+    where: {
+      shop: session.shop,
+      title,
+      id: saleId ? { not: saleId } : undefined,
+      status: {
+        in: [
+          SALE_STATUS.COMPLETED,
+          "active",
+          "Active",
+          "complete",
+          "Complete",
+          "completed",
+          "Completed",
+        ],
+      },
+    },
+    select: { id: true },
+  });
+
+  if (activeSaleWithSameTitle) {
+    return json(
+      { error: "A sale with this name is already active." },
+      { status: 400 },
+    );
   }
 
   const data = buildSaleData(session.shop, title, payload);
@@ -1196,6 +1224,7 @@ export default function NewSalePage() {
   const resourceFetcher = useFetcher();
   const removeTagFetcher = useFetcher();
   const submit = useSubmit();
+  const actionData = useActionData();
   const navigation = useNavigation();
   const isSubmitting = navigation.state !== "idle";
   const today = new Date().toISOString().slice(0, 10);
@@ -1596,6 +1625,10 @@ export default function NewSalePage() {
         <Layout>
           <Layout.Section>
             <BlockStack gap="400">
+              {actionData?.error ? (
+                <Banner tone="critical">{actionData.error}</Banner>
+              ) : null}
+
               <Card>
                 <TextField
                   label="Title"
