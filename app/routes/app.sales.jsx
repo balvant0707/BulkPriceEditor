@@ -38,6 +38,7 @@ import { endSaleRecord } from "../lib/sales.server";
 import { withShopifyEmbeddedParams } from "../lib/shopify-embedded-url";
 import {
   canDeleteSale,
+  canProcessSale,
   canRollbackSale,
   getSaleStatusDisplay,
   normalizeSaleStatus,
@@ -454,7 +455,8 @@ export default function SalesPage() {
     const hasProgressSale = sales.some(
       (sale) =>
         getSaleStatusDisplay(sale).showProgress ||
-        normalizeSaleStatus(sale.status) === SALE_STATUS.PENDING,
+        normalizeSaleStatus(sale.status) === SALE_STATUS.SCHEDULED ||
+        canProcessSale(sale),
     );
     if (!hasProgressSale) return undefined;
 
@@ -463,9 +465,7 @@ export default function SalesPage() {
   }, [revalidator, sales]);
 
   useEffect(() => {
-    const pendingSale = sales.find(
-      (sale) => normalizeSaleStatus(sale.status) === SALE_STATUS.PENDING,
-    );
+    const pendingSale = sales.find((sale) => canProcessSale(sale));
 
     if (!pendingSale || processFetcher.state !== "idle") return;
 

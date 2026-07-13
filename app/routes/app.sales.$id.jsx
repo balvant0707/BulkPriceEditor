@@ -31,6 +31,7 @@ import {
   executeSaleConditionChangeRecord,
 } from "../lib/sales.server";
 import {
+  canProcessSale,
   canRollbackSale,
   getSaleStatusDisplay,
   normalizeSaleStatus,
@@ -588,7 +589,15 @@ function SaleDetailsContent() {
     String(sale.discountedScope || "").toLowerCase().trim() !== "nothing";
 
   useEffect(() => {
-    if (![SALE_STATUS.PENDING, SALE_STATUS.APPLYING, SALE_STATUS.CANCELING, SALE_STATUS.CHECKING_CHANGES].includes(normalizedStatus)) {
+    if (
+      ![
+        SALE_STATUS.PENDING,
+        SALE_STATUS.APPLYING,
+        SALE_STATUS.SCHEDULED,
+        SALE_STATUS.CANCELING,
+        SALE_STATUS.CHECKING_CHANGES,
+      ].includes(normalizedStatus)
+    ) {
       return undefined;
     }
 
@@ -598,7 +607,7 @@ function SaleDetailsContent() {
 
   useEffect(() => {
     if (
-      normalizedStatus !== SALE_STATUS.PENDING ||
+      !canProcessSale(sale) ||
       processFetcher.state !== "idle"
     ) {
       return;
@@ -608,7 +617,7 @@ function SaleDetailsContent() {
       method: "post",
       action: `/app/sales/process/${sale.id}`,
     });
-  }, [normalizedStatus, processFetcher, sale.id]);
+  }, [processFetcher, sale]);
 
   useEffect(() => {
     setCurrentPage(1);

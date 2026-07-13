@@ -109,7 +109,20 @@ export function createSaleExecutionSummary(status, extra = {}) {
 }
 
 export function canProcessSale(sale) {
-  return normalizeSaleStatus(sale?.status) === SALE_STATUS.PENDING;
+  const status = normalizeSaleStatus(sale?.status);
+  return (
+    status === SALE_STATUS.PENDING ||
+    (status === SALE_STATUS.SCHEDULED && isSaleStartDue(sale))
+  );
+}
+
+export function isSaleStartDue(sale, now = new Date()) {
+  if (!sale?.startAt) return true;
+
+  const startAt = new Date(sale.startAt);
+  if (Number.isNaN(startAt.getTime())) return true;
+
+  return startAt <= now;
 }
 
 export function canRollbackSale(sale) {

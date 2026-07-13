@@ -4,6 +4,7 @@ import { authenticate } from "../shopify.server";
 import { executeSaleRecord } from "../lib/sales.server";
 import {
   createSaleExecutionSummary,
+  canProcessSale,
   normalizeSaleStatus,
   SALE_STATUS,
 } from "../lib/sale-status";
@@ -32,7 +33,7 @@ async function processSale(request, params) {
     return json({ ok: true, skipped: true, status });
   }
 
-  if (status !== SALE_STATUS.PENDING) {
+  if (!canProcessSale(sale)) {
     return json({
       ok: true,
       skipped: true,
