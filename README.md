@@ -39,6 +39,53 @@ shopify app init --template=https://github.com/Shopify/shopify-app-template-remi
 shopify app dev
 ```
 
+## Vercel Cron Jobs
+
+This app defines Vercel Cron Jobs in `vercel.json`:
+
+- `/cron/auto-reapply` runs every 5 minutes.
+- `/cron/sales` runs every 1 minute.
+
+Both endpoints require Vercel's cron authorization header:
+
+```text
+Authorization: Bearer <CRON_SECRET>
+```
+
+### Required Vercel environment variables
+
+Add this environment variable in the Vercel project settings for Production:
+
+```text
+CRON_SECRET=<random string of at least 16 characters>
+```
+
+Vercel automatically sends `CRON_SECRET` as the `Authorization` bearer token when it invokes configured cron paths. Do not add `?secret=` to the cron paths in `vercel.json`.
+
+### Deploy
+
+1. Commit `vercel.json` and the cron handler changes.
+2. Push to the branch connected to the Vercel production deployment, or run:
+
+```shell
+vercel --prod
+```
+
+3. Confirm the deployment succeeds. Vercel creates or updates cron jobs from the `crons` array during deployment.
+
+### Verify cron execution
+
+1. In Vercel, open the project.
+2. Go to Settings -> Cron Jobs and confirm both jobs are listed.
+3. Use View Logs for each job, or filter runtime logs by request path:
+
+```text
+requestPath:/cron/auto-reapply
+requestPath:/cron/sales
+```
+
+Expected successful responses are JSON objects with `ok`, `processed`, and `results` fields. A `401 Unauthorized` response means `CRON_SECRET` is missing or does not match the `Authorization` header.
+
 
 
 Local development is powered by [the Shopify CLI](https://shopify.dev/docs/apps/tools/cli). It logs into your partners account, connects to an app, provides environment variables, updates remote config, creates a tunnel and provides commands to generate extensions.

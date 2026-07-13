@@ -55,17 +55,10 @@ async function runAutoReapplyScheduler(request) {
 }
 
 function authorizeCronRequest(request) {
-  const configuredSecret =
-    process.env.AUTO_REAPPLY_CRON_SECRET || process.env.CRON_SECRET || "";
+  const configuredSecret = process.env.CRON_SECRET || "";
+  const authHeader = request.headers.get("authorization") || "";
 
-  const url = new URL(request.url);
-  const providedSecret =
-    request.headers.get("x-cron-secret") ||
-    request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ||
-    url.searchParams.get("secret") ||
-    "";
-
-  if (!configuredSecret || providedSecret !== configuredSecret) {
+  if (!configuredSecret || authHeader !== `Bearer ${configuredSecret}`) {
     return json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 

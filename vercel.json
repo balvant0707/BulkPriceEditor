@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    {
+      "path": "/cron/auto-reapply",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/cron/sales",
+      "schedule": "* * * * *"
+    }
+  ]
+}
