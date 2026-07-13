@@ -83,7 +83,7 @@ async function runSalesScheduler() {
       where: {
         status: { in: [SALE_STATUS.COMPLETED, "active"] },
         shop: { not: "" },
-        endAt: { lte: now },
+        endAt: { not: null, lte: now },
       },
       orderBy: [{ endAt: "asc" }, { id: "asc" }],
       take: SALES_CRON_BATCH_SIZE,
@@ -92,8 +92,10 @@ async function runSalesScheduler() {
       where: {
         status: { in: [SALE_STATUS.COMPLETED, "active"] },
         shop: { not: "" },
-        trackConditionChanges: true,
-        OR: [{ endAt: null }, { endAt: { gt: now } }],
+        AND: [
+          { OR: [{ trackConditionChanges: true }, { autoReapplyChanges: true }] },
+          { OR: [{ endAt: null }, { endAt: { gt: now } }] },
+        ],
       },
       orderBy: [{ updatedAt: "asc" }, { id: "asc" }],
       take: SALES_CRON_BATCH_SIZE * 3,
@@ -182,7 +184,7 @@ async function activateSale(sale) {
         executionSummary: {
           ...(sale.executionSummary || {}),
           status: "Applying",
-          progress: 5,
+          progress: 0,
         },
       },
     });
@@ -242,6 +244,16 @@ async function activateSale(sale) {
 
 async function endSale(sale) {
   try {
+    if (!isSaleEndDue(sale)) {
+      return {
+        ok: true,
+        saleId: sale.id,
+        action: "end",
+        skipped: true,
+        reason: "Sale has no due end time.",
+      };
+    }
+
     await db.sale.updateMany({
       where: {
         id: sale.id,
@@ -253,7 +265,7 @@ async function endSale(sale) {
         executionSummary: {
           ...(sale.executionSummary || {}),
           status: "Canceling",
-          progress: 5,
+          progress: 0,
         },
       },
     });
@@ -341,7 +353,10 @@ async function trackSaleCondition(sale) {
     });
 
     const { admin } = await unauthenticated.admin(sale.shop);
-    const tracked = await executeSaleConditionChangeRecord(admin, sale);
+    const tracked = await executeSaleConditionChangeRecord(admin, sale, {
+      reapplyExisting: Boolean(sale.autoReapplyChanges),
+      trackConditionChanges: Boolean(sale.trackConditionChanges),
+    });
     const now = new Date().toISOString();
 
     await db.sale.updateMany({
@@ -429,4 +444,13 @@ async function trackSaleCondition(sale) {
   } finally {
     runningConditionSaleIds.delete(sale.id);
   }
+}
+
+function isSaleEndDue(sale, now = new Date()) {
+  if (!sale?.endAt) return false;
+
+  const endAt = new Date(sale.endAt);
+  if (Number.isNaN(endAt.getTime())) return false;
+
+  return endAt <= now;
 }

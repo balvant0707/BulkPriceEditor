@@ -320,19 +320,31 @@ function formatApplyScope(sale) {
 
   if (scope === "whole_store") return "Whole store";
   if (scope === "selected_products") {
-    return getResourceTitles(resources.products).join(", ") || "Selected products";
+    const titles = getResourceTitles(resources.products).join(", ");
+    return titles ? `Selected products: ${titles}` : "Selected products";
   }
   if (scope === "selected_products_with_variants") {
-    return getResourceTitles(resources.variants).join(", ") || "Selected product variants";
+    const titles = getResourceTitles(resources.variants).join(", ");
+    return titles ? `Selected product variants: ${titles}` : "Selected product variants";
   }
   if (scope === "selected_collections") {
-    return getResourceTitles(resources.collections).join(", ") || "Selected collections";
+    const titles = getResourceTitles(resources.collections).join(", ");
+    return titles ? `Selected collections: ${titles}` : "Selected collections";
   }
   if (scope === "selected_tags") {
-    return getResourceTitles(resources.tags).join(", ") || "Selected tags";
+    const titles = getResourceTitles(resources.tags).join(", ");
+    return titles ? `Selected tags: ${titles}` : "Selected tags";
   }
 
   return humanize(scope);
+}
+
+function CompactSpinner({ label }) {
+  return (
+    <span style={{ display: "inline-flex", transform: "scale(0.75)", transformOrigin: "center" }}>
+      <Spinner size="small" accessibilityLabel={label} />
+    </span>
+  );
 }
 
 function getMarketNames(sale) {
@@ -593,12 +605,12 @@ export default function SalesPage() {
             <InlineStack gap="200" blockAlign="center">
               <Badge tone={statusDisplay.tone}>
                 <InlineStack gap="100" blockAlign="center" wrap={false}>
+                  {statusDisplay.showSpinner ? (
+                    <CompactSpinner label={`${statusDisplay.label} sale`} />
+                  ) : null}
                   <span>{statusDisplay.label}</span>
                   {statusDisplay.showProgress ? (
-                    <>
-                      <Spinner size="small" accessibilityLabel={`${statusDisplay.label} sale`} />
-                      <span>{statusDisplay.progress}%</span>
-                    </>
+                    <span>{statusDisplay.progress}%</span>
                   ) : null}
                 </InlineStack>
               </Badge>

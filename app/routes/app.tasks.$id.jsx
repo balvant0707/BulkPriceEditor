@@ -544,7 +544,7 @@ function getBaseTaskDisplay(task) {
       background: "#FEDF89",
       progress: getExecutionProgress(task),
       showPendingSpinner: true,
-      showProgress: true,
+      showProgress: false,
       style: {
         width: "fit-content",
       },
@@ -1763,7 +1763,9 @@ function StatusBadge({ display }) {
       }}
     >
       {showPendingSpinner ? (
-        <Spinner accessibilityLabel="Task status loading" size="small" />
+        <span style={{ display: "inline-flex", transform: "scale(0.75)", transformOrigin: "center" }}>
+          <Spinner accessibilityLabel="Task status loading" size="small" />
+        </span>
       ) : display.tone === "attention" ? (
         <span
           aria-hidden="true"

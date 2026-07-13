@@ -662,7 +662,8 @@ function getTaskListStatus(task) {
       label: "Pending",
       tone: "attention",
       progress: getExecutionProgress(task),
-      showProgress: true,
+      showPendingSpinner: true,
+      showProgress: false,
     };
   }
 
@@ -671,6 +672,7 @@ function getTaskListStatus(task) {
       label: "Applying",
       tone: getStatusTone(task.status),
       progress: getExecutionProgress(task),
+      showPendingSpinner: true,
       showProgress: true,
     };
   }
@@ -1004,15 +1006,17 @@ function TasksListPage({ tasks }) {
           <InlineStack gap="200" blockAlign="center" wrap={false}>
             <Badge tone={taskStatus.tone}>
               <InlineStack gap="100" blockAlign="center" wrap={false}>
-                <span>{taskStatus.label}</span>
-                {taskStatus.showProgress ? (
-                  <>
+                {taskStatus.showPendingSpinner ? (
+                  <span style={{ display: "inline-flex", transform: "scale(0.75)", transformOrigin: "center" }}>
                     <Spinner
                       accessibilityLabel={`${taskStatus.label} task`}
                       size="small"
                     />
-                    <span>{taskStatus.progress}%</span>
-                  </>
+                  </span>
+                ) : null}
+                <span>{taskStatus.label}</span>
+                {taskStatus.showProgress ? (
+                  <span>{taskStatus.progress}%</span>
                 ) : null}
               </InlineStack>
             </Badge>

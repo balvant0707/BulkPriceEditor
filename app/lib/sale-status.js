@@ -43,6 +43,12 @@ const STATUS_TONES = {
 };
 
 const PROGRESS_STATUSES = new Set([
+  SALE_STATUS.APPLYING,
+  SALE_STATUS.CANCELING,
+  SALE_STATUS.CHECKING_CHANGES,
+]);
+
+const SPINNER_STATUSES = new Set([
   SALE_STATUS.PENDING,
   SALE_STATUS.APPLYING,
   SALE_STATUS.CANCELING,
@@ -91,6 +97,7 @@ export function getSaleStatusDisplay(sale) {
     label: getSaleStatusLabel(status),
     tone: getSaleStatusTone(status),
     progress: getSaleProgressValue(sale),
+    showSpinner: SPINNER_STATUSES.has(status),
     showProgress: shouldShowSaleProgress(status),
   };
 }

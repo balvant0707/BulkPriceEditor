@@ -240,7 +240,9 @@ export async function executeSaleRecord(admin, sale) {
   };
 }
 
-export async function executeSaleConditionChangeRecord(admin, sale) {
+export async function executeSaleConditionChangeRecord(admin, sale, options = {}) {
+  const trackConditionChanges = options.trackConditionChanges !== false;
+  const reapplyExisting = Boolean(options.reapplyExisting);
   const existingOriginalVariants = sale.executionSummary?.originalVariants || [];
   const existingOriginalMarketPrices = sale.executionSummary?.originalMarketPrices || [];
   const existingOriginalsById = new Map(
@@ -301,34 +303,51 @@ export async function executeSaleConditionChangeRecord(admin, sale) {
   }
 
   const matchingIds = new Set(variants.map((variant) => variant.id).filter(Boolean));
-  const removedOriginalVariants = existingOriginalVariants.filter(
-    (variant) => variant?.id && !matchingIds.has(variant.id),
-  );
-  const addedVariants = variants.filter((variant) => {
+  const removedOriginalVariants = trackConditionChanges
+    ? existingOriginalVariants.filter(
+        (variant) => variant?.id && !matchingIds.has(variant.id),
+      )
+    : [];
+  const addedVariants = trackConditionChanges ? variants.filter((variant) => {
     if (!variant?.id || existingOriginalsById.has(variant.id)) return false;
     return true;
-  });
+  }) : [];
+  const reappliedVariants = reapplyExisting
+    ? variants.filter((variant) => variant?.id && existingOriginalsById.has(variant.id))
+    : [];
   const variantUpdates = [];
   const addedOriginalVariants = [];
   const logs = [];
 
-  for (const variant of addedVariants) {
+  for (const variant of [...addedVariants, ...reappliedVariants]) {
     const update = buildSaleVariantUpdate(variant, sale);
     if (!update) continue;
 
     variantUpdates.push(update);
-    addedOriginalVariants.push({
-      id: variant.id,
-      productId: variant.product?.id,
-      price: variant.price,
-      compareAtPrice: variant.compareAtPrice,
-    });
-    logs.push(buildSaleVariantLog(variant, update.variant, "Added"));
+    if (!existingOriginalsById.has(variant.id)) {
+      addedOriginalVariants.push({
+        id: variant.id,
+        productId: variant.product?.id,
+        price: variant.price,
+        compareAtPrice: variant.compareAtPrice,
+      });
+    }
+    logs.push(
+      buildSaleVariantLog(
+        variant,
+        update.variant,
+        existingOriginalsById.has(variant.id) ? "Reapplied" : "Added",
+      ),
+    );
   }
 
   const addedResults = await applySaleVariantUpdates(admin, variantUpdates);
   const removedResults = await restoreOriginalSaleVariants(admin, removedOriginalVariants);
-  const addedTagResults = await applySaleTagRules(admin, uniqueProductIds(addedVariants), sale);
+  const addedTagResults = await applySaleTagRules(
+    admin,
+    uniqueProductIds([...addedVariants, ...reappliedVariants]),
+    sale,
+  );
   const removedTagResults = await reverseSaleTagRules(
     admin,
     uniqueProductIdsFromOriginals(removedOriginalVariants),

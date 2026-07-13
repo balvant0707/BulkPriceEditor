@@ -528,6 +528,14 @@ export default function SaleDetailsPage() {
   return isNewSaleRoute(params) ? <NewSalePage /> : <SaleDetailsContent />;
 }
 
+function CompactSpinner({ label }) {
+  return (
+    <span style={{ display: "inline-flex", transform: "scale(0.75)", transformOrigin: "center" }}>
+      <Spinner size="small" accessibilityLabel={label} />
+    </span>
+  );
+}
+
 function SaleDetailsContent() {
   const { sale, shop, shopCurrency } = useLoaderData();
   const navigate = useNavigate();
@@ -762,12 +770,12 @@ function SaleDetailsContent() {
                     <InlineStack gap="200" blockAlign="center" wrap={false}>
                       <Badge tone={statusDisplay.tone}>
                         <InlineStack gap="100" blockAlign="center" wrap={false}>
+                          {statusDisplay.showSpinner ? (
+                            <CompactSpinner label={`${statusDisplay.label} sale`} />
+                          ) : null}
                           <span>{statusDisplay.label}</span>
                           {statusDisplay.showProgress ? (
-                            <>
-                              <Spinner size="small" accessibilityLabel={`${statusDisplay.label} sale`} />
-                              <span>{statusDisplay.progress}%</span>
-                            </>
+                            <span>{statusDisplay.progress}%</span>
                           ) : null}
                         </InlineStack>
                       </Badge>
