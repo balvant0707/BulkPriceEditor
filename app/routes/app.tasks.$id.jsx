@@ -542,6 +542,7 @@ function getBaseTaskDisplay(task) {
       label: "Pending",
       tone: "attention",
       background: "#FEDF89",
+      progress: getExecutionProgress(task),
       showPendingSpinner: true,
       showProgress: true,
       style: {
@@ -555,6 +556,7 @@ function getBaseTaskDisplay(task) {
       label: "Applying",
       tone: "attention",
       background: "#FEDF89",
+      progress: getExecutionProgress(task),
       showPendingSpinner: true,
       showProgress: true,
       style: {
@@ -738,6 +740,8 @@ function getDetailsStatusDisplay(task, rollbackState = null) {
       label: "Cancelling",
       tone: "attention",
       background: "#FEDF89",
+      progress: rollbackState.progress,
+      showPendingSpinner: true,
       showProgress: true,
     };
   }
@@ -1739,6 +1743,11 @@ function getProductDetails(task, productId, shopifyStoreHandle, shopCurrency = "
 
 function StatusBadge({ display }) {
   const showPendingSpinner = Boolean(display.showPendingSpinner);
+  const showProgress = Boolean(display.showProgress);
+  const progress = Math.max(
+    0,
+    Math.min(100, Math.round(Number(display.progress) || 0)),
+  );
 
   return (
     <span
@@ -1768,6 +1777,7 @@ function StatusBadge({ display }) {
         />
       ) : null}
       {display.label}
+      {showProgress ? <span>{progress}%</span> : null}
     </span>
   );
 }
@@ -2199,6 +2209,7 @@ export default function TaskDetailsPage() {
       label: "Cancelling",
       tone: "attention",
       background: "#FEDF89",
+      progress: rollbackState.progress,
       showPendingSpinner: true,
       showProgress: true,
     }

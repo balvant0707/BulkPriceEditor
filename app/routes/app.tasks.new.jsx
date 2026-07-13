@@ -33,6 +33,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import db from "../db.server";
 import { authenticate } from "../shopify.server";
+import { withShopifyEmbeddedParams } from "../lib/shopify-embedded-url";
 import {
   DISCOUNTED_SKIP_REASONS,
   isVariantDiscounted,
@@ -403,7 +404,9 @@ export async function action({ request, params }) {
 
     scheduleTaskExecution(admin, taskId, data, session.shop);
 
-    return redirect(`/app/tasks/${taskId}`);
+    return redirect(
+      withShopifyEmbeddedParams(`/app/tasks/${taskId}`, request, session.shop),
+    );
   }
 
   const task = await db.task.create({
@@ -417,7 +420,9 @@ export async function action({ request, params }) {
 
   scheduleTaskExecution(admin, task.id, data, session.shop);
 
-  return redirect(`/app/tasks/${task.id}`);
+  return redirect(
+    withShopifyEmbeddedParams(`/app/tasks/${task.id}`, request, session.shop),
+  );
 }
 
 function scheduleTaskExecution(admin, taskId, data, shop) {

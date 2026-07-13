@@ -15,10 +15,16 @@ import {
   Image,
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
-import { useLoaderData, useNavigate, useNavigation } from "@remix-run/react";
+import {
+  useLoaderData,
+  useLocation,
+  useNavigate,
+  useNavigation,
+} from "@remix-run/react";
 import { useState } from "react";
 import db from "../db.server";
 import { authenticate } from "../shopify.server";
+import { withShopifyEmbeddedParams } from "../lib/shopify-embedded-url";
 
 const statsRowStyle = {
   display: "flex",
@@ -297,14 +303,16 @@ function FooterLinks() {
 export default function AppIndex() {
   const { taskStats, saleStats } = useLoaderData();
   const navigate = useNavigate();
+  const location = useLocation();
   const navigation = useNavigation();
   const nextPath = navigation.location?.pathname;
   const [pendingPath, setPendingPath] = useState("");
   const openingPath = nextPath || pendingPath;
 
   const openPage = (path) => {
+    const target = withShopifyEmbeddedParams(path, location.search);
     setPendingPath(path);
-    navigate(path);
+    navigate(target);
   };
 
   return (

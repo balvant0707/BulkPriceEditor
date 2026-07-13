@@ -35,6 +35,7 @@ import {
 import { TitleBar } from "@shopify/app-bridge-react";
 import db from "../db.server";
 import { authenticate } from "../shopify.server";
+import { withShopifyEmbeddedParams } from "../lib/shopify-embedded-url";
 import {
   createSaleExecutionSummary,
   SALE_STATUS,
@@ -166,7 +167,9 @@ export async function action({ request, params }) {
       throw new Response("Sale not found", { status: 404 });
     }
 
-    return redirect(`/app/sales/${saleId}`);
+    return redirect(
+      withShopifyEmbeddedParams(`/app/sales/${saleId}`, request, session.shop),
+    );
   } else {
     const sale = await db.sale.create({ data: saleData });
     if (sale.executionSummary?.logs?.length) {
@@ -183,7 +186,9 @@ export async function action({ request, params }) {
         },
       });
     }
-    return redirect(`/app/sales/${sale.id}`);
+    return redirect(
+      withShopifyEmbeddedParams(`/app/sales/${sale.id}`, request, session.shop),
+    );
   }
 }
 

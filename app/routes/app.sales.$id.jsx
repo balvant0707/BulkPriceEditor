@@ -745,12 +745,17 @@ function SaleDetailsContent() {
                 <DetailRow label="Status">
                   <BlockStack gap="150">
                     <InlineStack gap="200" blockAlign="center" wrap={false}>
-                      <Badge tone={statusDisplay.tone}>{statusDisplay.label}</Badge>
-                      {statusDisplay.showProgress ? (
-                        <InlineStack gap="150" blockAlign="center" wrap={false}>
-                          <Spinner size="small" accessibilityLabel={`${statusDisplay.label} sale`} />
+                      <Badge tone={statusDisplay.tone}>
+                        <InlineStack gap="100" blockAlign="center" wrap={false}>
+                          <span>{statusDisplay.label}</span>
+                          {statusDisplay.showProgress ? (
+                            <>
+                              <Spinner size="small" accessibilityLabel={`${statusDisplay.label} sale`} />
+                              <span>{statusDisplay.progress}%</span>
+                            </>
+                          ) : null}
                         </InlineStack>
-                      ) : null}
+                      </Badge>
                     </InlineStack>
                   </BlockStack>
                 </DetailRow>

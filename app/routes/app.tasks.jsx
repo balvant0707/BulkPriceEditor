@@ -32,6 +32,7 @@ import {
 import { TitleBar, useAppBridge } from "@shopify/app-bridge-react";
 import db from "../db.server";
 import { authenticate } from "../shopify.server";
+import { withShopifyEmbeddedParams } from "../lib/shopify-embedded-url";
 import { commitFlashSession, getFlashSession } from "../lib/flash.server";
 import {
   AUTO_REAPPLY_TEXT,
@@ -542,6 +543,20 @@ function getRollbackProgress(task) {
   );
 }
 
+function getExecutionProgress(task) {
+  return getProgressValue(
+    task.progress,
+    task.percent,
+    task.percentage,
+    task.executionProgress,
+    task.executionPercent,
+    task.executionPercentage,
+    task.executionSummary?.progress,
+    task.executionSummary?.percent,
+    task.executionSummary?.percentage,
+  );
+}
+
 function getRollbackSummary(task) {
   return (
     task.rollback ||
@@ -637,6 +652,7 @@ function getTaskListStatus(task) {
     return {
       label: "Cancelling",
       tone: "attention",
+      progress: getRollbackProgress(task),
       showProgress: true,
     };
   }
@@ -645,6 +661,7 @@ function getTaskListStatus(task) {
     return {
       label: "Pending",
       tone: "attention",
+      progress: getExecutionProgress(task),
       showProgress: true,
     };
   }
@@ -653,6 +670,7 @@ function getTaskListStatus(task) {
     return {
       label: "Applying",
       tone: getStatusTone(task.status),
+      progress: getExecutionProgress(task),
       showProgress: true,
     };
   }
@@ -705,15 +723,17 @@ function getTaskTabCounts(tasks) {
 
 function EmptyTasksPage() {
   const navigation = useNavigation();
+  const location = useLocation();
 
   const isOpeningNewTask = navigation.location?.pathname === NEW_TASK_URL;
+  const newTaskUrl = withShopifyEmbeddedParams(NEW_TASK_URL, location.search);
 
   return (
     <Page
       title="Tasks"
       primaryAction={{
         content: "Create task",
-        url: NEW_TASK_URL,
+        url: newTaskUrl,
         loading: isOpeningNewTask,
         disabled: isOpeningNewTask,
       }}
@@ -741,7 +761,7 @@ function EmptyTasksPage() {
                 heading="Manage tasks"
                 action={{
                   content: "Create first task",
-                  url: NEW_TASK_URL,
+                  url: newTaskUrl,
                   loading: isOpeningNewTask,
                   disabled: isOpeningNewTask,
                 }}
@@ -779,6 +799,7 @@ function TasksListPage({ tasks }) {
   const { toastMessage } = useLoaderData();
   const shopify = useAppBridge();
   const navigation = useNavigation();
+  const location = useLocation();
   const revalidator = useRevalidator();
   const submit = useSubmit();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -786,6 +807,7 @@ function TasksListPage({ tasks }) {
   const [deleteTask, setDeleteTask] = useState(null);
 
   const isOpeningNewTask = navigation.location?.pathname === NEW_TASK_URL;
+  const newTaskUrl = withShopifyEmbeddedParams(NEW_TASK_URL, location.search);
 
   const requestedTab =
     searchParams.get("status") || searchParams.get("view") || "all";
@@ -980,15 +1002,20 @@ function TasksListPage({ tasks }) {
 
         <IndexTable.Cell>
           <InlineStack gap="200" blockAlign="center" wrap={false}>
-            <Badge tone={taskStatus.tone}>{taskStatus.label}</Badge>
-            {taskStatus.showProgress ? (
+            <Badge tone={taskStatus.tone}>
               <InlineStack gap="100" blockAlign="center" wrap={false}>
-                <Spinner
-                  accessibilityLabel={`${taskStatus.label} task`}
-                  size="small"
-                />
+                <span>{taskStatus.label}</span>
+                {taskStatus.showProgress ? (
+                  <>
+                    <Spinner
+                      accessibilityLabel={`${taskStatus.label} task`}
+                      size="small"
+                    />
+                    <span>{taskStatus.progress}%</span>
+                  </>
+                ) : null}
               </InlineStack>
-            ) : null}
+            </Badge>
           </InlineStack>
         </IndexTable.Cell>
 
@@ -1038,7 +1065,7 @@ function TasksListPage({ tasks }) {
       title="Tasks"
       primaryAction={{
         content: "Create task",
-        url: NEW_TASK_URL,
+        url: newTaskUrl,
         loading: isOpeningNewTask,
         disabled: isOpeningNewTask,
       }}

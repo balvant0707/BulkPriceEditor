@@ -35,6 +35,7 @@ import { TitleBar } from "@shopify/app-bridge-react";
 import db from "../db.server";
 import { authenticate } from "../shopify.server";
 import { endSaleRecord } from "../lib/sales.server";
+import { withShopifyEmbeddedParams } from "../lib/shopify-embedded-url";
 import {
   canDeleteSale,
   canRollbackSale,
@@ -377,6 +378,10 @@ export default function SalesPage() {
   const isOpeningNewSale =
     navigation.location?.pathname === CREATE_SALE_URL ||
     location.pathname === CREATE_SALE_URL;
+  const createSaleUrl = withShopifyEmbeddedParams(
+    CREATE_SALE_URL,
+    location.search,
+  );
   const requestedTab = searchParams.get("status") || "all";
   const pageParam = Number(searchParams.get("page") || 1);
   const activeTab = SALE_TABS.some((tab) => tab.id === requestedTab)
@@ -567,12 +572,17 @@ export default function SalesPage() {
         <IndexTable.Cell>
           <BlockStack gap="150">
             <InlineStack gap="200" blockAlign="center">
-              <Badge tone={statusDisplay.tone}>{statusDisplay.label}</Badge>
-              {statusDisplay.showProgress ? (
-                <InlineStack gap="150" blockAlign="center" wrap={false}>
-                  <Spinner size="small" accessibilityLabel={`${statusDisplay.label} sale`} />
+              <Badge tone={statusDisplay.tone}>
+                <InlineStack gap="100" blockAlign="center" wrap={false}>
+                  <span>{statusDisplay.label}</span>
+                  {statusDisplay.showProgress ? (
+                    <>
+                      <Spinner size="small" accessibilityLabel={`${statusDisplay.label} sale`} />
+                      <span>{statusDisplay.progress}%</span>
+                    </>
+                  ) : null}
                 </InlineStack>
-              ) : null}
+              </Badge>
             </InlineStack>
           </BlockStack>
         </IndexTable.Cell>
@@ -624,7 +634,7 @@ export default function SalesPage() {
         title="Sales"
         primaryAction={{
           content: "Create sale",
-          onAction: () => navigate(CREATE_SALE_URL),
+          onAction: () => navigate(createSaleUrl),
           loading: isOpeningNewSale,
           disabled: isOpeningNewSale,
         }}
@@ -699,7 +709,7 @@ export default function SalesPage() {
                   image="/image/sale.svg"
                   action={{
                     content: "Create first sale",
-                    onAction: () => navigate(CREATE_SALE_URL),
+                    onAction: () => navigate(createSaleUrl),
                     loading: isOpeningNewSale,
                     disabled: isOpeningNewSale,
                   }}
