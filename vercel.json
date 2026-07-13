@@ -3,11 +3,11 @@
   "crons": [
     {
       "path": "/cron/auto-reapply",
-      "schedule": "*/5 * * * *"
+      "schedule": "0 0 * * *"
     },
     {
       "path": "/cron/sales",
-      "schedule": "* * * * *"
+      "schedule": "5 0 * * *"
     }
   ]
 }

@@ -41,10 +41,29 @@ shopify app dev
 
 ## Vercel Cron Jobs
 
-This app defines Vercel Cron Jobs in `vercel.json`:
+This app defines Vercel Cron Jobs in `vercel.json`.
 
-- `/cron/auto-reapply` runs every 5 minutes.
-- `/cron/sales` runs every 1 minute.
+The committed schedules are compatible with Vercel Hobby deployments:
+
+- `/cron/auto-reapply` runs once per day at `00:00` UTC.
+- `/cron/sales` runs once per day at `00:05` UTC.
+
+Vercel Hobby projects cannot deploy cron jobs that run more than once per day. If the project is on Vercel Pro or Enterprise, these are the intended production schedules:
+
+```json
+{
+  "crons": [
+    {
+      "path": "/cron/auto-reapply",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/cron/sales",
+      "schedule": "* * * * *"
+    }
+  ]
+}
+```
 
 Both endpoints require Vercel's cron authorization header:
 
