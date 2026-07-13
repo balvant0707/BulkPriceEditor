@@ -1910,7 +1910,7 @@ export default function NewSalePage() {
               </SectionCard>
 
 
-              <SectionCard title="Advanced">
+              <SectionCard title="Advanced" style={{ marginBottom: "1rem" }}>
                 <BlockStack gap="400">
                   <Checkbox
                     label="Add tags while sale is active"
@@ -2000,12 +2000,6 @@ export default function NewSalePage() {
 
                 </BlockStack>
               </SectionCard>
-
-              {!canCreate ? (
-                <Banner tone="info">
-                  Add a sale title and discount percent to enable the create button.
-                </Banner>
-              ) : null}
 
             </BlockStack>
           </Layout.Section>
