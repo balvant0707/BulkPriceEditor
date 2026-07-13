@@ -319,22 +319,10 @@ function formatScopeSummary(scope, resources = {}) {
 
   if (normalized === "whole_store") return "Whole store";
   if (normalized === "nothing") return "Nothing";
-  if (normalized === "selected_products") {
-    const titles = getResourceTitles(resources.products).join(", ");
-    return titles ? `Selected products: ${titles}` : "Selected products";
-  }
-  if (normalized === "selected_products_with_variants") {
-    const titles = getResourceTitles(resources.variants).join(", ");
-    return titles ? `Selected product variants: ${titles}` : "Selected product variants";
-  }
-  if (normalized === "selected_collections") {
-    const titles = getResourceTitles(resources.collections).join(", ");
-    return titles ? `Selected collections: ${titles}` : "Selected collections";
-  }
-  if (normalized === "selected_tags") {
-    const titles = getResourceTitles(resources.tags).join(", ");
-    return titles ? `Selected tags: ${titles}` : "Selected tags";
-  }
+  if (normalized === "selected_products") return "Selected products";
+  if (normalized === "selected_products_with_variants") return "Selected product variants";
+  if (normalized === "selected_collections") return "Selected collections";
+  if (normalized === "selected_tags") return "Selected tags";
 
   return humanize(normalized);
 }

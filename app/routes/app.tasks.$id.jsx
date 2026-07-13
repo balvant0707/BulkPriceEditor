@@ -29,6 +29,7 @@ import { authenticate } from "../shopify.server";
 import {
   AUTO_REAPPLY_TEXT,
   getAutoReapplyLastRun,
+  getAutoReapplyNextRunAt,
   getDisabledAutoReapplyConfiguration,
   isAutoReapplyEnabled,
 } from "../lib/task-auto-reapply";
@@ -271,6 +272,26 @@ function formatRelativeTime(value) {
   return years <= 1 ? "about 1 year ago" : `about ${years} years ago`;
 }
 
+function formatAutoReapplyRemainingTime(value, nowMs = Date.now()) {
+  if (!value) return "";
+
+  const nextRunAt = new Date(value).getTime();
+  if (Number.isNaN(nextRunAt)) return "";
+
+  const diffSeconds = Math.max(0, Math.ceil((nextRunAt - nowMs) / 1000));
+  if (diffSeconds <= 0) return "on next cron check";
+  if (diffSeconds < 60) return "in less than 1 minute";
+
+  const minutes = Math.ceil(diffSeconds / 60);
+  if (minutes < 60) return `in ${minutes} minute${minutes === 1 ? "" : "s"}`;
+
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  if (!remainingMinutes) return `in ${hours} hour${hours === 1 ? "" : "s"}`;
+
+  return `in ${hours} hour${hours === 1 ? "" : "s"} ${remainingMinutes} minute${remainingMinutes === 1 ? "" : "s"}`;
+}
+
 function getTaskChangeItems(task) {
   const changes = [
     formatChangePayload(task.priceChange, "price"),
@@ -312,8 +333,17 @@ function formatDiscountedScope(task) {
 
 function ChangeDetails({ task }) {
   const autoReapplyLastRun = getAutoReapplyLastRun(task);
+  const autoReapplyNextRunAt = getAutoReapplyNextRunAt(task);
   const showAutoReapply = isAutoReapplyEnabled(task);
   const changes = getTaskChangeItems(task);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!showAutoReapply || !autoReapplyNextRunAt) return undefined;
+
+    const timer = setInterval(() => setNowMs(Date.now()), 60 * 1000);
+    return () => clearInterval(timer);
+  }, [showAutoReapply, autoReapplyNextRunAt]);
 
   return (
     <BlockStack gap="150">
@@ -372,6 +402,32 @@ function ChangeDetails({ task }) {
 
           <Text as="p" tone="subdued">
             Last run {formatRelativeTime(autoReapplyLastRun)}
+          </Text>
+        </div>
+      ) : null}
+
+      {showAutoReapply && autoReapplyNextRunAt ? (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
+            marginTop: "2px",
+          }}
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 16 16"
+            width="16"
+            height="16"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <path d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8m8.75-3.25a.75.75 0 0 0-1.5 0v3.5c0 .199.079.39.22.53l2.25 2.25a.75.75 0 1 0 1.06-1.06L8.75 7.94z" />
+          </svg>
+
+          <Text as="p" tone="subdued">
+            Next run {formatAutoReapplyRemainingTime(autoReapplyNextRunAt, nowMs)}
           </Text>
         </div>
       ) : null}
