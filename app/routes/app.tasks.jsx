@@ -44,9 +44,6 @@ const NEW_TASK_URL = "/app/tasks/new";
 const TASKS_URL = "/app/tasks";
 const PAGE_SIZE = 10;
 const POLL_INTERVAL_MS = 1000;
-const ROLLBACK_PROGRESS_SPEED_PER_SECOND = 50;
-const ROLLBACK_PROGRESS_CAP = 98;
-const PENDING_PROGRESS_SPEED_PER_SECOND = 50;
 
 const TASK_TABS = [
   {
@@ -524,73 +521,6 @@ function getProgressValue(...values) {
   return Math.max(0, Math.min(100, Math.round(progress)));
 }
 
-function getTaskProgress(task) {
-  return getProgressValue(
-    task.progress,
-    task.percent,
-    task.percentage,
-    task.executionProgress,
-    task.executionPercent,
-    task.executionSummary?.progress,
-    task.executionSummary?.percent,
-    task.executionSummary?.percentage,
-  );
-}
-
-function getDateMs(value) {
-  if (!value) return null;
-
-  const date = new Date(value);
-  const time = date.getTime();
-
-  return Number.isNaN(time) ? null : time;
-}
-
-function getTaskStartedAt(task) {
-  return (
-    task.startedAt ||
-    task.executionSummary?.startedAt ||
-    task.executionSummary?.taskStartedAt ||
-    task.createdAt
-  );
-}
-
-function getRollbackStartedAt(task) {
-  return (
-    task.rollbackStartedAt ||
-    task.rollback?.startedAt ||
-    task.rollbackSummary?.startedAt ||
-    task.executionSummary?.rollbackStartedAt ||
-    task.executionSummary?.rollback?.startedAt ||
-    task.executionSummary?.rollbackSummary?.startedAt ||
-    task.startedAt ||
-    task.createdAt
-  );
-}
-
-function getEstimatedProgress(
-  baseProgress,
-  startedAt,
-  now,
-  speedPerSecond,
-  progressCap,
-  minimumProgress = 0,
-) {
-  const startedAtMs = getDateMs(startedAt);
-
-  if (!startedAtMs) {
-    return Math.max(baseProgress, minimumProgress);
-  }
-
-  const elapsedSeconds = Math.max(0, Math.floor((now - startedAtMs) / 1000));
-  const estimatedProgress = Math.min(
-    progressCap,
-    baseProgress + elapsedSeconds * speedPerSecond,
-  );
-
-  return Math.max(baseProgress, estimatedProgress, minimumProgress);
-}
-
 function getRollbackProgress(task) {
   return getProgressValue(
     task.rollbackProgress,
@@ -702,19 +632,11 @@ function isTaskProcessing(task) {
   return status === "applying";
 }
 
-function getTaskListStatus(task, now = Date.now()) {
+function getTaskListStatus(task) {
   if (isRollbackProcessing(task)) {
     return {
       label: "Cancelling",
       tone: "attention",
-      progress: getEstimatedProgress(
-        Math.max(getRollbackProgress(task), 0),
-        getRollbackStartedAt(task),
-        now,
-        ROLLBACK_PROGRESS_SPEED_PER_SECOND,
-        ROLLBACK_PROGRESS_CAP,
-        0,
-      ),
       showProgress: true,
     };
   }
@@ -723,14 +645,6 @@ function getTaskListStatus(task, now = Date.now()) {
     return {
       label: "Pending",
       tone: "attention",
-      progress: getEstimatedProgress(
-        0,
-        getTaskStartedAt(task),
-        now,
-        PENDING_PROGRESS_SPEED_PER_SECOND,
-        100,
-        0,
-      ),
       showProgress: true,
     };
   }
@@ -739,14 +653,6 @@ function getTaskListStatus(task, now = Date.now()) {
     return {
       label: "Applying",
       tone: getStatusTone(task.status),
-      progress: getEstimatedProgress(
-        Math.max(getTaskProgress(task), 0),
-        getTaskStartedAt(task),
-        now,
-        PENDING_PROGRESS_SPEED_PER_SECOND,
-        100,
-        0,
-      ),
       showProgress: true,
     };
   }
@@ -878,7 +784,6 @@ function TasksListPage({ tasks }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [rollbackTask, setRollbackTask] = useState(null);
   const [deleteTask, setDeleteTask] = useState(null);
-  const [progressTick, setProgressTick] = useState(Date.now());
 
   const isOpeningNewTask = navigation.location?.pathname === NEW_TASK_URL;
 
@@ -984,8 +889,6 @@ function TasksListPage({ tasks }) {
     if (!hasActiveTask) return undefined;
 
     const interval = window.setInterval(() => {
-      setProgressTick(Date.now());
-
       if (revalidator.state === "idle") {
         revalidator.revalidate();
       }
@@ -1021,7 +924,7 @@ function TasksListPage({ tasks }) {
   };
 
   const rowMarkup = paginatedTasks.map((task, index) => {
-    const taskStatus = getTaskListStatus(task, progressTick);
+    const taskStatus = getTaskListStatus(task);
     const changeItems = getTaskChangeItems(task);
     const visibleChanges = changeItems.length ? changeItems : [formatTaskChange(task)];
     const detailsPath = `/app/tasks/${task.id}`;
@@ -1084,9 +987,6 @@ function TasksListPage({ tasks }) {
                   accessibilityLabel={`${taskStatus.label} task`}
                   size="small"
                 />
-                <Text as="span" variant="bodySm" tone="subdued">
-                  {taskStatus.progress}%
-                </Text>
               </InlineStack>
             ) : null}
           </InlineStack>

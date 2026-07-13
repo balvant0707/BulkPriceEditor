@@ -2,7 +2,6 @@ import db from "../db.server";
 import {
   DEFAULT_REPORT_SETTINGS,
   getReportPath,
-  normalizeShop,
   REPORT_TYPES,
   SETTINGS_KEY,
 } from "./product-reports";

@@ -19,7 +19,6 @@ import {
   Modal,
   Page,
   Pagination,
-  ProgressBar,
   Spinner,
   Text,
   TextField,
@@ -270,12 +269,6 @@ function formatRelativeTime(value) {
 
   const years = Math.round(days / 365);
   return years <= 1 ? "about 1 year ago" : `about ${years} years ago`;
-}
-
-function formatChange(task) {
-  const changes = getTaskChangeItems(task);
-
-  return changes.length ? changes.join(", ") : "Change";
 }
 
 function getTaskChangeItems(task) {
@@ -592,20 +585,6 @@ function getBaseTaskDisplay(task) {
       width: "fit-content",
     },
   };
-}
-
-function getTaskProgress(task) {
-  if (isTaskCompleted(task)) return 100;
-  return getExecutionProgress(task);
-}
-
-function getTaskStartedAt(task) {
-  return (
-    task.startedAt ||
-    task.executionSummary?.startedAt ||
-    task.executionSummary?.taskStartedAt ||
-    task.createdAt
-  );
 }
 
 function getRollbackStatusValue(task) {
@@ -932,50 +911,6 @@ function isPlaceholderCollectionTitle(title, collectionId = "") {
   return /^collection\s+\d+$/i.test(normalizedTitle);
 }
 
-function parsePossibleArray(value) {
-  if (!value) return [];
-
-  if (Array.isArray(value)) return value;
-
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    if (!trimmed) return [];
-
-    try {
-      const parsed = JSON.parse(trimmed);
-      return parsePossibleArray(parsed);
-    } catch {
-      return trimmed
-        .split(/[\n,]+/)
-        .map((item) => item.trim())
-        .filter(Boolean);
-    }
-  }
-
-  if (typeof value === "object") {
-    if (Array.isArray(value.edges)) {
-      return value.edges.map((edge) => edge?.node || edge).filter(Boolean);
-    }
-
-    if (Array.isArray(value.nodes)) return value.nodes;
-    if (Array.isArray(value.items)) return value.items;
-    if (Array.isArray(value.collections)) return value.collections;
-    if (Array.isArray(value.selectedCollections)) return value.selectedCollections;
-    if (Array.isArray(value.selectedCollectionIds)) return value.selectedCollectionIds;
-    if (Array.isArray(value.collectionIds)) return value.collectionIds;
-    if (Array.isArray(value.selectedCollectionGids)) return value.selectedCollectionGids;
-    if (Array.isArray(value.collectionGids)) return value.collectionGids;
-    if (Array.isArray(value.resources)) return value.resources;
-    if (Array.isArray(value.selectedResources)) return value.selectedResources;
-    if (Array.isArray(value.targets)) return value.targets;
-    if (Array.isArray(value.data)) return value.data;
-
-    return [value];
-  }
-
-  return [value];
-}
-
 function readJsonField(value) {
   if (!value || typeof value !== "string") return value;
 
@@ -1116,57 +1051,6 @@ function normalizeCollectionRecord(record, index = 0) {
     handle,
     raw: parsedRecord,
   };
-}
-
-function collectCollectionRecordsFromObject(value, depth = 0) {
-  if (!value || depth > 4) return [];
-
-  if (Array.isArray(value)) {
-    return value.flatMap((item) => collectCollectionRecordsFromObject(item, depth + 1));
-  }
-
-  if (typeof value === "string") {
-    const parsed = readJsonField(value);
-    if (parsed !== value) return collectCollectionRecordsFromObject(parsed, depth + 1);
-    return value.includes("gid://shopify/Collection/") ? [value] : [];
-  }
-
-  if (typeof value !== "object") return [];
-
-  const directId = getCollectionRecordId(value);
-  const directGid = getCollectionRecordGid(value);
-  const directType = String(value.type || value.resourceType || value.targetType || "").toLowerCase();
-  const looksLikeCollection =
-    directGid.includes("gid://shopify/Collection/") ||
-    directType.includes("collection") ||
-    Boolean(value.collectionId || value.collectionGid || value.collectionTitle || value.collectionHandle);
-
-  const found = looksLikeCollection && (directId || directGid || value.title || value.collectionTitle)
-    ? [value]
-    : [];
-
-  Object.entries(value).forEach(([key, child]) => {
-    const normalizedKey = key.toLowerCase();
-
-    if (
-      normalizedKey.includes("originalvariant") ||
-      normalizedKey.includes("inventoryitem") ||
-      normalizedKey.includes("log")
-    ) {
-      return;
-    }
-
-    if (normalizedKey.includes("collection") || normalizedKey.includes("resource") || normalizedKey.includes("target")) {
-      found.push(...parsePossibleArray(child));
-      return;
-    }
-
-    if (typeof child === "object" && child) {
-      found.push(...collectCollectionRecordsFromObject(child, depth + 1));
-    }
-  });
-
-  return found;
 }
 
 function getSelectedCollectionRecords(task, prefix = "apply") {
@@ -1908,6 +1792,7 @@ function DetailRow({ label, value, children }) {
   );
 }
 
+// eslint-disable-next-line no-unused-vars
 function ApplyToDetails({ task, selectedCollections }) {
   const applyScopeLabel = humanize(task.applyScope);
 
@@ -2336,14 +2221,6 @@ export default function TaskDetailsPage() {
   const statusTone = getStatusToneFromDisplay(statusDisplay);
   const logStatusLabel = getLogStatusLabel(task, statusDisplay, rollbackState);
 
-  const rawServerProgress = rollbackProcessing
-    ? Math.max(rollbackState.progress || 0, 0)
-    : getTaskProgress(task);
-  const serverProgress = rawServerProgress;
-  const [visibleProgress, setVisibleProgress] = useState(serverProgress);
-  const showStatusPercent =
-    statusDisplay.showProgress && statusDisplay.label !== "Pending";
-
   const logs = useMemo(() => {
     const productLogs = createProductGroups(task, shopifyStoreHandle, shopCurrency);
     const fallbackLogs = createFallbackLogGroups(task, shopifyStoreHandle);
@@ -2385,7 +2262,6 @@ export default function TaskDetailsPage() {
   const confirmRollback = () => {
     setRollbackModalOpen(false);
     setClientRollbackStarted(true);
-    setVisibleProgress(0);
     const formData = new FormData();
     formData.set("redirectTo", `/app/tasks/${task.id}`);
     submit(formData, {
@@ -2471,10 +2347,6 @@ export default function TaskDetailsPage() {
   useEffect(() => {
     setCurrentPage((page) => Math.min(page, totalPages));
   }, [totalPages]);
-
-  useEffect(() => {
-    setVisibleProgress(serverProgress);
-  }, [serverProgress]);
 
   useEffect(() => {
     if (!shouldPoll) return undefined;
@@ -2579,14 +2451,6 @@ export default function TaskDetailsPage() {
                 <DetailRow label="Status">
                   <InlineStack gap="200" blockAlign="center" wrap={false}>
                     <StatusBadge display={statusDisplay} />
-
-                    {showStatusPercent ? (
-                      <>
-                        <Text as="span" tone="subdued">
-                          {visibleProgress}%
-                        </Text>
-                      </>
-                    ) : null}
                   </InlineStack>
                 </DetailRow>
 

@@ -26,7 +26,6 @@ import {
   Modal,
   Page,
   Pagination,
-  ProgressBar,
   Spinner,
   Tabs,
   Text,
@@ -39,7 +38,6 @@ import { endSaleRecord } from "../lib/sales.server";
 import {
   canDeleteSale,
   canRollbackSale,
-  getSaleProgressValue,
   getSaleStatusDisplay,
   normalizeSaleStatus,
   SALE_STATUS,
@@ -331,28 +329,6 @@ function getMarketNames(sale) {
     .filter(Boolean);
 }
 
-function getEstimatedProcessingProgress(sale, baseProgress) {
-  const normalizedStatus = normalizeSaleStatus(sale.status);
-  if (
-    normalizedStatus !== SALE_STATUS.APPLYING &&
-    normalizedStatus !== SALE_STATUS.CANCELING
-  ) {
-    return baseProgress;
-  }
-
-  const startedAt =
-    sale.executionSummary?.processingStartedAt ||
-    sale.executionSummary?.rollbackStartedAt ||
-    sale.startedAt ||
-    sale.updatedAt ||
-    sale.createdAt;
-  const startedMs = new Date(startedAt || "").getTime();
-  if (!Number.isFinite(startedMs)) return Math.max(baseProgress, 1);
-
-  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - startedMs) / 1000));
-  return Math.min(99, Math.max(baseProgress, elapsedSeconds));
-}
-
 function saleMatchesSearch(sale, query) {
   const applyResources = sale.applyResources || {};
   const excludeResources = sale.excludeResources || {};
@@ -397,7 +373,6 @@ export default function SalesPage() {
   const [rollbackSale, setRollbackSale] = useState(null);
   const [cancelSale, setCancelSale] = useState(null);
   const [optimisticAction, setOptimisticAction] = useState(null);
-  const [progressTick, setProgressTick] = useState(0);
 
   const isOpeningNewSale =
     navigation.location?.pathname === CREATE_SALE_URL ||
@@ -438,8 +413,10 @@ export default function SalesPage() {
     if (queryValue) params.set("q", queryValue);
     else params.delete("q");
     params.delete("page");
-    setSearchParams(params, { replace: true });
-  }, [queryValue]);
+    if (params.toString() !== searchParams.toString()) {
+      setSearchParams(params, { replace: true });
+    }
+  }, [queryValue, searchParams, setSearchParams]);
 
   useEffect(() => {
     if (actionFetcher.data?.ok) {
@@ -475,19 +452,6 @@ export default function SalesPage() {
       action: `/app/sales/process/${pendingSale.id}`,
     });
   }, [processFetcher, sales]);
-
-  useEffect(() => {
-    const hasActiveProgress =
-      Boolean(optimisticAction) ||
-      processFetcher.state !== "idle" ||
-      actionFetcher.state !== "idle" ||
-      sales.some((sale) => getSaleStatusDisplay(sale).showProgress);
-
-    if (!hasActiveProgress) return undefined;
-
-    const interval = setInterval(() => setProgressTick((tick) => tick + 1), 1000);
-    return () => clearInterval(interval);
-  }, [actionFetcher.state, optimisticAction, processFetcher.state, sales]);
 
   if (location.pathname !== SALES_URL) {
     return <Outlet />;
@@ -543,11 +507,6 @@ export default function SalesPage() {
         }
       : sale;
     const statusDisplay = getSaleStatusDisplay(visibleSale);
-    void progressTick;
-    const progress = getEstimatedProcessingProgress(
-      visibleSale,
-      getSaleProgressValue(visibleSale),
-    );
     const normalizedStatus = normalizeSaleStatus(sale.status);
     const isSubmitting =
       actionFetcher.state !== "idle" &&
@@ -612,13 +571,9 @@ export default function SalesPage() {
               {statusDisplay.showProgress ? (
                 <InlineStack gap="150" blockAlign="center" wrap={false}>
                   <Spinner size="small" accessibilityLabel={`${statusDisplay.label} sale`} />
-                  <Text as="span" tone="subdued" variant="bodySm">
-                    {progress}%
-                  </Text>
                 </InlineStack>
               ) : null}
             </InlineStack>
-            {statusDisplay.showProgress ? <ProgressBar progress={progress} size="small" /> : null}
           </BlockStack>
         </IndexTable.Cell>
         <IndexTable.Cell>

@@ -3,6 +3,7 @@ import {
   useFetcher,
   useLoaderData,
   useNavigate,
+  useParams,
   useRevalidator,
 } from "@remix-run/react";
 import { useEffect, useMemo, useState } from "react";
@@ -18,7 +19,6 @@ import {
   Modal,
   Page,
   Pagination,
-  ProgressBar,
   Spinner,
   Text,
   TextField,
@@ -32,16 +32,27 @@ import {
 } from "../lib/sales.server";
 import {
   canRollbackSale,
-  getSaleProgressValue,
   getSaleStatusDisplay,
   normalizeSaleStatus,
   SALE_STATUS,
 } from "../lib/sale-status";
+import NewSalePage, {
+  action as newSaleAction,
+  loader as newSaleLoader,
+} from "./app.sales.new";
 
 const LOGS_PER_PAGE = 8;
 const EDIT_SALE_URL = "/app/sales/new";
 
+function isNewSaleRoute(params) {
+  return String(params.id || "").toLowerCase() === "new";
+}
+
 export const loader = async ({ request, params }) => {
+  if (isNewSaleRoute(params)) {
+    return newSaleLoader({ request, params });
+  }
+
   const { session } = await authenticate.admin(request);
   const saleId = Number(params.id);
 
@@ -72,6 +83,10 @@ export const loader = async ({ request, params }) => {
 };
 
 export const action = async ({ request, params }) => {
+  if (isNewSaleRoute(params)) {
+    return newSaleAction({ request, params });
+  }
+
   const { admin, session } = await authenticate.admin(request);
   const saleId = Number(params.id);
   const formData = await request.formData();
@@ -475,28 +490,6 @@ function getLogResourceTitle(log, useVariantLogLinks) {
   return log.productTitle || "Product";
 }
 
-function getEstimatedProcessingProgress(sale, baseProgress) {
-  const normalizedStatus = normalizeSaleStatus(sale.status);
-  if (
-    normalizedStatus !== SALE_STATUS.APPLYING &&
-    normalizedStatus !== SALE_STATUS.CANCELING
-  ) {
-    return baseProgress;
-  }
-
-  const startedAt =
-    sale.executionSummary?.processingStartedAt ||
-    sale.executionSummary?.rollbackStartedAt ||
-    sale.startedAt ||
-    sale.updatedAt ||
-    sale.createdAt;
-  const startedMs = new Date(startedAt || "").getTime();
-  if (!Number.isFinite(startedMs)) return Math.max(baseProgress, 1);
-
-  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - startedMs) / 1000));
-  return Math.min(99, Math.max(baseProgress, elapsedSeconds));
-}
-
 function DetailRow({ label, value, children }) {
   return (
     <Box paddingBlock="400" borderBlockEndWidth="025" borderColor="border">
@@ -524,6 +517,11 @@ function DetailRow({ label, value, children }) {
 }
 
 export default function SaleDetailsPage() {
+  const params = useParams();
+  return isNewSaleRoute(params) ? <NewSalePage /> : <SaleDetailsContent />;
+}
+
+function SaleDetailsContent() {
   const { sale, shop, shopCurrency } = useLoaderData();
   const navigate = useNavigate();
   const actionFetcher = useFetcher();
@@ -532,7 +530,6 @@ export default function SaleDetailsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [rollbackConfirmOpen, setRollbackConfirmOpen] = useState(false);
   const [optimisticRollbackStartedAt, setOptimisticRollbackStartedAt] = useState("");
-  const [progressTick, setProgressTick] = useState(0);
   const logs = useMemo(() => getVisibleSaleLogs(sale), [sale]);
   const filteredLogs = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
@@ -567,11 +564,8 @@ export default function SaleDetailsPage() {
         },
       }
     : sale;
-  const rawProgress = getSaleProgressValue(visibleSale);
   const statusDisplay = getSaleStatusDisplay(visibleSale);
   const normalizedStatus = normalizeSaleStatus(visibleSale.status);
-  void progressTick;
-  const progress = getEstimatedProcessingProgress(visibleSale, rawProgress);
   const isCompletedSale = normalizedStatus === SALE_STATUS.COMPLETED;
   const isBusySale = [
     SALE_STATUS.PENDING,
@@ -595,13 +589,6 @@ export default function SaleDetailsPage() {
     const interval = setInterval(() => revalidator.revalidate(), 1000);
     return () => clearInterval(interval);
   }, [revalidator, normalizedStatus]);
-
-  useEffect(() => {
-    if (!statusDisplay.showProgress && !isSubmitting) return undefined;
-
-    const interval = setInterval(() => setProgressTick((tick) => tick + 1), 1000);
-    return () => clearInterval(interval);
-  }, [isSubmitting, statusDisplay.showProgress]);
 
   useEffect(() => {
     if (
@@ -762,15 +749,9 @@ export default function SaleDetailsPage() {
                       {statusDisplay.showProgress ? (
                         <InlineStack gap="150" blockAlign="center" wrap={false}>
                           <Spinner size="small" accessibilityLabel={`${statusDisplay.label} sale`} />
-                          <Text as="span" tone="subdued">
-                            {progress}%
-                          </Text>
                         </InlineStack>
                       ) : null}
                     </InlineStack>
-                    {statusDisplay.showProgress ? (
-                      <ProgressBar progress={progress} size="small" />
-                    ) : null}
                   </BlockStack>
                 </DetailRow>
 
