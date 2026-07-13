@@ -225,18 +225,44 @@ function getRecordId(value) {
   return Number.isInteger(id) && id > 0 ? id : null;
 }
 
-function parseScheduleDate(date, time) {
+function parseScheduleDate(date, time, timezoneOffsetMinutes = null) {
   if (!date || !time) return null;
 
-  const value = new Date(`${date}T${time}:00`);
+  const offset = Number(timezoneOffsetMinutes);
+  const value = Number.isFinite(offset)
+    ? new Date(Date.UTC(...parseDateTimeParts(date, time)) + offset * 60 * 1000)
+    : new Date(`${date}T${time}:00`);
+
   return Number.isNaN(value.getTime()) ? null : value;
+}
+
+function parseDateTimeParts(date, time) {
+  const [year, month, day] = String(date).split("-").map(Number);
+  const [hour, minute] = String(time).split(":").map(Number);
+
+  return [
+    Number.isFinite(year) ? year : 1970,
+    Number.isFinite(month) ? month - 1 : 0,
+    Number.isFinite(day) ? day : 1,
+    Number.isFinite(hour) ? hour : 0,
+    Number.isFinite(minute) ? minute : 0,
+    0,
+  ];
 }
 
 function buildSaleData(shop, title, payload) {
   const form = payload.form || {};
-  const startAt = parseScheduleDate(form.startDate, form.startTime);
+  const startAt = parseScheduleDate(
+    form.startDate,
+    form.startTime,
+    form.timezoneOffsetMinutes,
+  );
   const endAt = form.setEndDate
-    ? parseScheduleDate(form.endDate, form.endTime)
+    ? parseScheduleDate(
+        form.endDate,
+        form.endTime,
+        form.timezoneOffsetMinutes,
+      )
     : null;
 
   return {
@@ -1214,6 +1240,25 @@ function SaleRoundingFields({
   );
 }
 
+function getLocalDateInputValue(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function getLocalTimeInputValue(date = new Date()) {
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+
+  return `${hours}:${minutes}`;
+}
+
+function addHours(date, hours) {
+  return new Date(date.getTime() + hours * 60 * 60 * 1000);
+}
+
 export default function NewSalePage() {
   const {
     markets = [],
@@ -1227,7 +1272,9 @@ export default function NewSalePage() {
   const actionData = useActionData();
   const navigation = useNavigation();
   const isSubmitting = navigation.state !== "idle";
-  const today = new Date().toISOString().slice(0, 10);
+  const now = useMemo(() => new Date(), []);
+  const defaultEndAt = useMemo(() => addHours(now, 1), [now]);
+  const today = getLocalDateInputValue(now);
   const initialPayload = sale?.configuration || {};
   const initialForm = initialPayload.form || {};
   const marketOptions = useMemo(
@@ -1271,10 +1318,19 @@ export default function NewSalePage() {
       initialForm.excludeDiscounted || sale?.discountedScope || "nothing",
 
     startDate: initialForm.startDate || sale?.schedule?.startDate || today,
-    startTime: initialForm.startTime || sale?.schedule?.startTime || "09:00",
+    startTime:
+      initialForm.startTime ||
+      sale?.schedule?.startTime ||
+      getLocalTimeInputValue(now),
     setEndDate: Boolean(initialForm.setEndDate ?? sale?.schedule?.setEndDate),
-    endDate: initialForm.endDate || sale?.schedule?.endDate || today,
-    endTime: initialForm.endTime || sale?.schedule?.endTime || "18:00",
+    endDate:
+      initialForm.endDate ||
+      sale?.schedule?.endDate ||
+      getLocalDateInputValue(defaultEndAt),
+    endTime:
+      initialForm.endTime ||
+      sale?.schedule?.endTime ||
+      getLocalTimeInputValue(defaultEndAt),
 
     addTagsEnabled: Boolean(initialForm.addTagsEnabled ?? sale?.addTagsEnabled),
     removeTagsEnabled: Boolean(
@@ -1578,7 +1634,10 @@ export default function NewSalePage() {
     }
 
     formData.set("payload", JSON.stringify({
-      form,
+      form: {
+        ...form,
+        timezoneOffsetMinutes: new Date().getTimezoneOffset(),
+      },
       selectedMarketDetails,
       applyCollections,
       applyProducts,
