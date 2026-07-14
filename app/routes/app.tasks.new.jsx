@@ -3047,7 +3047,7 @@ function RoundingFields({ prefix, initialRounding = {} }) {
 function PriceChangeFields({
   fieldPrefix,
   actionOptions,
-  defaultAction = "",
+  defaultAction = "increase",
   showRelative = false,
   relativeOptions = priceRelativeOptions,
   currency = "USD",
@@ -3471,7 +3471,7 @@ export default function NewTaskPage() {
                   <PriceChangeFields
                     fieldPrefix="price"
                     actionOptions={priceActionOptions}
-                    defaultAction=""
+                    defaultAction="increase"
                     showRelative
                     relativeOptions={priceRelativeOptions}
                     currency={shopCurrency}
