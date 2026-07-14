@@ -310,10 +310,6 @@ function formatDate(value) {
   });
 }
 
-function getResourceTitles(items = []) {
-  return items.map((item) => item.title || item.name || item.label).filter(Boolean);
-}
-
 function formatScopeSummary(scope, resources = {}) {
   const normalized = String(scope || "").toLowerCase();
 

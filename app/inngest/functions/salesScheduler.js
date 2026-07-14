@@ -173,7 +173,7 @@ function shouldTrackSaleCondition(sale) {
 
 async function activateSale(sale) {
   try {
-    await db.sale.updateMany({
+    const claimed = await db.sale.updateMany({
       where: {
         id: sale.id,
         shop: sale.shop,
@@ -188,6 +188,16 @@ async function activateSale(sale) {
         },
       },
     });
+
+    if (claimed.count === 0) {
+      return {
+        ok: true,
+        saleId: sale.id,
+        action: "activate",
+        skipped: true,
+        reason: "Sale was already claimed or is no longer scheduled.",
+      };
+    }
 
     const { admin } = await unauthenticated.admin(sale.shop);
     const executionSummary = await executeSaleRecord(admin, sale);
@@ -221,6 +231,7 @@ async function activateSale(sale) {
       where: {
         id: sale.id,
         shop: sale.shop,
+        status: SALE_STATUS.APPLYING,
       },
       data: {
         status: SALE_STATUS.FAILED,
@@ -254,7 +265,7 @@ async function endSale(sale) {
       };
     }
 
-    await db.sale.updateMany({
+    const claimed = await db.sale.updateMany({
       where: {
         id: sale.id,
         shop: sale.shop,
@@ -269,6 +280,16 @@ async function endSale(sale) {
         },
       },
     });
+
+    if (claimed.count === 0) {
+      return {
+        ok: true,
+        saleId: sale.id,
+        action: "end",
+        skipped: true,
+        reason: "Sale was already claimed or is no longer active.",
+      };
+    }
 
     const { admin } = await unauthenticated.admin(sale.shop);
     const ended = await endSaleRecord(admin, sale);
@@ -302,6 +323,7 @@ async function endSale(sale) {
       where: {
         id: sale.id,
         shop: sale.shop,
+        status: SALE_STATUS.CANCELING,
       },
       data: {
         status: SALE_STATUS.FAILED,
@@ -336,7 +358,7 @@ async function trackSaleCondition(sale) {
   runningConditionSaleIds.add(sale.id);
 
   try {
-    await db.sale.updateMany({
+    const claimed = await db.sale.updateMany({
       where: {
         id: sale.id,
         shop: sale.shop,
@@ -352,6 +374,16 @@ async function trackSaleCondition(sale) {
       },
     });
 
+    if (claimed.count === 0) {
+      return {
+        ok: true,
+        saleId: sale.id,
+        action: "track_condition",
+        skipped: true,
+        reason: "Sale condition tracking was already claimed or is no longer active.",
+      };
+    }
+
     const { admin } = await unauthenticated.admin(sale.shop);
     const tracked = await executeSaleConditionChangeRecord(admin, sale, {
       reapplyExisting: Boolean(sale.autoReapplyChanges),
@@ -366,7 +398,7 @@ async function trackSaleCondition(sale) {
         status: SALE_STATUS.CHECKING_CHANGES,
       },
       data: {
-        status: SALE_STATUS.COMPLETED,
+        status: normalizeSchedulerActiveStatus(sale.status),
         configuration: {
           ...(sale.configuration || {}),
           track_condition_changes_last_run_at: now,
@@ -410,9 +442,10 @@ async function trackSaleCondition(sale) {
       where: {
         id: sale.id,
         shop: sale.shop,
+        status: SALE_STATUS.CHECKING_CHANGES,
       },
       data: {
-        status: SALE_STATUS.COMPLETED,
+        status: normalizeSchedulerActiveStatus(sale.status),
         configuration: {
           ...(sale.configuration || {}),
           track_condition_changes_last_run_at: now,
@@ -420,6 +453,7 @@ async function trackSaleCondition(sale) {
         executionSummary: {
           ...(sale.executionSummary || {}),
           progress: 100,
+          status: "Condition check failed",
           trackConditionLastRunAt: now,
           trackConditionLastResult: {
             ok: false,
@@ -453,4 +487,8 @@ function isSaleEndDue(sale, now = new Date()) {
   if (Number.isNaN(endAt.getTime())) return false;
 
   return endAt <= now;
+}
+
+function normalizeSchedulerActiveStatus(status) {
+  return status === "active" ? "active" : SALE_STATUS.COMPLETED;
 }

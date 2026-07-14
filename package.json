@@ -18,8 +18,7 @@
     "shopify": "shopify",
     "prisma": "prisma",
     "graphql-codegen": "graphql-codegen",
-    "vite": "vite",
-    "auto-reapply": "tsx app/cron/auto-reapply.server.js"
+    "vite": "vite"
   },
   "type": "module",
   "engines": {
