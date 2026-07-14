@@ -16,6 +16,7 @@ const SALE_VARIANTS_QUERY = `#graphql
       nodes {
         id
         title
+        sku
         price
         compareAtPrice
         product {
@@ -39,6 +40,7 @@ const SALE_NODES_QUERY = `#graphql
       ... on ProductVariant {
         id
         title
+        sku
         price
         compareAtPrice
         product {
@@ -57,6 +59,7 @@ const SALE_NODES_QUERY = `#graphql
           nodes {
             id
             title
+            sku
             price
             compareAtPrice
             product {
@@ -80,6 +83,7 @@ const SALE_NODES_QUERY = `#graphql
               nodes {
                 id
                 title
+                sku
                 price
                 compareAtPrice
                 product {
@@ -104,6 +108,7 @@ const SALE_PRODUCT_VARIANTS_FOR_PRODUCT_QUERY = `#graphql
         nodes {
           id
           title
+          sku
           price
           compareAtPrice
           product {
@@ -966,6 +971,7 @@ function buildSaleVariantLog(variant, update, status = "Applied") {
     productId,
     productTitle: variant.product?.title || "Product",
     variantTitle: variant.title || "",
+    variantSku: variant.sku || "",
     changes,
     status,
   };

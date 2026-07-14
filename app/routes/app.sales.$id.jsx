@@ -5,6 +5,7 @@ import {
   useNavigate,
   useParams,
   useRevalidator,
+  useSearchParams,
 } from "@remix-run/react";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -13,7 +14,6 @@ import {
   BlockStack,
   Box,
   Button,
-  ButtonGroup,
   Card,
   IndexTable,
   InlineStack,
@@ -42,7 +42,6 @@ import {
 } from "../lib/sale-status";
 import {
   generateProductReport,
-  getLatestReportUrl,
 } from "../lib/product-reports.server";
 import {
   normalizeShop,
@@ -74,7 +73,6 @@ export const loader = async ({ request, params }) => {
 
   const { session } = await authenticate.admin(request);
   const flashSession = await getFlashSession(request);
-  const shop = normalizeShop(session.shop);
   const saleId = Number(params.id);
 
   if (!Number.isInteger(saleId) || saleId <= 0) {
@@ -104,8 +102,6 @@ export const loader = async ({ request, params }) => {
     sale,
     shop: session.shop,
     shopCurrency,
-    latestMarginReportUrl: await getLatestReportUrl(shop, REPORT_TYPES.margin),
-    latestDiscountReportUrl: await getLatestReportUrl(shop, REPORT_TYPES.discount),
     toastMessage: flashSession.get("toast") || "",
   }, {
     headers: {
@@ -519,6 +515,54 @@ function getVisibleSaleLogs(sale) {
   return Array.from(groupedLogs.values());
 }
 
+function getSaleAppliedAt(sale) {
+  return (
+    sale.executionSummary?.processingCompletedAt ||
+    sale.executionSummary?.completedAt ||
+    sale.completedAt ||
+    sale.startedAt ||
+    sale.createdAt ||
+    ""
+  );
+}
+
+function getSaleProductDetails(sale, productId, shop) {
+  const selectedProductId = getShopifyNumericId(productId);
+  if (!selectedProductId) return null;
+
+  const productLogs = getSaleLogs(sale).filter(
+    (log) => getShopifyNumericId(log.productId) === selectedProductId,
+  );
+
+  if (!productLogs.length) return null;
+
+  const firstLog = productLogs[0];
+
+  return {
+    productId: firstLog.productId,
+    productTitle: firstLog.productTitle || "Product",
+    adminUrl: getAdminProductUrl(shop, firstLog.productId),
+    appliedAt: getSaleAppliedAt(sale),
+    status: mergeLogStatus("", productLogs.map((log) => log.status).join(" ")),
+    variants: productLogs.map((log, index) => ({
+      rowId: log.variantId || `${firstLog.productId}-${index}`,
+      variantId: log.variantId,
+      title: log.variantTitle || "Default Title",
+      sku: log.variantSku || log.sku || "-",
+      changes: log.changes?.length ? log.changes : ["No changes recorded"],
+      adminUrl: getAdminVariantUrl(shop, log.productId, log.variantId),
+      status: log.status || "Applied",
+    })),
+  };
+}
+
+function getVisibleChangeLines(changes = [], limit = 2) {
+  const visible = changes.slice(0, limit);
+  const hiddenCount = Math.max(changes.length - visible.length, 0);
+
+  return hiddenCount ? [...visible, `and ${hiddenCount} more`] : visible;
+}
+
 function getShopifyNumericId(id) {
   const match = String(id || "").match(/(\d+)$/);
   return match ? match[1] : "";
@@ -679,56 +723,6 @@ function DetailRow({ label, value, children }) {
   );
 }
 
-function ReportCard({
-  title,
-  description,
-  generateIntent,
-  latestReportUrl,
-  onReportGenerated,
-  onMessage,
-}) {
-  const fetcher = useFetcher();
-  const isGenerating = fetcher.state !== "idle";
-  const currentReportUrl = fetcher.data?.latestReportUrl || latestReportUrl;
-
-  useEffect(() => {
-    if (fetcher.data?.message) {
-      onMessage(fetcher.data.message);
-    }
-
-    if (fetcher.data?.latestReportUrl) {
-      onReportGenerated(fetcher.data.latestReportUrl);
-    }
-  }, [fetcher.data, onMessage, onReportGenerated]);
-
-  return (
-    <Card>
-      <BlockStack gap="400">
-        <Text as="h2" variant="headingMd">
-          {title}
-        </Text>
-
-        <Text as="p" tone="subdued">
-          {description}
-        </Text>
-
-        <ButtonGroup>
-          <fetcher.Form method="post">
-            <input type="hidden" name="intent" value={generateIntent} />
-            <Button submit loading={isGenerating} disabled={isGenerating}>
-              Generate report
-            </Button>
-          </fetcher.Form>
-
-          <Button url={currentReportUrl || undefined} disabled={!currentReportUrl}>
-            View latest report
-          </Button>
-        </ButtonGroup>
-      </BlockStack>
-    </Card>
-  );
-}
-
 export default function SaleDetailsPage() {
   const params = useParams();
   return isNewSaleRoute(params) ? <NewSalePage /> : <SaleDetailsContent />;
@@ -742,27 +736,121 @@ function CompactSpinner({ label }) {
   );
 }
 
+function SaleProductDetailsView({ sale, productDetails, navigate }) {
+  const statusLabel = productDetails?.status || "Applied";
+
+  return (
+    <Page
+      title="Price change details"
+      titleMetadata={<Badge tone="success">{statusLabel}</Badge>}
+      backAction={{
+        content: "Sale details",
+        onAction: () => navigate(`/app/sales/${sale.id}`),
+      }}
+    >
+      <TitleBar title="Price change details" />
+
+      <Layout>
+        <Layout.Section>
+          <BlockStack gap="400">
+            <Card>
+              <DetailRow label="Product">
+                {productDetails?.adminUrl ? (
+                  <a
+                    href={productDetails.adminUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    {productDetails.productTitle}
+                  </a>
+                ) : (
+                  <Text as="p">{productDetails?.productTitle || "-"}</Text>
+                )}
+              </DetailRow>
+
+              <DetailRow label="Applied" value={formatDate(productDetails?.appliedAt)} />
+            </Card>
+
+            <Card padding="0">
+              <Box padding="400">
+                <Text as="h2" variant="headingMd">
+                  Variants
+                </Text>
+              </Box>
+
+              <IndexTable
+                resourceName={{ singular: "variant", plural: "variants" }}
+                itemCount={productDetails?.variants?.length || 0}
+                selectable={false}
+                headings={[
+                  { title: "Title" },
+                  { title: "SKU" },
+                  { title: "Changes" },
+                ]}
+              >
+                {(productDetails?.variants || []).map((variant, index) => (
+                  <IndexTable.Row
+                    id={`${variant.rowId || index}`}
+                    key={`${variant.rowId || index}`}
+                    position={index}
+                  >
+                    <IndexTable.Cell>
+                      {variant.adminUrl ? (
+                        <a
+                          href={variant.adminUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          {variant.title}
+                        </a>
+                      ) : (
+                        <Text as="span">{variant.title}</Text>
+                      )}
+                    </IndexTable.Cell>
+                    <IndexTable.Cell>
+                      <Text as="span">{variant.sku || "-"}</Text>
+                    </IndexTable.Cell>
+                    <IndexTable.Cell>
+                      <BlockStack gap="100">
+                        {(variant.changes || []).map((change) => (
+                          <Text as="span" key={change}>
+                            {change}
+                          </Text>
+                        ))}
+                      </BlockStack>
+                    </IndexTable.Cell>
+                  </IndexTable.Row>
+                ))}
+              </IndexTable>
+            </Card>
+          </BlockStack>
+        </Layout.Section>
+      </Layout>
+    </Page>
+  );
+}
+
 function SaleDetailsContent() {
   const {
     sale,
     shop,
     shopCurrency,
-    latestMarginReportUrl,
-    latestDiscountReportUrl,
     toastMessage,
   } = useLoaderData();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const actionFetcher = useFetcher();
   const revalidator = useRevalidator();
   const [toast, setToast] = useState("");
-  const [marginReportUrl, setMarginReportUrl] = useState(latestMarginReportUrl);
-  const [discountReportUrl, setDiscountReportUrl] = useState(
-    latestDiscountReportUrl,
-  );
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [rollbackConfirmOpen, setRollbackConfirmOpen] = useState(false);
   const [optimisticRollbackStartedAt, setOptimisticRollbackStartedAt] = useState("");
+  const selectedProductId = getShopifyNumericId(searchParams.get("productId"));
+  const productDetails = useMemo(
+    () => getSaleProductDetails(sale, selectedProductId, shop),
+    [sale, selectedProductId, shop],
+  );
 
   useEffect(() => {
     if (toastMessage) {
@@ -870,6 +958,16 @@ function SaleDetailsContent() {
     formData.set("intent", intent);
     actionFetcher.submit(formData, { method: "post" });
   };
+
+  if (selectedProductId) {
+    return (
+      <SaleProductDetailsView
+        sale={sale}
+        productDetails={productDetails}
+        navigate={navigate}
+      />
+    );
+  }
 
   return (
     <>
@@ -1077,6 +1175,7 @@ function SaleDetailsContent() {
                       { title: "Product" },
                       { title: "Changes" },
                       { title: "Status" },
+                      { title: "" },
                     ]}
                   >
                     {paginatedLogs.map((log, index) => {
@@ -1107,7 +1206,7 @@ function SaleDetailsContent() {
                           </IndexTable.Cell>
                         <IndexTable.Cell>
                           <BlockStack gap="100">
-                            {(log.changes || []).map((change) => (
+                            {getVisibleChangeLines(log.changes || []).map((change) => (
                               <Text as="span" key={change}>
                                 {change}
                               </Text>
@@ -1116,6 +1215,19 @@ function SaleDetailsContent() {
                         </IndexTable.Cell>
                         <IndexTable.Cell>
                           <Badge tone="success">{log.status || "Applied"}</Badge>
+                        </IndexTable.Cell>
+                        <IndexTable.Cell>
+                          <Button
+                            size="slim"
+                            disabled={!log.productId}
+                            url={
+                              log.productId
+                                ? `/app/sales/${sale.id}?productId=${getShopifyNumericId(log.productId)}`
+                                : undefined
+                            }
+                          >
+                            Details
+                          </Button>
                         </IndexTable.Cell>
                       </IndexTable.Row>
                       );
