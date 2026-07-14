@@ -9,16 +9,17 @@ name = "Bulk Price Editor"
 api_version = "2026-07"
 
   [[webhooks.subscriptions]]
-  uri = "/webhooks/app/uninstalled"
-  topics = [ "app/uninstalled" ]
-
-  [[webhooks.subscriptions]]
-  uri = "/webhooks/app/scopes_update"
+  uri = "https://bulk-price-editor-lz64.vercel.app/webhooks"
   topics = [ "app/scopes_update" ]
 
   [[webhooks.subscriptions]]
-  uri = "https://bulk-price-editor-lz64.vercel.app/webhooks/privacy"
-  compliance_topics = [ "customers/data_request", "customers/redact", "shop/redact" ]
+  uri = "https://bulk-price-editor-lz64.vercel.app/webhooks"
+  topics = [ "app/uninstalled" ]
+
+[webhooks.privacy_compliance]
+customers_redact_url = "https://bulk-price-editor-lz64.vercel.app/webhooks"
+customers_data_request_url = "https://bulk-price-editor-lz64.vercel.app/webhooks"
+shop_redact_url = "https://bulk-price-editor-lz64.vercel.app/webhooks"
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
