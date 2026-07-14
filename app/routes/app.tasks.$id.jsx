@@ -109,6 +109,18 @@ export const loader = async ({ request, params }) => {
   const selectedExcludeCollections = isCollectionScope(task, "exclude")
     ? await getSelectedCollectionDetails(admin, task, shopifyStoreHandle, "exclude")
     : [];
+  const selectedApplyProducts = await getSelectedProductDetails(
+    admin,
+    task,
+    shopifyStoreHandle,
+    "apply",
+  );
+  const selectedExcludeProducts = await getSelectedProductDetails(
+    admin,
+    task,
+    shopifyStoreHandle,
+    "exclude",
+  );
 
   return json({
     task,
@@ -118,6 +130,8 @@ export const loader = async ({ request, params }) => {
     selectedCollections: selectedApplyCollections,
     selectedApplyCollections,
     selectedExcludeCollections,
+    selectedApplyProducts,
+    selectedExcludeProducts,
     productDetails: selectedProductId
       ? getProductDetails(
         task,
@@ -1068,6 +1082,26 @@ function getCollectionRecordGid(record) {
   return collectionId ? `gid://shopify/Collection/${collectionId}` : "";
 }
 
+function getProductRecordGid(record) {
+  const rawValue =
+    typeof record === "object" && record
+      ? record.productGid ||
+      record.gid ||
+      record.admin_graphql_api_id ||
+      record.resourceId ||
+      record.targetId ||
+      record.value ||
+      record.productId ||
+      record.id
+      : record;
+
+  const stringValue = String(rawValue || "");
+  if (stringValue.includes("gid://shopify/Product/")) return stringValue;
+
+  const productId = getShopifyNumericId(rawValue);
+  return productId ? `gid://shopify/Product/${productId}` : "";
+}
+
 function getCollectionRecordHandle(record) {
   if (!record || typeof record !== "object") return "";
 
@@ -1385,6 +1419,102 @@ async function getSelectedCollectionDetails(admin, task, shopifyStoreHandle, pre
 
     return hasRealTitle;
   });
+}
+
+async function getSelectedProductDetails(admin, task, shopifyStoreHandle, prefix = "apply") {
+  const records = getSelectedResourceRecords(task, prefix, "product");
+
+  if (!records.length) return [];
+
+  const productMap = new Map();
+
+  records.forEach((record, index) => {
+    const source =
+      typeof record === "object" && record !== null
+        ? record
+        : { id: record };
+    const productId = getShopifyNumericId(source.productId || source.gid || source.id);
+    const gid = getProductRecordGid(record);
+    const key = gid || productId || source.title || `product-${index}`;
+
+    if (!productMap.has(key)) {
+      productMap.set(key, {
+        ...source,
+        key,
+        id: productId,
+        gid,
+        title: source.title || source.productTitle || "",
+        handle: source.handle || "",
+        adminUrl: getProductAdminUrl(shopifyStoreHandle, productId),
+      });
+    }
+  });
+
+  const idsToFetch = Array.from(
+    new Set(
+      Array.from(productMap.values())
+        .filter((product) => product.gid)
+        .map((product) => product.gid),
+    ),
+  );
+
+  if (idsToFetch.length && admin?.graphql) {
+    try {
+      const response = await admin.graphql(
+        `#graphql
+        query SelectedProducts($ids: [ID!]!) {
+          nodes(ids: $ids) {
+            ... on Product {
+              id
+              title
+              handle
+              legacyResourceId
+            }
+          }
+        }`,
+        { variables: { ids: idsToFetch } },
+      );
+      const payload = await response.json();
+      const nodes = payload?.data?.nodes || [];
+
+      nodes.forEach((node) => {
+        if (!node?.id) return;
+
+        const productId = getShopifyNumericId(node.legacyResourceId || node.id);
+        const gidKey = node.id;
+        const numericKey = productId;
+        const current =
+          productMap.get(gidKey) ||
+          productMap.get(numericKey) ||
+          productMap.get(`gid://shopify/Product/${productId}`) ||
+          {};
+
+        productMap.set(gidKey, {
+          ...current,
+          key: gidKey,
+          id: productId,
+          gid: node.id,
+          title: node.title || current.title || `Product ${productId}`,
+          handle: node.handle || current.handle || "",
+          adminUrl: getProductAdminUrl(shopifyStoreHandle, productId),
+        });
+
+        if (numericKey && productMap.has(numericKey)) {
+          productMap.delete(numericKey);
+        }
+        const generatedGid = `gid://shopify/Product/${productId}`;
+        if (generatedGid !== gidKey && productMap.has(generatedGid)) {
+          productMap.delete(generatedGid);
+        }
+      });
+    } catch (error) {
+      console.error("Failed to load selected product details:", error);
+    }
+  }
+
+  return Array.from(productMap.values()).filter(
+    (product) => product.id || product.gid || product.title,
+  );
 }
 
 function AdminLink({ url, children }) {
@@ -2072,6 +2202,29 @@ function ResourceList({ records, type, shopifyStoreHandle }) {
                 ? getVariantAdminUrl(shopifyStoreHandle, productId, variantId)
                 : "";
 
+        if (type === "product") {
+          return (
+            <BlockStack
+              gap="050"
+              key={`${type}-${item.id || item.gid || item.title || index}`}
+            >
+              <Text as="p" fontWeight="regular">
+                <AdminLink url={url}>
+                  {item.title || item.handle || `Product ${productId || ""}`.trim()}
+                </AdminLink>
+              </Text>
+              <Text as="p" tone="subdued">
+                Product ID: {productId || "-"}
+              </Text>
+              {url ? (
+                <Text as="p" fontWeight="regular">
+                  <AdminLink url={url}>Open in Shopify Admin</AdminLink>
+                </Text>
+              ) : null}
+            </BlockStack>
+          );
+        }
+
         return (
           <Text as="p" fontWeight="regular" key={`${type}-${item.id || item.title || index}`}>
             <AdminLink url={url}>{label}</AdminLink>
@@ -2087,6 +2240,7 @@ function SelectionDetails({
   prefix,
   scope,
   selectedCollections,
+  selectedProducts,
   shopifyStoreHandle,
 }) {
   const collections = getSelectedResourceRecords(
@@ -2095,7 +2249,9 @@ function SelectionDetails({
     "collection",
     selectedCollections,
   );
-  const products = getSelectedResourceRecords(task, prefix, "product");
+  const products = selectedProducts?.length
+    ? selectedProducts
+    : getSelectedResourceRecords(task, prefix, "product");
   const variants = getSelectedResourceRecords(task, prefix, "variant");
   const tags = getSelectedResourceRecords(task, prefix, "tag");
   const hasSelections =
@@ -2248,6 +2404,8 @@ export default function TaskDetailsPage() {
     productDetails,
     selectedApplyCollections,
     selectedExcludeCollections,
+    selectedApplyProducts,
+    selectedExcludeProducts,
     shopCurrency,
     toastMessage,
   } = useLoaderData();
@@ -2522,6 +2680,7 @@ export default function TaskDetailsPage() {
                     prefix="apply"
                     scope={task.applyScope}
                     selectedCollections={selectedCollections}
+                    selectedProducts={selectedApplyProducts || []}
                     shopifyStoreHandle={shopifyStoreHandle}
                   />
                 </DetailRow>
@@ -2532,6 +2691,7 @@ export default function TaskDetailsPage() {
                     prefix="exclude"
                     scope={task.excludeScope}
                     selectedCollections={selectedExcludeCollections || []}
+                    selectedProducts={selectedExcludeProducts || []}
                     shopifyStoreHandle={shopifyStoreHandle}
                   />
                 </DetailRow>
