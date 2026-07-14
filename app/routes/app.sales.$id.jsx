@@ -921,30 +921,6 @@ function SaleDetailsContent() {
                 <Banner tone="critical">{processFetcher.data.error}</Banner>
               ) : null}
 
-              <Layout>
-                <Layout.Section>
-                  <ReportCard
-                    title="View products margin"
-                    description="Analyze gross margins across your catalog. See price, cost, and margin for each variant to identify pricing opportunities."
-                    generateIntent="generate_margin_report"
-                    latestReportUrl={marginReportUrl}
-                    onReportGenerated={setMarginReportUrl}
-                    onMessage={setToast}
-                  />
-                </Layout.Section>
-
-                <Layout.Section>
-                  <ReportCard
-                    title="View products with discount"
-                    description="Find products that still have compare-at prices set - from manual edits or other apps. Review them before running a cleanup task."
-                    generateIntent="generate_discount_report"
-                    latestReportUrl={discountReportUrl}
-                    onReportGenerated={setDiscountReportUrl}
-                    onMessage={setToast}
-                  />
-                </Layout.Section>
-              </Layout>
-
               <Card>
                 <DetailRow label="Changes">
                   <BlockStack gap="300">
