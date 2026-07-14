@@ -84,10 +84,32 @@ export function getSaleProgressValue(sale) {
     .map((value) => Number(value))
     .find((value) => Number.isFinite(value));
 
-  if (Number.isFinite(progress)) return clampSaleProgress(progress);
-  if (normalizeSaleStatus(sale?.status) === SALE_STATUS.COMPLETED) return 100;
-  if (normalizeSaleStatus(sale?.status) === SALE_STATUS.CANCELED) return 100;
+  const status = normalizeSaleStatus(sale?.status);
+
+  if (Number.isFinite(progress)) {
+    const clampedProgress = clampSaleProgress(progress);
+
+    if (status === SALE_STATUS.CANCELING && clampedProgress < 100) {
+      return Math.max(clampedProgress, getLiveSaleCancelProgress(sale));
+    }
+
+    return clampedProgress;
+  }
+
+  if (status === SALE_STATUS.CANCELING) return getLiveSaleCancelProgress(sale);
+  if (status === SALE_STATUS.COMPLETED) return 100;
+  if (status === SALE_STATUS.CANCELED) return 100;
   return 0;
+}
+
+function getLiveSaleCancelProgress(sale) {
+  const startedAt = Date.parse(sale?.executionSummary?.rollbackStartedAt || "");
+  if (!Number.isFinite(startedAt)) return 1;
+
+  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+  if (elapsedSeconds < 2) return 1;
+
+  return Math.min(90, Math.max(10, Math.floor(elapsedSeconds / 2) * 10));
 }
 
 export function getSaleStatusDisplay(sale) {

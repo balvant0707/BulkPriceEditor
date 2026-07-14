@@ -38,6 +38,7 @@ import db from "../db.server";
 import { authenticate } from "../shopify.server";
 import { endSaleRecord } from "../lib/sales.server";
 import { withShopifyEmbeddedParams } from "../lib/shopify-embedded-url";
+import { commitFlashSession, getFlashSession } from "../lib/flash.server";
 import {
   canDeleteSale,
   canProcessSale,
@@ -66,15 +67,24 @@ const confirmationModalContentStyle = {
 
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
+  const flashSession = await getFlashSession(request);
   const sales = await db.sale.findMany({
     where: { shop: session.shop },
     orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
     take: 250,
   });
 
-  return json({
-    sales,
-  });
+  return json(
+    {
+      sales,
+      toastMessage: flashSession.get("toast") || "",
+    },
+    {
+      headers: {
+        "Set-Cookie": await commitFlashSession(flashSession),
+      },
+    },
+  );
 };
 
 export const action = async ({ request }) => {
@@ -381,7 +391,7 @@ function saleMatchesSearch(sale, query) {
 }
 
 export default function SalesPage() {
-  const { sales } = useLoaderData();
+  const { sales, toastMessage } = useLoaderData();
   const location = useLocation();
   const navigate = useNavigate();
   const navigation = useNavigation();
@@ -434,6 +444,12 @@ export default function SalesPage() {
   const currentPage = Math.min(Math.max(pageParam, 1), totalPages);
   const startIndex = (currentPage - 1) * PAGE_SIZE;
   const paginatedSales = filteredSales.slice(startIndex, startIndex + PAGE_SIZE);
+
+  useEffect(() => {
+    if (toastMessage) {
+      setToast(toastMessage);
+    }
+  }, [toastMessage]);
 
   useEffect(() => {
     const params = new URLSearchParams(searchParams);

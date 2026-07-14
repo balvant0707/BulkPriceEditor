@@ -533,6 +533,73 @@ function getExecutionProgress(task) {
   return 0;
 }
 
+function getTaskProgressStartedAt(task) {
+  return (
+    task.executionSummary?.processingStartedAt ||
+    task.executionSummary?.startedAt ||
+    task.startedAt ||
+    task.createdAt ||
+    ""
+  );
+}
+
+function getLiveApplyingProgress(task, currentProgress, nowMs) {
+  const progress = Math.max(0, Math.min(100, Math.round(Number(currentProgress) || 0)));
+
+  if (!isTaskProcessing(task) || progress >= 100) {
+    return progress;
+  }
+
+  const startedAt = Date.parse(getTaskProgressStartedAt(task));
+  if (!Number.isFinite(startedAt)) {
+    return progress;
+  }
+
+  const elapsedSeconds = Math.max(0, Math.floor((nowMs - startedAt) / 1000));
+  if (elapsedSeconds < 2) {
+    return Math.max(progress, 1);
+  }
+
+  const elapsedStep = Math.min(90, Math.floor(elapsedSeconds / 2) * 10);
+  const liveProgress = Math.max(10, elapsedStep);
+
+  return Math.max(progress, Math.min(90, liveProgress));
+}
+
+function getTaskRollbackStartedAt(task) {
+  return (
+    task.executionSummary?.rollback?.startedAt ||
+    task.executionSummary?.rollbackSummary?.startedAt ||
+    task.executionSummary?.rollbackStartedAt ||
+    task.rollback?.startedAt ||
+    task.rollbackSummary?.startedAt ||
+    ""
+  );
+}
+
+function getLiveCancellingProgress(task, currentProgress, nowMs) {
+  const progress = Math.max(0, Math.min(100, Math.round(Number(currentProgress) || 0)));
+
+  if (progress >= 100) {
+    return 100;
+  }
+
+  const startedAt = Date.parse(getTaskRollbackStartedAt(task));
+  if (!Number.isFinite(startedAt)) {
+    return Math.max(progress, 1);
+  }
+
+  const elapsedSeconds = Math.max(0, Math.floor((nowMs - startedAt) / 1000));
+  if (elapsedSeconds < 2) {
+    return Math.max(progress, 1);
+  }
+
+  const elapsedStep = Math.min(90, Math.floor(elapsedSeconds / 2) * 10);
+  const liveProgress = Math.max(10, elapsedStep);
+
+  return Math.max(progress, Math.min(90, liveProgress));
+}
+
 function getTaskCompletedValue(task) {
   return (
     task.completedAt ||
@@ -2443,6 +2510,7 @@ export default function TaskDetailsPage() {
 
   const [rollbackModalOpen, setRollbackModalOpen] = useState(false);
   const [clientRollbackStarted, setClientRollbackStarted] = useState(false);
+  const [progressNowMs, setProgressNowMs] = useState(() => Date.now());
 
   useEffect(() => {
     if (toastMessage) {
@@ -2485,8 +2553,29 @@ export default function TaskDetailsPage() {
         }
         : baseStatusDisplay;
 
-  const statusTone = getStatusToneFromDisplay(statusDisplay);
-  const logStatusLabel = getLogStatusLabel(task, statusDisplay, rollbackState);
+  const visibleStatusDisplay =
+    taskProcessing && statusDisplay.showProgress
+      ? {
+        ...statusDisplay,
+        progress: getLiveApplyingProgress(
+          task,
+          statusDisplay.progress,
+          progressNowMs,
+        ),
+      }
+      : rollbackProcessing && statusDisplay.showProgress
+        ? {
+          ...statusDisplay,
+          progress: getLiveCancellingProgress(
+            task,
+            statusDisplay.progress,
+            progressNowMs,
+          ),
+        }
+      : statusDisplay;
+
+  const statusTone = getStatusToneFromDisplay(visibleStatusDisplay);
+  const logStatusLabel = getLogStatusLabel(task, visibleStatusDisplay, rollbackState);
 
   const logs = useMemo(() => {
     const productLogs = createProductGroups(task, shopifyStoreHandle, shopCurrency);
@@ -2590,9 +2679,12 @@ export default function TaskDetailsPage() {
 
   useEffect(() => {
     if (deleteFetcher.data?.deleted) {
+      if (deleteFetcher.data.message) {
+        shopify.toast.show(deleteFetcher.data.message);
+      }
       navigate("/app/tasks");
     }
-  }, [deleteFetcher.data, navigate]);
+  }, [deleteFetcher.data, navigate, shopify]);
 
   useEffect(() => {
     if (autoReapplyFetcher.data?.disabledAutoReapply) {
@@ -2606,6 +2698,16 @@ export default function TaskDetailsPage() {
       setRollbackModalOpen(false);
     }
   }, [rollbackCompleted, rollbackFailed]);
+
+  useEffect(() => {
+    if (!taskProcessing && !rollbackProcessing) return undefined;
+
+    const timer = setInterval(() => {
+      setProgressNowMs(Date.now());
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [taskProcessing, rollbackProcessing]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -2719,7 +2821,7 @@ export default function TaskDetailsPage() {
 
                 <DetailRow label="Status">
                   <InlineStack gap="200" blockAlign="center" wrap={false}>
-                    <StatusBadge display={statusDisplay} />
+                    <StatusBadge display={visibleStatusDisplay} />
                   </InlineStack>
                 </DetailRow>
 
