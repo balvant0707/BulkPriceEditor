@@ -35,7 +35,7 @@ import {
   isAutoReapplyEnabled,
 } from "../lib/task-auto-reapply";
 
-const LOGS_PER_PAGE = 4;
+const LOGS_PER_PAGE = 10;
 const TASK_EXECUTION_TIMEOUT_MS = 10 * 60 * 1000;
 const POLL_INTERVAL_MS = 500;
 const ACTIVE_TASK_STATUSES = [
