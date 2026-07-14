@@ -3598,7 +3598,7 @@ export default function NewTaskPage() {
                   ) : null}
                 </SectionCard>
 
-                <InlineStack align="end" gap="200">
+                <InlineStack align="end" gap="200" display="none">
                   <Button url="/app" disabled={isSubmitting}>
                     Discard
                   </Button>
