@@ -16,7 +16,6 @@ import {
   BlockStack,
   Box,
   Button,
-  ButtonGroup,
   Card,
   EmptyState,
   FooterHelp,
@@ -39,14 +38,6 @@ import db from "../db.server";
 import { authenticate } from "../shopify.server";
 import { endSaleRecord } from "../lib/sales.server";
 import { withShopifyEmbeddedParams } from "../lib/shopify-embedded-url";
-import {
-  generateProductReport,
-  getLatestReportUrl,
-} from "../lib/product-reports.server";
-import {
-  normalizeShop,
-  REPORT_TYPES,
-} from "../lib/product-reports";
 import {
   canDeleteSale,
   canProcessSale,
@@ -75,7 +66,6 @@ const confirmationModalContentStyle = {
 
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
-  const shop = normalizeShop(session.shop);
   const sales = await db.sale.findMany({
     where: { shop: session.shop },
     orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
@@ -84,46 +74,13 @@ export const loader = async ({ request }) => {
 
   return json({
     sales,
-    latestMarginReportUrl: await getLatestReportUrl(shop, REPORT_TYPES.margin),
-    latestDiscountReportUrl: await getLatestReportUrl(shop, REPORT_TYPES.discount),
   });
 };
 
 export const action = async ({ request }) => {
   const { admin, session } = await authenticate.admin(request);
-  const shop = normalizeShop(session.shop);
   const formData = await request.formData();
   const intent = String(formData.get("intent") || "");
-
-  if (intent === "generate_margin_report") {
-    if (!shop) {
-      return json({ ok: false, message: "Shop is required." }, { status: 400 });
-    }
-
-    const report = await generateProductReport(admin, shop, REPORT_TYPES.margin);
-
-    return json({
-      ok: true,
-      type: REPORT_TYPES.margin,
-      message: `Margin report generated with ${report.totalRows} rows.`,
-      latestReportUrl: report.url,
-    });
-  }
-
-  if (intent === "generate_discount_report") {
-    if (!shop) {
-      return json({ ok: false, message: "Shop is required." }, { status: 400 });
-    }
-
-    const report = await generateProductReport(admin, shop, REPORT_TYPES.discount);
-
-    return json({
-      ok: true,
-      type: REPORT_TYPES.discount,
-      message: `Discount report generated with ${report.totalRows} rows.`,
-      latestReportUrl: report.url,
-    });
-  }
 
   const saleId = Number(formData.get("saleId"));
   if (!Number.isInteger(saleId) || saleId <= 0) {
@@ -386,56 +343,6 @@ function CompactSpinner({ label }) {
   );
 }
 
-function ReportCard({
-  title,
-  description,
-  generateIntent,
-  latestReportUrl,
-  onReportGenerated,
-  onMessage,
-}) {
-  const fetcher = useFetcher();
-  const isGenerating = fetcher.state !== "idle";
-  const currentReportUrl = fetcher.data?.latestReportUrl || latestReportUrl;
-
-  useEffect(() => {
-    if (fetcher.data?.message) {
-      onMessage(fetcher.data.message);
-    }
-
-    if (fetcher.data?.latestReportUrl) {
-      onReportGenerated(fetcher.data.latestReportUrl);
-    }
-  }, [fetcher.data, onMessage, onReportGenerated]);
-
-  return (
-    <Card>
-      <BlockStack gap="400">
-        <Text as="h2" variant="headingMd">
-          {title}
-        </Text>
-
-        <Text as="p" tone="subdued">
-          {description}
-        </Text>
-
-        <ButtonGroup>
-          <fetcher.Form method="post">
-            <input type="hidden" name="intent" value={generateIntent} />
-            <Button submit loading={isGenerating} disabled={isGenerating}>
-              Generate report
-            </Button>
-          </fetcher.Form>
-
-          <Button url={currentReportUrl || undefined} disabled={!currentReportUrl}>
-            View latest report
-          </Button>
-        </ButtonGroup>
-      </BlockStack>
-    </Card>
-  );
-}
-
 function getMarketNames(sale) {
   return (Array.isArray(sale.markets) ? sale.markets : [])
     .map((market) => market.name || market.label)
@@ -474,11 +381,7 @@ function saleMatchesSearch(sale, query) {
 }
 
 export default function SalesPage() {
-  const {
-    sales,
-    latestMarginReportUrl,
-    latestDiscountReportUrl,
-  } = useLoaderData();
+  const { sales } = useLoaderData();
   const location = useLocation();
   const navigate = useNavigate();
   const navigation = useNavigation();
@@ -492,10 +395,6 @@ export default function SalesPage() {
   const [cancelSale, setCancelSale] = useState(null);
   const [optimisticAction, setOptimisticAction] = useState(null);
   const [toast, setToast] = useState("");
-  const [marginReportUrl, setMarginReportUrl] = useState(latestMarginReportUrl);
-  const [discountReportUrl, setDiscountReportUrl] = useState(
-    latestDiscountReportUrl,
-  );
   const previousActionFetcherState = useRef(actionFetcher.state);
 
   const isOpeningNewSale =
@@ -780,28 +679,6 @@ export default function SalesPage() {
         fullWidth
       >
         <Layout>
-          <Layout.Section>
-            <BlockStack gap="400">
-              <ReportCard
-                title="View products margin"
-                description="Analyze gross margins across your catalog. See price, cost, and margin for each variant to identify pricing opportunities."
-                generateIntent="generate_margin_report"
-                latestReportUrl={marginReportUrl}
-                onReportGenerated={setMarginReportUrl}
-                onMessage={setToast}
-              />
-
-              <ReportCard
-                title="View products with discount"
-                description="Find products that still have compare-at prices set - from manual edits or other apps. Review them before running a cleanup task."
-                generateIntent="generate_discount_report"
-                latestReportUrl={discountReportUrl}
-                onReportGenerated={setDiscountReportUrl}
-                onMessage={setToast}
-              />
-            </BlockStack>
-          </Layout.Section>
-
           <Layout.Section>
             {sales.length ? (
               <Card padding="0">
