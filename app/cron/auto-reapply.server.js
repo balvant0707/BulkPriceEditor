@@ -10,6 +10,7 @@ import {
   normalizeDiscountedScope,
   splitVariantsByDiscountedScope,
 } from "../lib/task-discounted-exclusion";
+import { DEFAULT_REPORT_SETTINGS } from "../lib/product-reports";
 import { updateMarketPrices } from "../services/market-pricing.server";
 
 const AUTO_REAPPLY_INTERVAL_MS = 60 * 60 * 1000;
@@ -34,6 +35,7 @@ const TASK_VARIANTS_QUERY = `#graphql
         product {
           id
           title
+          status
           productType
           tags
         }
@@ -63,6 +65,7 @@ const TASK_NODES_QUERY = `#graphql
         product {
           id
           title
+          status
           productType
           tags
         }
@@ -71,6 +74,7 @@ const TASK_NODES_QUERY = `#graphql
         id
         title
         productType
+        status
         tags
         variants(first: 100) {
           nodes {
@@ -87,6 +91,7 @@ const TASK_NODES_QUERY = `#graphql
             product {
               id
               title
+              status
               productType
               tags
             }
@@ -101,6 +106,7 @@ const TASK_NODES_QUERY = `#graphql
             id
             title
             productType
+            status
             tags
             variants(first: 100) {
               nodes {
@@ -117,6 +123,7 @@ const TASK_NODES_QUERY = `#graphql
                 product {
                   id
                   title
+                  status
                   productType
                   tags
                 }
@@ -135,6 +142,7 @@ const TASK_PRODUCT_VARIANTS_FOR_PRODUCT_QUERY = `#graphql
       id
       title
       productType
+      status
       tags
       variants(first: $first, after: $after) {
         nodes {
@@ -151,6 +159,7 @@ const TASK_PRODUCT_VARIANTS_FOR_PRODUCT_QUERY = `#graphql
           product {
             id
             title
+            status
             productType
             tags
           }
@@ -234,7 +243,10 @@ async function executeTask(
   options = {},
 ) {
   try {
-    const targetVariants = await loadTargetVariants(admin, taskData);
+    const targetVariants = filterVariantsByProductStatus(
+      await loadTargetVariants(admin, taskData),
+      taskData,
+    );
     const excludedVariantIds = await loadExcludedVariantIds(admin, taskData);
     await onProgress(25, {
       analyzedVariants: targetVariants.length,
@@ -808,6 +820,25 @@ async function loadVariantsFromTags(admin, tagNames) {
   return variants.slice(0, MAX_TASK_VARIANTS);
 }
 
+function shouldIncludeDraftProducts(record) {
+  const configuration = getObjectValue(record?.configuration);
+  const value =
+    configuration.includeDraftProducts ??
+    configuration.include_draft_products ??
+    DEFAULT_REPORT_SETTINGS.includeDraftProducts;
+
+  return String(value) !== "false";
+}
+
+function filterVariantsByProductStatus(variants, record) {
+  if (shouldIncludeDraftProducts(record)) return variants;
+
+  return (variants || []).filter((variant) => {
+    const status = String(variant?.product?.status || "").toUpperCase();
+    return !status || status === "ACTIVE";
+  });
+}
+
 function buildVariantUpdate(variant, taskData) {
   const update = {
     productId: variant.product?.id,
@@ -1166,6 +1197,30 @@ function getTaskBaseRunTime(task) {
   );
 }
 
+function getConfiguredReapplyMinute(record) {
+  const configuration = getObjectValue(record?.configuration);
+  const minute = Number(
+    configuration.reapplyMinute ??
+      configuration.reapply_minute ??
+      DEFAULT_REPORT_SETTINGS.reapplyMinute,
+  );
+
+  if (!Number.isFinite(minute)) return Number(DEFAULT_REPORT_SETTINGS.reapplyMinute);
+  return Math.max(0, Math.min(59, Math.trunc(minute)));
+}
+
+function getNextHourlyRunMs(baseMs, minute) {
+  const base = new Date(baseMs);
+  const next = new Date(baseMs + AUTO_REAPPLY_INTERVAL_MS);
+  next.setUTCMinutes(minute, 0, 0);
+
+  if (next.getTime() <= base.getTime()) {
+    next.setUTCHours(next.getUTCHours() + 1);
+  }
+
+  return next.getTime();
+}
+
 function getDateMs(value) {
   if (!value) return null;
 
@@ -1193,7 +1248,7 @@ function isAutoReapplyDue(task, nowMs = Date.now()) {
 
   if (!baseRunMs) return true;
 
-  return nowMs - baseRunMs >= AUTO_REAPPLY_INTERVAL_MS;
+  return nowMs >= getNextHourlyRunMs(baseRunMs, getConfiguredReapplyMinute(task));
 }
 
 function getShopifyApiVersion() {

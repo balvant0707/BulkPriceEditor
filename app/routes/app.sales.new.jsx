@@ -37,6 +37,8 @@ import { TitleBar } from "@shopify/app-bridge-react";
 import db from "../db.server";
 import { authenticate } from "../shopify.server";
 import { withShopifyEmbeddedParams } from "../lib/shopify-embedded-url";
+import { loadSettings } from "../lib/product-reports.server";
+import { DEFAULT_REPORT_SETTINGS } from "../lib/product-reports";
 import {
   createSaleExecutionSummary,
   SALE_STATUS,
@@ -85,6 +87,7 @@ const MARKETS_QUERY = `#graphql
 
 export async function loader({ request, params }) {
   const { admin, session } = await authenticate.admin(request);
+  const settings = await loadSettings(session.shop);
   const saleId = getRecordId(params.id || new URL(request.url).searchParams.get("id"));
   const sale = saleId
     ? await db.sale.findFirst({
@@ -108,6 +111,10 @@ export async function loader({ request, params }) {
         markets: [],
         marketsError: "Unable to load Shopify Markets.",
         shopCurrency: "USD",
+        settings: {
+          ...DEFAULT_REPORT_SETTINGS,
+          ...settings,
+        },
         sale,
       });
     }
@@ -116,6 +123,10 @@ export async function loader({ request, params }) {
       markets: normalizeMarkets(payload.data?.markets?.nodes),
       marketsError: "",
       shopCurrency: payload.data?.shop?.currencyCode || "USD",
+      settings: {
+        ...DEFAULT_REPORT_SETTINGS,
+        ...settings,
+      },
       sale,
     });
   } catch {
@@ -123,6 +134,10 @@ export async function loader({ request, params }) {
       markets: [],
       marketsError: "Unable to load Shopify Markets.",
       shopCurrency: "USD",
+      settings: {
+        ...DEFAULT_REPORT_SETTINGS,
+        ...settings,
+      },
       sale,
     });
   }
@@ -324,7 +339,17 @@ function buildSaleData(shop, title, payload) {
       endDate: form.endDate || "",
       endTime: form.endTime || "",
     },
-    configuration: payload,
+    configuration: {
+      ...payload,
+      includeDraftProducts: String(form.includeDraftProducts ?? true),
+      include_draft_products: String(form.includeDraftProducts ?? true),
+      reapplyMinute: String(
+        clampReapplyMinute(form.reapplyMinute ?? DEFAULT_REPORT_SETTINGS.reapplyMinute),
+      ),
+      reapply_minute: String(
+        clampReapplyMinute(form.reapplyMinute ?? DEFAULT_REPORT_SETTINGS.reapplyMinute),
+      ),
+    },
     startAt,
     endAt,
     addTagsEnabled: Boolean(form.addTagsEnabled),
@@ -332,6 +357,12 @@ function buildSaleData(shop, title, payload) {
     trackConditionChanges: Boolean(form.trackConditionChanges),
     autoReapplyChanges: Boolean(form.autoReapplyChanges),
   };
+}
+
+function clampReapplyMinute(value) {
+  const minute = Number(value);
+  if (!Number.isFinite(minute)) return Number(DEFAULT_REPORT_SETTINGS.reapplyMinute);
+  return Math.max(0, Math.min(59, Math.trunc(minute)));
 }
 
 function validateSaleData(saleData) {
@@ -1264,6 +1295,7 @@ export default function NewSalePage() {
     markets = [],
     marketsError = "",
     shopCurrency = "USD",
+    settings = DEFAULT_REPORT_SETTINGS,
     sale = null,
   } = useLoaderData();
   const resourceFetcher = useFetcher();
@@ -1316,6 +1348,18 @@ export default function NewSalePage() {
       initialForm.excludeCondition || sale?.excludeScope || "nothing",
     excludeDiscounted:
       initialForm.excludeDiscounted || sale?.discountedScope || "nothing",
+    includeDraftProducts:
+      initialForm.includeDraftProducts ??
+      initialPayload.includeDraftProducts ??
+      initialPayload.include_draft_products ??
+      settings.includeDraftProducts ??
+      DEFAULT_REPORT_SETTINGS.includeDraftProducts,
+    reapplyMinute:
+      initialForm.reapplyMinute ??
+      initialPayload.reapplyMinute ??
+      initialPayload.reapply_minute ??
+      settings.reapplyMinute ??
+      DEFAULT_REPORT_SETTINGS.reapplyMinute,
 
     startDate: initialForm.startDate || sale?.schedule?.startDate || today,
     startTime:
@@ -1434,6 +1478,7 @@ export default function NewSalePage() {
     const params = new URLSearchParams({
       type,
       requestId: latestRequestIdRef.current,
+      includeDraftProducts: String(form.includeDraftProducts),
     });
 
     if (query) params.set("query", query);

@@ -6,6 +6,7 @@ import {
   executeSaleRecord,
 } from "../../lib/sales.server";
 import { SALE_STATUS } from "../../lib/sale-status";
+import { DEFAULT_REPORT_SETTINGS } from "../../lib/product-reports";
 import { inngest } from "../client";
 
 const SALES_CRON_BATCH_SIZE = 20;
@@ -168,7 +169,33 @@ function shouldTrackSaleCondition(sale) {
   const lastRunAt = new Date(lastRun).getTime();
   if (Number.isNaN(lastRunAt)) return true;
 
-  return Date.now() - lastRunAt >= SALE_TRACK_CONDITION_INTERVAL_MS;
+  return Date.now() >= getNextHourlyRunMs(lastRunAt, getConfiguredReapplyMinute(sale));
+}
+
+function getConfiguredReapplyMinute(sale) {
+  const configuration = getObjectValue(sale?.configuration);
+  const form = getObjectValue(configuration.form);
+  const minute = Number(
+    form.reapplyMinute ??
+      configuration.reapplyMinute ??
+      configuration.reapply_minute ??
+      DEFAULT_REPORT_SETTINGS.reapplyMinute,
+  );
+
+  if (!Number.isFinite(minute)) return Number(DEFAULT_REPORT_SETTINGS.reapplyMinute);
+  return Math.max(0, Math.min(59, Math.trunc(minute)));
+}
+
+function getNextHourlyRunMs(baseMs, minute) {
+  const base = new Date(baseMs);
+  const next = new Date(baseMs + SALE_TRACK_CONDITION_INTERVAL_MS);
+  next.setUTCMinutes(minute, 0, 0);
+
+  if (next.getTime() <= base.getTime()) {
+    next.setUTCHours(next.getUTCHours() + 1);
+  }
+
+  return next.getTime();
 }
 
 async function activateSale(sale) {

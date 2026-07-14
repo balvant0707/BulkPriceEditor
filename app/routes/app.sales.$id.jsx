@@ -12,6 +12,8 @@ import {
   Banner,
   BlockStack,
   Box,
+  Button,
+  ButtonGroup,
   Card,
   IndexTable,
   InlineStack,
@@ -22,6 +24,7 @@ import {
   Spinner,
   Text,
   TextField,
+  Toast,
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import db from "../db.server";
@@ -37,6 +40,14 @@ import {
   normalizeSaleStatus,
   SALE_STATUS,
 } from "../lib/sale-status";
+import {
+  generateProductReport,
+  getLatestReportUrl,
+} from "../lib/product-reports.server";
+import {
+  normalizeShop,
+  REPORT_TYPES,
+} from "../lib/product-reports";
 import NewSalePage, {
   action as newSaleAction,
   loader as newSaleLoader,
@@ -61,6 +72,7 @@ export const loader = async ({ request, params }) => {
   }
 
   const { session } = await authenticate.admin(request);
+  const shop = normalizeShop(session.shop);
   const saleId = Number(params.id);
 
   if (!Number.isInteger(saleId) || saleId <= 0) {
@@ -86,7 +98,13 @@ export const loader = async ({ request, params }) => {
       })
     )?.currency || "";
 
-  return json({ sale, shop: session.shop, shopCurrency });
+  return json({
+    sale,
+    shop: session.shop,
+    shopCurrency,
+    latestMarginReportUrl: await getLatestReportUrl(shop, REPORT_TYPES.margin),
+    latestDiscountReportUrl: await getLatestReportUrl(shop, REPORT_TYPES.discount),
+  });
 };
 
 export const action = async ({ request, params }) => {
@@ -95,6 +113,7 @@ export const action = async ({ request, params }) => {
   }
 
   const { admin, session } = await authenticate.admin(request);
+  const shop = normalizeShop(session.shop);
   const saleId = Number(params.id);
   const formData = await request.formData();
   const intent = String(formData.get("intent") || "");
@@ -112,6 +131,36 @@ export const action = async ({ request, params }) => {
 
   if (!sale) {
     throw new Response("Sale not found", { status: 404 });
+  }
+
+  if (intent === "generate_margin_report") {
+    if (!shop) {
+      return json({ ok: false, message: "Shop is required." }, { status: 400 });
+    }
+
+    const report = await generateProductReport(admin, shop, REPORT_TYPES.margin);
+
+    return json({
+      ok: true,
+      type: REPORT_TYPES.margin,
+      message: `Margin report generated with ${report.totalRows} rows.`,
+      latestReportUrl: report.url,
+    });
+  }
+
+  if (intent === "generate_discount_report") {
+    if (!shop) {
+      return json({ ok: false, message: "Shop is required." }, { status: 400 });
+    }
+
+    const report = await generateProductReport(admin, shop, REPORT_TYPES.discount);
+
+    return json({
+      ok: true,
+      type: REPORT_TYPES.discount,
+      message: `Discount report generated with ${report.totalRows} rows.`,
+      latestReportUrl: report.url,
+    });
   }
 
   if (intent === "check_changes") {
@@ -620,6 +669,56 @@ function DetailRow({ label, value, children }) {
   );
 }
 
+function ReportCard({
+  title,
+  description,
+  generateIntent,
+  latestReportUrl,
+  onReportGenerated,
+  onMessage,
+}) {
+  const fetcher = useFetcher();
+  const isGenerating = fetcher.state !== "idle";
+  const currentReportUrl = fetcher.data?.latestReportUrl || latestReportUrl;
+
+  useEffect(() => {
+    if (fetcher.data?.message) {
+      onMessage(fetcher.data.message);
+    }
+
+    if (fetcher.data?.latestReportUrl) {
+      onReportGenerated(fetcher.data.latestReportUrl);
+    }
+  }, [fetcher.data, onMessage, onReportGenerated]);
+
+  return (
+    <Card>
+      <BlockStack gap="400">
+        <Text as="h2" variant="headingMd">
+          {title}
+        </Text>
+
+        <Text as="p" tone="subdued">
+          {description}
+        </Text>
+
+        <ButtonGroup>
+          <fetcher.Form method="post">
+            <input type="hidden" name="intent" value={generateIntent} />
+            <Button submit loading={isGenerating} disabled={isGenerating}>
+              Generate report
+            </Button>
+          </fetcher.Form>
+
+          <Button url={currentReportUrl || undefined} disabled={!currentReportUrl}>
+            View latest report
+          </Button>
+        </ButtonGroup>
+      </BlockStack>
+    </Card>
+  );
+}
+
 export default function SaleDetailsPage() {
   const params = useParams();
   return isNewSaleRoute(params) ? <NewSalePage /> : <SaleDetailsContent />;
@@ -634,10 +733,21 @@ function CompactSpinner({ label }) {
 }
 
 function SaleDetailsContent() {
-  const { sale, shop, shopCurrency } = useLoaderData();
+  const {
+    sale,
+    shop,
+    shopCurrency,
+    latestMarginReportUrl,
+    latestDiscountReportUrl,
+  } = useLoaderData();
   const navigate = useNavigate();
   const actionFetcher = useFetcher();
   const revalidator = useRevalidator();
+  const [toast, setToast] = useState("");
+  const [marginReportUrl, setMarginReportUrl] = useState(latestMarginReportUrl);
+  const [discountReportUrl, setDiscountReportUrl] = useState(
+    latestDiscountReportUrl,
+  );
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [rollbackConfirmOpen, setRollbackConfirmOpen] = useState(false);
@@ -783,6 +893,30 @@ function SaleDetailsContent() {
               {processFetcher.data?.error ? (
                 <Banner tone="critical">{processFetcher.data.error}</Banner>
               ) : null}
+
+              <Layout>
+                <Layout.Section>
+                  <ReportCard
+                    title="View products margin"
+                    description="Analyze gross margins across your catalog. See price, cost, and margin for each variant to identify pricing opportunities."
+                    generateIntent="generate_margin_report"
+                    latestReportUrl={marginReportUrl}
+                    onReportGenerated={setMarginReportUrl}
+                    onMessage={setToast}
+                  />
+                </Layout.Section>
+
+                <Layout.Section>
+                  <ReportCard
+                    title="View products with discount"
+                    description="Find products that still have compare-at prices set - from manual edits or other apps. Review them before running a cleanup task."
+                    generateIntent="generate_discount_report"
+                    latestReportUrl={discountReportUrl}
+                    onReportGenerated={setDiscountReportUrl}
+                    onMessage={setToast}
+                  />
+                </Layout.Section>
+              </Layout>
 
               <Card>
                 <DetailRow label="Changes">
@@ -1044,6 +1178,8 @@ function SaleDetailsContent() {
           </p>
         </Modal.Section>
       </Modal>
+
+      {toast ? <Toast content={toast} onDismiss={() => setToast("")} /> : null}
     </>
   );
 }

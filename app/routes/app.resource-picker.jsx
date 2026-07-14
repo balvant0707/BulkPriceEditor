@@ -81,6 +81,7 @@ const RESOURCE_QUERIES = {
           product {
             id
             title
+            status
             featuredImage {
               url
               altText
@@ -142,7 +143,13 @@ function formatProductPriceRange(priceRange) {
   return `${minPrice} - ${maxPrice}`;
 }
 
-function normalizeItems(type, nodes = [], searchQuery = "", currencyCode = "") {
+function normalizeItems(
+  type,
+  nodes = [],
+  searchQuery = "",
+  currencyCode = "",
+  includeDraftProducts = true,
+) {
   if (type === "collection") {
     return nodes.map((collection) => ({
       id: collection.id,
@@ -154,18 +161,24 @@ function normalizeItems(type, nodes = [], searchQuery = "", currencyCode = "") {
   }
 
   if (type === "variant") {
-    return nodes.map((variant) => ({
-      id: variant.id,
-      title: variant.title,
-      imageUrl: variant.image?.url || variant.product?.featuredImage?.url || "",
-      imageAlt:
-        variant.image?.altText ||
-        variant.product?.featuredImage?.altText ||
-        variant.title,
-      displayPrice: formatMoney({ amount: variant.price }, currencyCode),
-      productId: variant.product?.id,
-      productTitle: variant.product?.title || "Product",
-    }));
+    return nodes
+      .filter((variant) => {
+        if (includeDraftProducts) return true;
+        const status = String(variant.product?.status || "").toUpperCase();
+        return !status || status === "ACTIVE";
+      })
+      .map((variant) => ({
+        id: variant.id,
+        title: variant.title,
+        imageUrl: variant.image?.url || variant.product?.featuredImage?.url || "",
+        imageAlt:
+          variant.image?.altText ||
+          variant.product?.featuredImage?.altText ||
+          variant.title,
+        displayPrice: formatMoney({ amount: variant.price }, currencyCode),
+        productId: variant.product?.id,
+        productTitle: variant.product?.title || "Product",
+      }));
   }
 
   if (type === "tag") {
@@ -201,6 +214,8 @@ export async function loader({ request }) {
   const after = url.searchParams.get("after");
   const searchQuery = url.searchParams.get("query")?.trim() || null;
   const requestId = url.searchParams.get("requestId") || "";
+  const includeDraftProducts = url.searchParams.get("includeDraftProducts") !== "false";
+  const query = buildResourceQuery(type, searchQuery, includeDraftProducts);
 
   if (!RESOURCE_QUERIES[type]) {
     return json(
@@ -226,7 +241,7 @@ export async function loader({ request }) {
         : {
             first: PAGE_SIZE,
             after,
-            query: searchQuery,
+            query,
           },
   });
   const payload = await response.json();
@@ -254,6 +269,7 @@ export async function loader({ request }) {
       connection?.nodes,
       searchQuery || "",
       payload.data?.shop?.currencyCode || "",
+      includeDraftProducts,
     ),
     pageInfo:
       type === "tag"
@@ -264,4 +280,11 @@ export async function loader({ request }) {
     after: after || "",
     requestId,
   });
+}
+
+function buildResourceQuery(type, searchQuery, includeDraftProducts) {
+  if (includeDraftProducts || type !== "product") return searchQuery;
+
+  const activeQuery = "status:active";
+  return searchQuery ? `${searchQuery} ${activeQuery}` : activeQuery;
 }

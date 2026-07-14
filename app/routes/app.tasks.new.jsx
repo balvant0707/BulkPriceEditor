@@ -34,6 +34,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import db from "../db.server";
 import { authenticate } from "../shopify.server";
 import { withShopifyEmbeddedParams } from "../lib/shopify-embedded-url";
+import { loadSettings } from "../lib/product-reports.server";
+import { DEFAULT_REPORT_SETTINGS } from "../lib/product-reports";
 import {
   DISCOUNTED_SKIP_REASONS,
   isVariantDiscounted,
@@ -98,6 +100,7 @@ const TASK_VARIANTS_QUERY = `#graphql
         product {
           id
           title
+          status
           productType
           tags
         }
@@ -127,6 +130,7 @@ const TASK_NODES_QUERY = `#graphql
         product {
           id
           title
+          status
           productType
           tags
         }
@@ -135,6 +139,7 @@ const TASK_NODES_QUERY = `#graphql
         id
         title
         productType
+        status
         tags
         variants(first: 100) {
           nodes {
@@ -151,6 +156,7 @@ const TASK_NODES_QUERY = `#graphql
             product {
               id
               title
+              status
               productType
               tags
             }
@@ -165,6 +171,7 @@ const TASK_NODES_QUERY = `#graphql
             id
             title
             productType
+            status
             tags
             variants(first: 100) {
               nodes {
@@ -181,6 +188,7 @@ const TASK_NODES_QUERY = `#graphql
                 product {
                   id
                   title
+                  status
                   productType
                   tags
                 }
@@ -199,6 +207,7 @@ const TASK_PRODUCT_VARIANTS_FOR_PRODUCT_QUERY = `#graphql
       id
       title
       productType
+      status
       tags
       variants(first: $first, after: $after) {
         nodes {
@@ -215,6 +224,7 @@ const TASK_PRODUCT_VARIANTS_FOR_PRODUCT_QUERY = `#graphql
           product {
             id
             title
+            status
             productType
             tags
           }
@@ -294,6 +304,7 @@ const GRAPHQL_RETRY_BASE_MS = 500;
 
 export async function loader({ request, params }) {
   const { admin, session } = await authenticate.admin(request);
+  const settings = await loadSettings(session.shop);
   const taskId = getRecordId(params.id || new URL(request.url).searchParams.get("id"));
   const task = taskId
     ? await db.task.findFirst({
@@ -317,6 +328,10 @@ export async function loader({ request, params }) {
         markets: [],
         marketsError: "Unable to load Shopify Markets.",
         shopCurrency: "USD",
+        settings: {
+          ...DEFAULT_REPORT_SETTINGS,
+          ...settings,
+        },
         task,
       });
     }
@@ -325,6 +340,10 @@ export async function loader({ request, params }) {
       markets: normalizeMarkets(payload.data?.markets?.nodes),
       marketsError: "",
       shopCurrency: payload.data?.shop?.currencyCode || "USD",
+      settings: {
+        ...DEFAULT_REPORT_SETTINGS,
+        ...settings,
+      },
       task,
     });
   } catch {
@@ -332,6 +351,10 @@ export async function loader({ request, params }) {
       markets: [],
       marketsError: "Unable to load Shopify Markets.",
       shopCurrency: "USD",
+      settings: {
+        ...DEFAULT_REPORT_SETTINGS,
+        ...settings,
+      },
       task,
     });
   }
@@ -656,6 +679,16 @@ function buildTaskData(shop, formData) {
   const excludeProducts = buildSelectedProductRecords(formData, "exclude");
   const applyVariants = buildSelectedVariantRecords(formData, "apply");
   const excludeVariants = buildSelectedVariantRecords(formData, "exclude");
+  const includeDraftProducts =
+    getFormValue(
+      formData,
+      "include_draft_products",
+      DEFAULT_REPORT_SETTINGS.includeDraftProducts,
+    ) !== "false";
+  const reapplyMinute = clampReapplyMinute(
+    getFormValue(formData, "reapply_minute", DEFAULT_REPORT_SETTINGS.reapplyMinute),
+  );
+  const configuration = formDataToConfiguration(formData);
 
   return {
     shop: resolvedShop,
@@ -704,10 +737,22 @@ function buildTaskData(shop, formData) {
       variants: excludeVariants,
       tagNames: getFormValues(formData, "exclude_tag_names[]"),
     },
-    configuration: formDataToConfiguration(formData),
+    configuration: {
+      ...configuration,
+      includeDraftProducts: String(includeDraftProducts),
+      include_draft_products: String(includeDraftProducts),
+      reapplyMinute: String(reapplyMinute),
+      reapply_minute: String(reapplyMinute),
+    },
     autoReapply: hasFormValue(formData, "auto_reapply_changes"),
     autoReapplyChanges: hasFormValue(formData, "auto_reapply_changes"),
   };
+}
+
+function clampReapplyMinute(value) {
+  const minute = Number(value);
+  if (!Number.isFinite(minute)) return Number(DEFAULT_REPORT_SETTINGS.reapplyMinute);
+  return Math.max(0, Math.min(59, Math.trunc(minute)));
 }
 
 function validateTaskData(taskData) {
@@ -823,7 +868,10 @@ async function executeTask(
       };
     }
 
-    const targetVariants = await loadTargetVariants(admin, taskData);
+    const targetVariants = filterVariantsByProductStatus(
+      await loadTargetVariants(admin, taskData),
+      taskData,
+    );
     const excludedVariantIds = await loadExcludedVariantIds(admin, taskData);
     await onProgress(25, {
       analyzedVariants: targetVariants.length,
@@ -1417,6 +1465,25 @@ async function loadVariantsFromTags(admin, tagNames) {
   }
 
   return variants.slice(0, MAX_TASK_VARIANTS);
+}
+
+function shouldIncludeDraftProducts(record) {
+  const configuration = record?.configuration || {};
+  const value =
+    configuration.includeDraftProducts ??
+    configuration.include_draft_products ??
+    DEFAULT_REPORT_SETTINGS.includeDraftProducts;
+
+  return String(value) !== "false";
+}
+
+function filterVariantsByProductStatus(variants, record) {
+  if (shouldIncludeDraftProducts(record)) return variants;
+
+  return (variants || []).filter((variant) => {
+    const status = String(variant?.product?.status || "").toUpperCase();
+    return !status || status === "ACTIVE";
+  });
 }
 
 function buildVariantUpdate(variant, taskData) {
@@ -2410,6 +2477,7 @@ function ResourcePickerField({
   setSelectedVariants,
   selectedTags,
   setSelectedTags,
+  includeDraftProducts = "true",
 }) {
   const [activePicker, setActivePicker] = useState(null);
   const [resourceItems, setResourceItems] = useState([]);
@@ -2460,6 +2528,7 @@ function ResourcePickerField({
     const params = new URLSearchParams({
       type,
       requestId: latestRequestIdRef.current,
+      includeDraftProducts,
     });
 
     if (query.trim()) params.set("query", query.trim());
@@ -3118,12 +3187,23 @@ export default function NewTaskPage() {
     markets = [],
     marketsError = "",
     shopCurrency = "USD",
+    settings = DEFAULT_REPORT_SETTINGS,
     task = null,
   } = useLoaderData();
   const actionData = useActionData();
   const navigation = useNavigation();
   const isSubmitting = navigation.state !== "idle";
   const configuration = task?.configuration || {};
+  const includeDraftProducts = getConfigValue(
+    configuration,
+    "include_draft_products",
+    String(settings.includeDraftProducts ?? DEFAULT_REPORT_SETTINGS.includeDraftProducts),
+  );
+  const reapplyMinute = getConfigValue(
+    configuration,
+    "reapply_minute",
+    String(settings.reapplyMinute ?? DEFAULT_REPORT_SETTINGS.reapplyMinute),
+  );
 
   const [applyChangesTo, setApplyChangesTo] = useState(
     getConfigValue(configuration, "apply_changes_to", task?.applyChangesTo || "products"),
@@ -3269,6 +3349,12 @@ export default function NewTaskPage() {
         <Form method="post" id="task-create-form">
           {task?.id ? <input type="hidden" name="id" value={task.id} /> : null}
           <input type="hidden" name="apply_changes_to" value={applyChangesTo} />
+          <input
+            type="hidden"
+            name="include_draft_products"
+            value={includeDraftProducts}
+          />
+          <input type="hidden" name="reapply_minute" value={reapplyMinute} />
 
           <Layout>
             <Layout.Section>
@@ -3427,6 +3513,7 @@ export default function NewTaskPage() {
                     setSelectedVariants={setApplyVariants}
                     selectedTags={applyTags}
                     setSelectedTags={setApplyTags}
+                    includeDraftProducts={includeDraftProducts}
                   />
                 </SectionCard>
 
@@ -3455,6 +3542,7 @@ export default function NewTaskPage() {
                     setSelectedVariants={setExcludeVariants}
                     selectedTags={excludeTags}
                     setSelectedTags={setExcludeTags}
+                    includeDraftProducts={includeDraftProducts}
                   />
                 </SectionCard>
 

@@ -8,6 +8,7 @@ import {
   normalizeDiscountedScope,
   splitVariantsByDiscountedScope,
 } from "./task-discounted-exclusion";
+import { DEFAULT_REPORT_SETTINGS } from "./product-reports";
 
 const SALE_VARIANTS_QUERY = `#graphql
   query SaleProductVariants($first: Int!, $after: String, $query: String) {
@@ -20,6 +21,7 @@ const SALE_VARIANTS_QUERY = `#graphql
         product {
           id
           title
+          status
           tags
         }
       }
@@ -42,12 +44,14 @@ const SALE_NODES_QUERY = `#graphql
         product {
           id
           title
+          status
           tags
         }
       }
       ... on Product {
         id
         title
+        status
         tags
         variants(first: 100) {
           nodes {
@@ -58,6 +62,7 @@ const SALE_NODES_QUERY = `#graphql
             product {
               id
               title
+              status
               tags
             }
           }
@@ -70,6 +75,7 @@ const SALE_NODES_QUERY = `#graphql
           nodes {
             id
             title
+            status
             variants(first: 100) {
               nodes {
                 id
@@ -79,6 +85,7 @@ const SALE_NODES_QUERY = `#graphql
                 product {
                   id
                   title
+                  status
                   tags
                 }
               }
@@ -102,6 +109,7 @@ const SALE_PRODUCT_VARIANTS_FOR_PRODUCT_QUERY = `#graphql
           product {
             id
             title
+            status
             tags
           }
         }
@@ -448,7 +456,10 @@ export async function endSaleRecord(admin, sale) {
 
 async function loadSaleMatchingVariants(admin, sale, options = {}) {
   const respectDiscountedScope = options.respectDiscountedScope !== false;
-  const targetVariants = await loadSaleTargetVariants(admin, sale);
+  const targetVariants = filterSaleVariantsByProductStatus(
+    await loadSaleTargetVariants(admin, sale),
+    sale,
+  );
   const excludedVariantIds = await loadSaleExcludedVariantIds(admin, sale);
   const selectedVariants = uniqueSaleVariants(targetVariants).filter((variant) => {
     if (excludedVariantIds.has(variant.id)) return false;
@@ -459,6 +470,27 @@ async function loadSaleMatchingVariants(admin, sale, options = {}) {
     : { variants: selectedVariants, skipped: [] };
 
   return { targetVariants, variants, skippedDiscountedVariants: skipped };
+}
+
+function shouldIncludeDraftProducts(sale) {
+  const configuration = sale?.configuration || {};
+  const form = configuration.form || {};
+  const value =
+    form.includeDraftProducts ??
+    configuration.includeDraftProducts ??
+    configuration.include_draft_products ??
+    DEFAULT_REPORT_SETTINGS.includeDraftProducts;
+
+  return String(value) !== "false";
+}
+
+function filterSaleVariantsByProductStatus(variants, sale) {
+  if (shouldIncludeDraftProducts(sale)) return variants;
+
+  return (variants || []).filter((variant) => {
+    const status = String(variant?.product?.status || "").toUpperCase();
+    return !status || status === "ACTIVE";
+  });
 }
 
 async function saleGraphql(admin, query, variables = {}) {

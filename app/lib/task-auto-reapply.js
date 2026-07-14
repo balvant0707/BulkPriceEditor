@@ -1,6 +1,7 @@
 export const AUTO_REAPPLY_TEXT =
   "Automatically re-apply price changes (every hour, up to 10,000 changes)";
 export const AUTO_REAPPLY_INTERVAL_MS = 60 * 60 * 1000;
+const DEFAULT_REAPPLY_MINUTE = 20;
 
 export function isEnabledValue(value) {
   if (value === true) return true;
@@ -50,7 +51,33 @@ export function getAutoReapplyNextRunAt(task) {
   const baseMs = baseDate.getTime();
   if (Number.isNaN(baseMs)) return "";
 
-  return new Date(baseMs + AUTO_REAPPLY_INTERVAL_MS).toISOString();
+  return new Date(
+    getNextHourlyRunMs(baseMs, getConfiguredReapplyMinute(task)),
+  ).toISOString();
+}
+
+export function getConfiguredReapplyMinute(task) {
+  const configuration = getObjectValue(task?.configuration);
+  const minute = Number(
+    configuration.reapplyMinute ??
+      configuration.reapply_minute ??
+      DEFAULT_REAPPLY_MINUTE,
+  );
+
+  if (!Number.isFinite(minute)) return DEFAULT_REAPPLY_MINUTE;
+  return Math.max(0, Math.min(59, Math.trunc(minute)));
+}
+
+export function getNextHourlyRunMs(baseMs, minute) {
+  const base = new Date(baseMs);
+  const next = new Date(baseMs + AUTO_REAPPLY_INTERVAL_MS);
+  next.setUTCMinutes(minute, 0, 0);
+
+  if (next.getTime() <= base.getTime()) {
+    next.setUTCHours(next.getUTCHours() + 1);
+  }
+
+  return next.getTime();
 }
 
 export function getObjectValue(value) {
