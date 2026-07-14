@@ -23,9 +23,10 @@ import {
   Text,
   TextField,
 } from "@shopify/polaris";
-import { TitleBar } from "@shopify/app-bridge-react";
+import { TitleBar, useAppBridge } from "@shopify/app-bridge-react";
 import db from "../db.server";
 import { authenticate } from "../shopify.server";
+import { commitFlashSession, getFlashSession } from "../lib/flash.server";
 import {
   AUTO_REAPPLY_TEXT,
   getAutoReapplyLastRun,
@@ -45,6 +46,7 @@ const ACTIVE_TASK_STATUSES = [
 
 export const loader = async ({ request, params }) => {
   const { admin, session } = await authenticate.admin(request);
+  const flashSession = await getFlashSession(request);
   const taskId = Number(params.id);
   const url = new URL(request.url);
   const selectedProductId = getShopifyNumericId(
@@ -125,11 +127,17 @@ export const loader = async ({ request, params }) => {
       )
       : null,
     shopCurrency,
+    toastMessage: flashSession.get("toast") || "",
+  }, {
+    headers: {
+      "Set-Cookie": await commitFlashSession(flashSession),
+    },
   });
 };
 
 export const action = async ({ request, params }) => {
   const { session } = await authenticate.admin(request);
+  const flashSession = await getFlashSession(request);
   const taskId = Number(params.id);
   const formData = await request.formData();
   const intent = formData.get("intent");
@@ -175,7 +183,15 @@ export const action = async ({ request, params }) => {
       },
     });
 
-    return json({ ok: true, deleted: true });
+    flashSession.flash("toast", "Task deleted.");
+    return json(
+      { ok: true, deleted: true, message: "Task deleted." },
+      {
+        headers: {
+          "Set-Cookie": await commitFlashSession(flashSession),
+        },
+      },
+    );
   }
 
   return json({ ok: false, message: "Invalid action" }, { status: 400 });
@@ -2233,9 +2249,11 @@ export default function TaskDetailsPage() {
     selectedApplyCollections,
     selectedExcludeCollections,
     shopCurrency,
+    toastMessage,
   } = useLoaderData();
   const selectedCollections = selectedApplyCollections || [];
 
+  const shopify = useAppBridge();
   const navigate = useNavigate();
   const revalidator = useRevalidator();
   const deleteFetcher = useFetcher();
@@ -2251,6 +2269,12 @@ export default function TaskDetailsPage() {
 
   const [rollbackModalOpen, setRollbackModalOpen] = useState(false);
   const [clientRollbackStarted, setClientRollbackStarted] = useState(false);
+
+  useEffect(() => {
+    if (toastMessage) {
+      shopify.toast.show(toastMessage);
+    }
+  }, [shopify, toastMessage]);
 
   const rollbackCompleted = rollbackState.isCompleted;
   const rollbackFailed = rollbackState.isFailed;

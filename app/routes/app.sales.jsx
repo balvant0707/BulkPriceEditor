@@ -235,7 +235,7 @@ export const action = async ({ request }) => {
     return json({
       ok: ended.ok,
       rollback: true,
-      message: ended.ok ? "Sale canceled." : "Sale rollback completed with errors.",
+      message: ended.ok ? "Sale disabled." : "Sale disable completed with errors.",
     });
   }
 
@@ -552,6 +552,10 @@ export default function SalesPage() {
       actionFetcher.state === "idle";
 
     previousActionFetcherState.current = actionFetcher.state;
+
+    if (completedSubmit && actionFetcher.data?.message) {
+      setToast(actionFetcher.data.message);
+    }
 
     if (completedSubmit && actionFetcher.data?.ok) {
       setDeleteSale(null);

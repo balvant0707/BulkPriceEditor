@@ -7,6 +7,7 @@ import {
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
 import prisma from "./db.server";
 import { syncShopDetails } from "./models/shop.server";
+import { sendAppInstalledEmails } from "./emails/mail.server";
 
 const shopify = shopifyApp({
   apiKey: process.env.SHOPIFY_API_KEY,
@@ -18,7 +19,11 @@ const shopify = shopifyApp({
   sessionStorage: new PrismaSessionStorage(prisma),
   hooks: {
     afterAuth: async ({ admin, session }) => {
-      await syncShopDetails({ admin, session });
+      const syncResult = await syncShopDetails({ admin, session });
+
+      if (syncResult?.wasInstalled) {
+        await sendAppInstalledEmails(syncResult.shop);
+      }
     },
   },
   distribution: AppDistribution.AppStore,

@@ -48,6 +48,7 @@ import {
   normalizeShop,
   REPORT_TYPES,
 } from "../lib/product-reports";
+import { commitFlashSession, getFlashSession } from "../lib/flash.server";
 import NewSalePage, {
   action as newSaleAction,
   loader as newSaleLoader,
@@ -72,6 +73,7 @@ export const loader = async ({ request, params }) => {
   }
 
   const { session } = await authenticate.admin(request);
+  const flashSession = await getFlashSession(request);
   const shop = normalizeShop(session.shop);
   const saleId = Number(params.id);
 
@@ -104,6 +106,11 @@ export const loader = async ({ request, params }) => {
     shopCurrency,
     latestMarginReportUrl: await getLatestReportUrl(shop, REPORT_TYPES.margin),
     latestDiscountReportUrl: await getLatestReportUrl(shop, REPORT_TYPES.discount),
+    toastMessage: flashSession.get("toast") || "",
+  }, {
+    headers: {
+      "Set-Cookie": await commitFlashSession(flashSession),
+    },
   });
 };
 
@@ -252,7 +259,10 @@ export const action = async ({ request, params }) => {
         },
       });
 
-      return json({ ok: ended.ok });
+      return json({
+        ok: ended.ok,
+        message: ended.ok ? "Sale disabled." : "Sale disable completed with errors.",
+      });
     }
 
     return json(
@@ -739,6 +749,7 @@ function SaleDetailsContent() {
     shopCurrency,
     latestMarginReportUrl,
     latestDiscountReportUrl,
+    toastMessage,
   } = useLoaderData();
   const navigate = useNavigate();
   const actionFetcher = useFetcher();
@@ -752,6 +763,22 @@ function SaleDetailsContent() {
   const [currentPage, setCurrentPage] = useState(1);
   const [rollbackConfirmOpen, setRollbackConfirmOpen] = useState(false);
   const [optimisticRollbackStartedAt, setOptimisticRollbackStartedAt] = useState("");
+
+  useEffect(() => {
+    if (toastMessage) {
+      setToast(toastMessage);
+    }
+  }, [toastMessage]);
+
+  useEffect(() => {
+    if (actionFetcher.data?.message) {
+      setToast(actionFetcher.data.message);
+    }
+    if (actionFetcher.data?.ok) {
+      revalidator.revalidate();
+    }
+  }, [actionFetcher.data, revalidator]);
+
   const logs = useMemo(() => getVisibleSaleLogs(sale), [sale]);
   const filteredLogs = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();

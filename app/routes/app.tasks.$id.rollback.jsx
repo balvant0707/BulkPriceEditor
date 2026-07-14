@@ -13,6 +13,7 @@ import {
 import { TitleBar } from "@shopify/app-bridge-react";
 import db from "../db.server";
 import { authenticate } from "../shopify.server";
+import { commitFlashSession, getFlashSession } from "../lib/flash.server";
 import { rollbackMarketPrices } from "../services/market-pricing.server";
 
 const ROLLBACK_UPDATE_CONCURRENCY = 24;
@@ -75,6 +76,7 @@ export const action = async ({ request, params }) => {
     throw new Response("Shop is required to roll back a task.", { status: 401 });
   }
 
+  const flashSession = await getFlashSession(request);
   const formData = await request.formData();
   const task = await loadTask(params.id, session.shop);
   const rollbackStartedAt = new Date().toISOString();
@@ -85,19 +87,18 @@ export const action = async ({ request, params }) => {
   );
 
   if (isRollbackProcessing(task)) {
-    return redirect(withMessage(redirectTo, "Rollback is already running."));
+    return redirectWithToast(flashSession, redirectTo, "Rollback is already running.");
   }
 
   if (isRollbackCompleted(task)) {
-    return redirect(withMessage(redirectTo, "Rollback is already complete."));
+    return redirectWithToast(flashSession, redirectTo, "Rollback is already complete.");
   }
 
   if (!canRollbackTask(task)) {
-    return redirect(
-      withMessage(
-        redirectTo,
-        "Task can be rolled back only after it is complete.",
-      ),
+    return redirectWithToast(
+      flashSession,
+      redirectTo,
+      "Task can be rolled back only after it is complete.",
     );
   }
 
@@ -119,8 +120,17 @@ export const action = async ({ request, params }) => {
 
   scheduleRollbackExecution(admin, task, rollbackStartedAt);
 
-  return redirect(withMessage(redirectTo, "Rollback started"));
+  return redirectWithToast(flashSession, redirectTo, "Task rollback started.");
 };
+
+async function redirectWithToast(session, path, message) {
+  session.flash("toast", message);
+  return redirect(path, {
+    headers: {
+      "Set-Cookie": await commitFlashSession(session),
+    },
+  });
+}
 
 function scheduleRollbackExecution(admin, task, rollbackStartedAt) {
   void runRollbackExecution(admin, task, rollbackStartedAt);
@@ -363,12 +373,6 @@ function getSafeRedirectTo(request, requestedRedirect, fallback) {
   } catch {
     return fallbackPath;
   }
-}
-
-function withMessage(path, message) {
-  const url = new URL(path, "https://app.local");
-  url.searchParams.set("message", message);
-  return `${url.pathname}${url.search}`;
 }
 
 async function shopifyGraphql(admin, query, variables = {}) {

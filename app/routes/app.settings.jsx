@@ -59,7 +59,7 @@ export async function action({ request }) {
   return json({
     ok: true,
     settings,
-    message: "Settings saved.",
+    message: "Configuration saved.",
   });
 }
 

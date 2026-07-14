@@ -36,6 +36,7 @@ import { authenticate } from "../shopify.server";
 import { withShopifyEmbeddedParams } from "../lib/shopify-embedded-url";
 import { loadSettings } from "../lib/product-reports.server";
 import { DEFAULT_REPORT_SETTINGS } from "../lib/product-reports";
+import { commitFlashSession, getFlashSession } from "../lib/flash.server";
 import {
   DISCOUNTED_SKIP_REASONS,
   isVariantDiscounted,
@@ -366,6 +367,7 @@ export async function action({ request, params }) {
     throw new Response("Shop is required to create a task.", { status: 401 });
   }
 
+  const flashSession = await getFlashSession(request);
   const formData = await request.formData();
   const taskId = getRecordId(
     getFormValue(formData, "id") || params.id || new URL(request.url).searchParams.get("id"),
@@ -427,8 +429,14 @@ export async function action({ request, params }) {
 
     scheduleTaskExecution(admin, taskId, data, session.shop);
 
+    flashSession.flash("toast", "Task updated.");
     return redirect(
       withShopifyEmbeddedParams(`/app/tasks/${taskId}`, request, session.shop),
+      {
+        headers: {
+          "Set-Cookie": await commitFlashSession(flashSession),
+        },
+      },
     );
   }
 
@@ -443,8 +451,14 @@ export async function action({ request, params }) {
 
   scheduleTaskExecution(admin, task.id, data, session.shop);
 
+  flashSession.flash("toast", "Task created.");
   return redirect(
     withShopifyEmbeddedParams(`/app/tasks/${task.id}`, request, session.shop),
+    {
+      headers: {
+        "Set-Cookie": await commitFlashSession(flashSession),
+      },
+    },
   );
 }
 

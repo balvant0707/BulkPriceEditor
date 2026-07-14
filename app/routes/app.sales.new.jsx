@@ -39,6 +39,7 @@ import { authenticate } from "../shopify.server";
 import { withShopifyEmbeddedParams } from "../lib/shopify-embedded-url";
 import { loadSettings } from "../lib/product-reports.server";
 import { DEFAULT_REPORT_SETTINGS } from "../lib/product-reports";
+import { commitFlashSession, getFlashSession } from "../lib/flash.server";
 import {
   createSaleExecutionSummary,
   SALE_STATUS,
@@ -145,6 +146,7 @@ export async function loader({ request, params }) {
 
 export async function action({ request, params }) {
   const { session } = await authenticate.admin(request);
+  const flashSession = await getFlashSession(request);
   const formData = await request.formData();
   const payload = JSON.parse(String(formData.get("payload") || "{}"));
   const form = payload.form || {};
@@ -210,8 +212,14 @@ export async function action({ request, params }) {
       throw new Response("Sale not found", { status: 404 });
     }
 
+    flashSession.flash("toast", "Sale updated.");
     return redirect(
       withShopifyEmbeddedParams(`/app/sales/${saleId}`, request, session.shop),
+      {
+        headers: {
+          "Set-Cookie": await commitFlashSession(flashSession),
+        },
+      },
     );
   } else {
     const sale = await db.sale.create({ data: saleData });
@@ -229,8 +237,14 @@ export async function action({ request, params }) {
         },
       });
     }
+    flashSession.flash("toast", "Sale created.");
     return redirect(
       withShopifyEmbeddedParams(`/app/sales/${sale.id}`, request, session.shop),
+      {
+        headers: {
+          "Set-Cookie": await commitFlashSession(flashSession),
+        },
+      },
     );
   }
 }

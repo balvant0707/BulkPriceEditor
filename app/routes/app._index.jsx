@@ -25,6 +25,7 @@ import { useState } from "react";
 import db from "../db.server";
 import { authenticate } from "../shopify.server";
 import { withShopifyEmbeddedParams } from "../lib/shopify-embedded-url";
+import { normalizeSaleStatus, SALE_STATUS } from "../lib/sale-status";
 
 const statsRowStyle = {
   display: "flex",
@@ -40,16 +41,22 @@ const statsValueStyle = {
 
 const taskStatDefinitions = [
   { id: "all", label: "All tasks", url: "/app/tasks" },
+  { id: "pending", label: "Pending", url: "/app/tasks" },
+  { id: "applying", label: "Applying", url: "/app/tasks" },
   { id: "completed", label: "Completed", url: "/app/tasks?status=completed" },
-   { id: "archived", label: "Archived", url: "/app/tasks?status=archived" },
   { id: "cancelled", label: "Cancelled", url: "/app/tasks?status=cancelled" },
 ];
 
 const saleStatDefinitions = [
   { id: "all", label: "All sales", url: "/app/sales" },
+  { id: "pending", label: "Pending", url: "/app/sales" },
+  { id: "applying", label: "Applying", url: "/app/sales" },
   { id: "active", label: "Active", url: "/app/sales?status=active" },
   { id: "scheduled", label: "Scheduled", url: "/app/sales?status=scheduled" },
   { id: "completed", label: "Completed", url: "/app/sales?status=completed" },
+  { id: "canceling", label: "Canceling", url: "/app/sales?status=completed" },
+  { id: "canceled", label: "Canceled", url: "/app/sales?status=completed" },
+  { id: "failed", label: "Failed", url: "/app/sales?status=completed" },
 ];
 
 const changelogItems = [
@@ -77,6 +84,14 @@ function taskMatchesStatus(task, statusId) {
 
   const status = String(task.status || "").toLowerCase();
 
+  if (statusId === "pending") {
+    return status === "pending";
+  }
+
+  if (statusId === "applying") {
+    return status === "applying";
+  }
+
   if (statusId === "completed") {
     return (
       status === "complete" ||
@@ -103,15 +118,38 @@ function saleMatchesStatus(sale, statusId) {
     return true;
   }
 
-  const status = String(sale.status || "").toLowerCase();
+  const status = normalizeSaleStatus(sale.status);
 
   if (statusId === "completed") {
-    return (
-      status === "complete" ||
-      status === "completed" ||
-      status === "finished" ||
-      status === "ended"
-    );
+    return status === SALE_STATUS.COMPLETED;
+  }
+
+  if (statusId === "active") {
+    return status === SALE_STATUS.COMPLETED;
+  }
+
+  if (statusId === "scheduled") {
+    return status === SALE_STATUS.SCHEDULED;
+  }
+
+  if (statusId === "pending") {
+    return status === SALE_STATUS.PENDING;
+  }
+
+  if (statusId === "applying") {
+    return status === SALE_STATUS.APPLYING;
+  }
+
+  if (statusId === "canceling") {
+    return status === SALE_STATUS.CANCELING;
+  }
+
+  if (statusId === "canceled") {
+    return status === SALE_STATUS.CANCELED;
+  }
+
+  if (statusId === "failed") {
+    return status === SALE_STATUS.FAILED;
   }
 
   return status === statusId;
@@ -124,25 +162,128 @@ function buildStats(definitions, records, matcher) {
   }));
 }
 
+function getExecutionSummary(record) {
+  return record?.executionSummary &&
+    typeof record.executionSummary === "object" &&
+    !Array.isArray(record.executionSummary)
+    ? record.executionSummary
+    : {};
+}
+
+function firstFiniteNumber(...values) {
+  for (const value of values) {
+    const number = Number(value);
+    if (Number.isFinite(number)) {
+      return number;
+    }
+  }
+
+  return 0;
+}
+
+function getRecordChangeCount(record) {
+  const summary = getExecutionSummary(record);
+  const rollback = getExecutionSummary({ executionSummary: summary.rollback });
+  const ended = getExecutionSummary({ executionSummary: summary.ended });
+  const logChanges = Array.isArray(summary.logs)
+    ? summary.logs.reduce(
+        (sum, log) => sum + Math.max(1, Array.isArray(log?.changes) ? log.changes.length : 0),
+        0,
+      )
+    : undefined;
+
+  return firstFiniteNumber(
+    summary.totalPriceChanges,
+    summary.updatedVariants,
+    summary.variantUpdates,
+    summary.updatedInventoryItems,
+    summary.addedVariants,
+    summary.removedVariants,
+    summary.taggedProducts,
+    rollback.updatedVariants,
+    rollback.totalPriceChanges,
+    ended.updatedVariants,
+    ended.totalPriceChanges,
+    logChanges,
+  );
+}
+
+function formatInteger(value) {
+  return new Intl.NumberFormat("en-US").format(value);
+}
+
+function formatSavedTime(totalChanges) {
+  const totalMinutes = Math.round(totalChanges * 0.5);
+  if (totalMinutes < 60) {
+    return `${totalMinutes} min`;
+  }
+
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return minutes ? `${hours} hr ${minutes} min` : `${hours} hr`;
+}
+
+function buildOverviewStats(tasks, sales) {
+  const totalChanges = [...tasks, ...sales].reduce(
+    (sum, record) => sum + getRecordChangeCount(record),
+    0,
+  );
+
+  return {
+    totalChanges: formatInteger(totalChanges),
+    savedTime: formatSavedTime(totalChanges),
+  };
+}
+
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
 
   const [tasks, sales] = await Promise.all([
     db.task.findMany({
       where: { shop: session.shop },
-      select: { status: true },
+      select: { status: true, executionSummary: true },
     }),
     db.sale.findMany({
       where: { shop: session.shop },
-      select: { status: true },
+      select: { status: true, executionSummary: true },
     }),
   ]);
 
   return json({
+    overviewStats: buildOverviewStats(tasks, sales),
     taskStats: buildStats(taskStatDefinitions, tasks, taskMatchesStatus),
     saleStats: buildStats(saleStatDefinitions, sales, saleMatchesStatus),
   });
 };
+
+function OverviewCard({ stats }) {
+  return (
+    <Card>
+      <InlineStack gap="800" align="start" wrap>
+        <BlockStack gap="100">
+          <Text as="p" tone="subdued">
+            Total changes
+          </Text>
+          <Text as="p" variant="headingLg">
+            {stats.totalChanges}
+          </Text>
+        </BlockStack>
+
+        <BlockStack gap="100">
+          <Text as="p" tone="subdued">
+            Saved time
+          </Text>
+          <Text as="p" variant="headingLg">
+            {stats.savedTime}
+          </Text>
+          <Text as="p" tone="subdued">
+            Estimated at 30 seconds per manual change.
+          </Text>
+        </BlockStack>
+      </InlineStack>
+    </Card>
+  );
+}
 
 function StatsCard({
   title,
@@ -301,7 +442,7 @@ function FooterLinks() {
 }
 
 export default function AppIndex() {
-  const { taskStats, saleStats } = useLoaderData();
+  const { overviewStats, taskStats, saleStats } = useLoaderData();
   const navigate = useNavigate();
   const location = useLocation();
   const navigation = useNavigation();
@@ -321,6 +462,10 @@ export default function AppIndex() {
 
       <Page title="Pryxo Price Editor">
         <Layout>
+          <Layout.Section>
+            <OverviewCard stats={overviewStats} />
+          </Layout.Section>
+
           <Layout.Section variant="oneHalf">
             <StatsCard
               title="Tasks"

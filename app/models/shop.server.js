@@ -21,8 +21,12 @@ const SHOP_DETAILS_QUERY = `#graphql
 
 export async function syncShopDetails({ admin, session }) {
   if (!admin || !session?.shop) {
-    return;
+    return null;
   }
+
+  const existingShop = await db.shop.findUnique({
+    where: { shop: session.shop },
+  });
 
   await db.shop.upsert({
     where: { shop: session.shop },
@@ -50,12 +54,18 @@ export async function syncShopDetails({ admin, session }) {
     shopDetails = responseJson.data?.shop;
   } catch (error) {
     console.error(`Unable to load Shopify shop details for ${session.shop}`, error);
-    return;
+    return {
+      shop: existingShop || { shop: session.shop, accessToken: session.accessToken },
+      wasInstalled: !existingShop?.installed,
+    };
   }
 
   if (!shopDetails) {
     console.error(`Shopify shop details response was empty for ${session.shop}`);
-    return;
+    return {
+      shop: existingShop || { shop: session.shop, accessToken: session.accessToken },
+      wasInstalled: !existingShop?.installed,
+    };
   }
 
   const data = {
@@ -72,7 +82,7 @@ export async function syncShopDetails({ admin, session }) {
     uninstalledAt: null,
   };
 
-  await db.shop.upsert({
+  const shop = await db.shop.upsert({
     where: { shop: session.shop },
     create: {
       shop: session.shop,
@@ -81,14 +91,23 @@ export async function syncShopDetails({ admin, session }) {
     },
     update: data,
   });
+
+  return {
+    shop,
+    wasInstalled: !existingShop?.installed,
+  };
 }
 
 export async function markShopUninstalled(shop) {
   if (!shop) {
-    return;
+    return null;
   }
 
-  await db.shop.upsert({
+  const existingShop = await db.shop.findUnique({
+    where: { shop },
+  });
+
+  const updatedShop = await db.shop.upsert({
     where: { shop },
     create: {
       shop,
@@ -103,4 +122,10 @@ export async function markShopUninstalled(shop) {
       uninstalledAt: new Date(),
     },
   });
+
+  return {
+    shop: updatedShop,
+    previousShop: existingShop,
+    wasUninstalled: Boolean(existingShop?.installed),
+  };
 }

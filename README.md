@@ -71,6 +71,40 @@ INNGEST_SIGNING_KEY=<from Inngest app settings>
 
 Keep the existing Shopify and database environment variables configured as before. No separate cron secret is required for these scheduled jobs.
 
+### Lifecycle emails
+
+The app sends lifecycle emails when a shop installs or uninstalls the app. Configure these environment variables in Vercel:
+
+```text
+RESEND_API_KEY=<Resend API key>
+MAIL_FROM="Bulk Price Editor <notifications@your-domain.com>"
+APP_OWNER_EMAIL=<owner notification email>
+```
+
+If `RESEND_API_KEY`, `MAIL_FROM`, or a recipient email is missing, the app logs that the email was skipped and continues processing the install or webhook request.
+
+### Shopify privacy compliance webhooks
+
+The app subscribes to Shopify's mandatory privacy compliance webhook topics in `shopify.app.toml`:
+
+```text
+customers/data_request
+customers/redact
+shop/redact
+```
+
+The production endpoint is:
+
+```text
+https://bulk-price-editor-lz64.vercel.app/webhooks/privacy
+```
+
+Deploy the updated Shopify app configuration after changing `shopify.app.toml`:
+
+```shell
+npm run deploy
+```
+
 ### Local development
 
 Run the Shopify app locally:
