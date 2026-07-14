@@ -10,6 +10,7 @@ import {
   BlockStack,
   Box,
   Link,
+  List,
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import {
@@ -48,6 +49,24 @@ const saleStatDefinitions = [
   { id: "active", label: "Active", url: "/app/sales?status=active" },
   { id: "scheduled", label: "Scheduled", url: "/app/sales?status=scheduled" },
   { id: "completed", label: "Completed", url: "/app/sales?status=completed" },
+];
+
+const changelogItems = [
+  {
+    text: "You can now choose which minute of the hour auto-reapply runs for sales and tasks.",
+    month: "Jun'26",
+    url: "#",
+  },
+  {
+    text: "You can now edit markets that share a catalog with other markets.",
+    month: "Jun'26",
+    url: "#",
+  },
+  {
+    text: "You can now exclude discounted products alongside other exclusions (collections, products, or tags).",
+    month: "May'26",
+    url: "#",
+  },
 ];
 
 function taskMatchesStatus(task, statusId) {
@@ -275,6 +294,97 @@ function StatsCard({
   );
 }
 
+function WhatsNewCard() {
+  return (
+    <Card>
+      <BlockStack gap="200">
+        <Text as="h2" variant="headingMd">
+          What&apos;s new
+        </Text>
+
+        <List type="bullet">
+          {changelogItems.map((item) => (
+            <List.Item key={`${item.text}-${item.month}`}>
+              {item.text}{" "}
+              <Link url={item.url}>
+                Learn more
+              </Link>{" "}
+              ({item.month})
+            </List.Item>
+          ))}
+        </List>
+
+        <Box>
+          <Button url="https://app.bulkpriceeditor.com/changelog" external>
+            View full changelog
+          </Button>
+        </Box>
+      </BlockStack>
+    </Card>
+  );
+}
+
+function HelpCard() {
+  return (
+    <Card>
+      <InlineStack gap="500" align="space-between" blockAlign="center" wrap>
+        <Box width="calc(100% - 180px)">
+          <BlockStack gap="200">
+            <Text as="h2" variant="headingMd">
+              Need help?
+            </Text>
+
+            <Text as="p">
+              We are here for you. For assistance, click support button in the
+              corner of your screen. We also provide a comprehensive
+              documentation with answers to most common questions.
+            </Text>
+
+            <InlineStack gap="300" align="start" wrap>
+              <Button url="https://platmart.io/contact" external>
+                Contact support
+              </Button>
+
+              <Button
+                url="https://help.platmart.io/collection/170-platmart-price-editor"
+                variant="plain"
+                external
+              >
+                View documentation
+              </Button>
+            </InlineStack>
+          </BlockStack>
+        </Box>
+
+        <Box
+          width="128px"
+          minHeight="128px"
+          borderRadius="300"
+          background="bg-fill-info"
+        >
+          <div
+            aria-hidden="true"
+            style={{
+              width: 128,
+              height: 128,
+              borderRadius: 16,
+              display: "grid",
+              placeItems: "center",
+              color: "#fff",
+              fontSize: 72,
+              lineHeight: 1,
+              background:
+                "linear-gradient(135deg, #2457ff 0%, #7c3aed 52%, #ff7a59 100%)",
+            }}
+          >
+            ?
+          </div>
+        </Box>
+      </InlineStack>
+    </Card>
+  );
+}
+
 export default function AppIndex() {
   const { overviewStats, taskStats, saleStats } = useLoaderData();
   const navigate = useNavigate();
@@ -332,6 +442,14 @@ export default function AppIndex() {
               stats={saleStats}
               learnMoreUrl="#"
             />
+          </Layout.Section>
+
+          <Layout.Section>
+            <WhatsNewCard />
+          </Layout.Section>
+
+          <Layout.Section>
+            <HelpCard />
           </Layout.Section>
         </Layout>
       </Page>

@@ -3399,7 +3399,7 @@ export default function NewTaskPage() {
                       <Text as="p">
                         Bulk edit Shopify Markets price lists.{" "}
                         <a
-                          href="https://help.platmart.io/article/104-bulk-edit-shopify-markets-price-lists"
+                          href="#"
                           target="_blank"
                           rel="noopener noreferrer"
                         >
