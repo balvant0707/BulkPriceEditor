@@ -321,31 +321,6 @@ function AutoReapplyMessage({ task }) {
           {AUTO_REAPPLY_TEXT}
         </Text>
       </div>
-
-      {autoReapplyLastRun ? (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "6px",
-          }}
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 16 16"
-            width="16"
-            height="16"
-            fill="currentColor"
-            aria-hidden="true"
-          >
-            <path d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8m8.75-3.25a.75.75 0 0 0-1.5 0v3.5c0 .199.079.39.22.53l2.25 2.25a.75.75 0 1 0 1.06-1.06L8.75 7.94z" />
-          </svg>
-
-          <Text as="span" tone="subdued">
-            Last run {formatRelativeTime(autoReapplyLastRun)}
-          </Text>
-        </div>
-      ) : null}
     </BlockStack>
   );
 }
