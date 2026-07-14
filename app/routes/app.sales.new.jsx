@@ -46,6 +46,10 @@ import {
 } from "../lib/sale-status";
 
 const BACK_URL = "/app/sales";
+const AUTO_REAPPLY_CONFLICT_MESSAGE =
+  "You have completed a task with auto-reapply enabled for similar products. Disable auto-reapply on that task first.";
+const ACTIVE_WHOLE_STORE_SALE_MESSAGE =
+  "An active Whole Store Sale already exists. Disable or end the current sale before creating another Whole Store Sale.";
 
 const MARKETS_QUERY = `#graphql
   query GetMarkets {
@@ -193,6 +197,27 @@ export async function action({ request, params }) {
   if (validationError) {
     return json({ error: validationError }, { status: 400 });
   }
+
+  const wholeStoreSaleConflict = await findActiveWholeStoreSale(
+    session.shop,
+    saleId,
+    data,
+  );
+
+  if (wholeStoreSaleConflict) {
+    return json({ error: ACTIVE_WHOLE_STORE_SALE_MESSAGE }, { status: 400 });
+  }
+
+  const autoReapplyConflict = await findConflictingAutoReapplySale(
+    session.shop,
+    data,
+    saleId,
+  );
+
+  if (autoReapplyConflict) {
+    return json({ error: AUTO_REAPPLY_CONFLICT_MESSAGE }, { status: 400 });
+  }
+
   const executionState = prepareSaleExecution(data);
   const saleData = {
     ...data,
@@ -389,6 +414,115 @@ function validateSaleData(saleData) {
   }
 
   return "";
+}
+
+async function findActiveWholeStoreSale(shop, saleId, saleData) {
+  if (normalizeScope(saleData.applyScope) !== "whole_store") {
+    return null;
+  }
+
+  return db.sale.findFirst({
+    where: {
+      shop,
+      id: saleId ? { not: saleId } : undefined,
+      applyScope: { in: ["whole_store", "Whole Store", "whole store"] },
+      status: {
+        in: [
+          SALE_STATUS.COMPLETED,
+          "active",
+          "Active",
+          "complete",
+          "Complete",
+          "completed",
+          "Completed",
+        ],
+      },
+    },
+    select: { id: true },
+  });
+}
+
+async function findConflictingAutoReapplySale(shop, saleData, saleId = null) {
+  if (!saleData.autoReapplyChanges) {
+    return null;
+  }
+
+  const sales = await db.sale.findMany({
+    where: {
+      shop,
+      id: saleId ? { not: saleId } : undefined,
+      autoReapplyChanges: true,
+      status: {
+        in: [
+          SALE_STATUS.COMPLETED,
+          "active",
+          "Active",
+          "complete",
+          "Complete",
+          "completed",
+          "Completed",
+        ],
+      },
+    },
+    select: {
+      id: true,
+      applyScope: true,
+      applyResources: true,
+    },
+  });
+
+  return sales.find((sale) => selectionsOverlap(sale, saleData)) || null;
+}
+
+function normalizeScope(value) {
+  return String(value || "whole_store").toLowerCase().trim();
+}
+
+function selectionsOverlap(existing, incoming) {
+  const existingScope = normalizeScope(existing.applyScope);
+  const incomingScope = normalizeScope(incoming.applyScope);
+
+  if (existingScope === "whole_store" || incomingScope === "whole_store") {
+    return true;
+  }
+
+  if (existingScope !== incomingScope) {
+    return false;
+  }
+
+  const existingValues = getSelectionKeys(existing.applyResources, existingScope);
+  const incomingValues = getSelectionKeys(incoming.applyResources, incomingScope);
+
+  if (!existingValues.size || !incomingValues.size) {
+    return true;
+  }
+
+  for (const value of incomingValues) {
+    if (existingValues.has(value)) return true;
+  }
+
+  return false;
+}
+
+function getSelectionKeys(resources = {}, scope = "") {
+  const normalizedScope = normalizeScope(scope);
+  const values =
+    normalizedScope === "selected_collections"
+      ? (resources.collections || []).map((item) => item.id || item.gid || item.title)
+      : normalizedScope === "selected_products"
+        ? (resources.products || []).map((item) => item.id || item.gid || item.title)
+        : normalizedScope === "selected_products_with_variants"
+          ? (resources.variants || []).map((item) => item.id || item.gid || item.title)
+          : normalizedScope === "selected_tags"
+            ? (resources.tags || []).map((item) => item.id || item.title || item.name)
+            : [];
+
+  return new Set(
+    values
+      .flat()
+      .map((value) => String(value || "").trim().toLowerCase())
+      .filter(Boolean),
+  );
 }
 
 function prepareSaleExecution(saleData) {

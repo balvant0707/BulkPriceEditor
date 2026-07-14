@@ -302,6 +302,8 @@ const PROGRESS_UPDATE_MIN_INTERVAL_MS = 500;
 const PROGRESS_UPDATE_MIN_DELTA = 2;
 const GRAPHQL_MAX_RETRIES = 4;
 const GRAPHQL_RETRY_BASE_MS = 500;
+const AUTO_REAPPLY_CONFLICT_MESSAGE =
+  "You have completed a task with auto-reapply enabled for similar products. Disable auto-reapply on that task first.";
 
 export async function loader({ request, params }) {
   const { admin, session } = await authenticate.admin(request);
@@ -394,6 +396,16 @@ export async function action({ request, params }) {
     );
   }
 
+  const autoReapplyConflict = await findConflictingAutoReapplyTask(
+    session.shop,
+    data,
+    taskId,
+  );
+
+  if (autoReapplyConflict) {
+    return json({ error: AUTO_REAPPLY_CONFLICT_MESSAGE }, { status: 400 });
+  }
+
   if (taskId) {
     const existingTask = await db.task.findFirst({
       where: {
@@ -469,7 +481,7 @@ function scheduleTaskExecution(admin, taskId, data, shop) {
 function createProgressUpdater(taskId, shop) {
   let lastWriteAt = 0;
   let lastWrittenProgress = 0;
-  let latestSummary = {};
+  let latestSummary = { status: "Applying", progress: 0 };
 
   return async (progress, summary = {}, options = {}) => {
     const safeProgress = Math.max(
@@ -481,6 +493,7 @@ function createProgressUpdater(taskId, shop) {
     latestSummary = {
       ...latestSummary,
       ...summary,
+      status: summary.status || latestSummary.status || "Applying",
       progress: safeProgress,
     };
 
@@ -529,10 +542,16 @@ async function runTaskExecution(admin, taskId, data, shop) {
       where: { id: taskId, shop: resolvedShop },
       data: {
         status: "Applying",
-        executionSummary: { progress: 0 },
+        executionSummary: { status: "Applying", progress: 1 },
         startedAt: new Date(),
       },
     });
+
+    await updateProgress(
+      5,
+      { status: "Applying", message: "Preparing task." },
+      { force: true },
+    );
 
     const execution = await executeTask(admin, data, updateProgress, {
       taskId,
@@ -823,6 +842,93 @@ function estimateTaskDataPriceChanges(taskData) {
   return null;
 }
 
+async function findConflictingAutoReapplyTask(shop, taskData, taskId = null) {
+  if (!taskData.autoReapply && !taskData.autoReapplyChanges) {
+    return null;
+  }
+
+  const tasks = await db.task.findMany({
+    where: {
+      shop,
+      id: taskId ? { not: taskId } : undefined,
+      status: {
+        in: ["Completed", "Complete", "completed", "complete"],
+      },
+      OR: [{ autoReapply: true }, { autoReapplyChanges: true }],
+    },
+    select: {
+      id: true,
+      applyScope: true,
+      applyResources: true,
+    },
+  });
+
+  return tasks.find((task) => selectionsOverlap(task, taskData)) || null;
+}
+
+function normalizeScope(value) {
+  return String(value || "whole_store").toLowerCase().trim();
+}
+
+function selectionsOverlap(existing, incoming) {
+  const existingScope = normalizeScope(existing.applyScope);
+  const incomingScope = normalizeScope(incoming.applyScope);
+
+  if (existingScope === "whole_store" || incomingScope === "whole_store") {
+    return true;
+  }
+
+  if (existingScope !== incomingScope) {
+    return false;
+  }
+
+  const existingValues = getSelectionKeys(existing.applyResources, existingScope);
+  const incomingValues = getSelectionKeys(incoming.applyResources, incomingScope);
+
+  if (!existingValues.size || !incomingValues.size) {
+    return true;
+  }
+
+  for (const value of incomingValues) {
+    if (existingValues.has(value)) return true;
+  }
+
+  return false;
+}
+
+function getSelectionKeys(resources = {}, scope = "") {
+  const normalizedScope = normalizeScope(scope);
+  const values =
+    normalizedScope === "selected_collections"
+      ? [
+          ...(resources.collectionIds || []),
+          ...(resources.collections || []).map((item) => item.id || item.gid || item.title),
+        ]
+      : normalizedScope === "selected_products"
+        ? [
+            ...(resources.productIds || []),
+            ...(resources.products || []).map((item) => item.id || item.gid || item.title),
+          ]
+        : normalizedScope === "selected_products_with_variants"
+          ? [
+              ...(resources.variantIds || []),
+              ...(resources.variants || []).map((item) => item.id || item.gid || item.title),
+            ]
+          : normalizedScope === "selected_tags"
+            ? [
+                ...(resources.tagNames || []),
+                ...(resources.tags || []).map((item) => item.id || item.title || item.name),
+              ]
+            : [];
+
+  return new Set(
+    values
+      .flat()
+      .map((value) => String(value || "").trim().toLowerCase())
+      .filter(Boolean),
+  );
+}
+
 function validateChangeData(field, label, change) {
   const action = change?.action || "";
 
@@ -882,14 +988,21 @@ async function executeTask(
       };
     }
 
+    await onProgress(
+      5,
+      { status: "Applying", message: "Loading target products." },
+      { force: true },
+    );
+
     const targetVariants = filterVariantsByProductStatus(
       await loadTargetVariants(admin, taskData),
       taskData,
     );
     const excludedVariantIds = await loadExcludedVariantIds(admin, taskData);
     await onProgress(25, {
+      status: "Applying",
       analyzedVariants: targetVariants.length,
-    });
+    }, { force: true });
 
     const discountedScope = getDiscountedScope(taskData);
     const selectedVariants = uniqueVariants(targetVariants).filter(
@@ -949,10 +1062,11 @@ async function executeTask(
 
       await persistTaskAuditLogs([...auditLogs, ...marketAuditLogs]);
       await onProgress(95, {
+        status: "Applying",
         analyzedVariants: variants.length,
         marketUpdates: marketResult.updatedCount,
         skippedVariants: marketResult.skippedCount,
-      });
+      }, { force: true });
 
       return {
         ok: marketResult.ok,
@@ -1018,6 +1132,7 @@ async function executeTask(
     }
 
     await onProgress(40, {
+      status: "Applying",
       analyzedVariants: variants.length,
       variantUpdates: productVariantUpdates.length,
       inventoryUpdates: inventoryUpdates.length,
@@ -1026,7 +1141,7 @@ async function executeTask(
         variants.length +
         variants.length -
         productVariantUpdates.length,
-    });
+    }, { force: true });
 
     const totalUpdateSteps =
       countProductUpdateSteps(productVariantUpdates) + inventoryUpdates.length;
@@ -1049,12 +1164,13 @@ async function executeTask(
 
     if (totalUpdateSteps === 0) {
       await onProgress(95, {
+        status: "Applying",
         analyzedVariants: variants.length,
         variantUpdates: 0,
         inventoryUpdates: 0,
         skippedVariants:
           targetVariants.length - variants.length + variants.length - productVariantUpdates.length,
-      });
+      }, { force: true });
     }
 
     const variantResults = await applyVariantUpdates(
