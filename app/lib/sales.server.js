@@ -172,13 +172,34 @@ const SALE_TAGS_REMOVE = `#graphql
 const MAX_SALE_VARIANTS = 10000;
 const SALE_VARIANT_PAGE_SIZE = 250;
 
-export async function executeSaleRecord(admin, sale) {
+export async function executeSaleRecord(admin, sale, onProgress = async () => {}) {
+  await onProgress(10, {
+    status: "Applying",
+    message: "Loading target products.",
+  }, { force: true });
+
   const { targetVariants, variants } = await loadSaleMatchingVariants(admin, sale);
   const variantUpdates = [];
   const originalVariants = [];
   const logs = [];
 
+  await onProgress(20, {
+    status: "Applying",
+    analyzedVariants: variants.length,
+  }, { force: true });
+
+  await onProgress(30, {
+    status: "Applying",
+    analyzedVariants: variants.length,
+    message: "Preparing price changes.",
+  }, { force: true });
+
   if (sale.changeType === "markets") {
+    await onProgress(40, {
+      status: "Applying",
+      analyzedVariants: variants.length,
+    }, { force: true });
+
     const marketResult = await updateMarketPrices({
       admin,
       ownerType: "sale",
@@ -190,6 +211,13 @@ export async function executeSaleRecord(admin, sale) {
       compareAtPriceChange: sale.compareAtPriceChange,
       applyToFixedPrices: sale.applyToFixedPrices,
     });
+
+    await onProgress(90, {
+      status: "Applying",
+      analyzedVariants: variants.length,
+      variantUpdates: marketResult.updatedCount,
+      skippedVariants: marketResult.skippedCount,
+    }, { force: true });
 
     return {
       ok: marketResult.ok,
@@ -224,9 +252,53 @@ export async function executeSaleRecord(admin, sale) {
     logs.push(buildSaleVariantLog(variant, update.variant));
   }
 
+  await onProgress(40, {
+    status: "Applying",
+    analyzedVariants: variants.length,
+    variantUpdates: variantUpdates.length,
+    skippedVariants:
+      targetVariants.length - variants.length + variants.length - variantUpdates.length,
+  }, { force: true });
+
+  await onProgress(50, {
+    status: "Applying",
+    analyzedVariants: variants.length,
+    variantUpdates: variantUpdates.length,
+  }, { force: true });
+
   const variantResults = await applySaleVariantUpdates(admin, variantUpdates);
+  await onProgress(60, {
+    status: "Applying",
+    analyzedVariants: variants.length,
+    variantUpdates: variantUpdates.length,
+    updatedVariants: variantResults.updatedCount,
+  }, { force: true });
+
+  await onProgress(70, {
+    status: "Applying",
+    analyzedVariants: variants.length,
+    variantUpdates: variantUpdates.length,
+    updatedVariants: variantResults.updatedCount,
+  }, { force: true });
+
   const productIds = uniqueProductIds(variants);
   const tagResults = await applySaleTagRules(admin, productIds, sale);
+  await onProgress(80, {
+    status: "Applying",
+    analyzedVariants: variants.length,
+    variantUpdates: variantUpdates.length,
+    updatedVariants: variantResults.updatedCount,
+    taggedProducts: tagResults.updatedCount,
+  }, { force: true });
+
+  await onProgress(90, {
+    status: "Applying",
+    analyzedVariants: variants.length,
+    variantUpdates: variantUpdates.length,
+    updatedVariants: variantResults.updatedCount,
+    taggedProducts: tagResults.updatedCount,
+  }, { force: true });
+
   const errors = [...variantResults.errors, ...tagResults.errors];
 
   return {

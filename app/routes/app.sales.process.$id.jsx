@@ -12,6 +12,52 @@ import {
 export const loader = async ({ request, params }) => processSale(request, params);
 export const action = async ({ request, params }) => processSale(request, params);
 
+function normalizeApplyingProgress(progress) {
+  const value = Math.round(Number(progress) || 0);
+
+  if (value <= 1) return 1;
+  if (value >= 100) return 100;
+
+  return Math.max(10, Math.min(90, Math.ceil(value / 10) * 10));
+}
+
+function createSaleProgressUpdater(saleId, shop, initialSummary = {}) {
+  let lastWriteAt = 0;
+  let lastWrittenProgress = 0;
+  let latestSummary = {
+    ...initialSummary,
+    status: "Applying",
+    progress: 1,
+  };
+
+  return async (progress, summary = {}, options = {}) => {
+    const safeProgress = normalizeApplyingProgress(progress);
+    const now = Date.now();
+
+    latestSummary = {
+      ...latestSummary,
+      ...summary,
+      status: summary.status || latestSummary.status || "Applying",
+      progress: safeProgress,
+    };
+
+    const shouldWrite =
+      options.force ||
+      safeProgress - lastWrittenProgress >= 10 ||
+      now - lastWriteAt >= 1000;
+
+    if (!shouldWrite) return;
+
+    lastWriteAt = now;
+    lastWrittenProgress = safeProgress;
+
+    await db.sale.updateMany({
+      where: { id: saleId, shop, status: SALE_STATUS.APPLYING },
+      data: { executionSummary: latestSummary },
+    });
+  };
+}
+
 async function processSale(request, params) {
   const { admin, session } = await authenticate.admin(request);
   const saleId = Number(params.id);
@@ -53,7 +99,7 @@ async function processSale(request, params) {
       executionSummary: {
         ...(sale.executionSummary || {}),
         ...createSaleExecutionSummary(SALE_STATUS.APPLYING, {
-          progress: 0,
+          progress: 1,
           processingStartedAt: new Date().toISOString(),
         }),
       },
@@ -70,10 +116,26 @@ async function processSale(request, params) {
   }
 
   try {
-    const execution = await executeSaleRecord(admin, {
-      ...sale,
-      status: SALE_STATUS.APPLYING,
-    });
+    const updateProgress = createSaleProgressUpdater(
+      sale.id,
+      session.shop,
+      {
+        ...(sale.executionSummary || {}),
+        ...createSaleExecutionSummary(SALE_STATUS.APPLYING, {
+          progress: 1,
+          processingStartedAt: new Date().toISOString(),
+        }),
+      },
+    );
+
+    const execution = await executeSaleRecord(
+      admin,
+      {
+        ...sale,
+        status: SALE_STATUS.APPLYING,
+      },
+      updateProgress,
+    );
     const completedStatus = execution.ok ? SALE_STATUS.COMPLETED : SALE_STATUS.FAILED;
 
     await db.sale.updateMany({

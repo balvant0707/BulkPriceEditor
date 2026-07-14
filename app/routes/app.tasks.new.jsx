@@ -478,16 +478,22 @@ function scheduleTaskExecution(admin, taskId, data, shop) {
   void runTaskExecution(admin, taskId, data, shop);
 }
 
+function normalizeApplyingProgress(progress) {
+  const value = Math.round(Number(progress) || 0);
+
+  if (value <= 1) return 1;
+  if (value >= 100) return 100;
+
+  return Math.max(10, Math.min(90, Math.ceil(value / 10) * 10));
+}
+
 function createProgressUpdater(taskId, shop) {
   let lastWriteAt = 0;
   let lastWrittenProgress = 0;
   let latestSummary = { status: "Applying", progress: 0 };
 
   return async (progress, summary = {}, options = {}) => {
-    const safeProgress = Math.max(
-      0,
-      Math.min(100, Math.round(Number(progress) || 0)),
-    );
+    const safeProgress = normalizeApplyingProgress(progress);
     const now = Date.now();
 
     latestSummary = {
@@ -998,8 +1004,13 @@ async function executeTask(
       await loadTargetVariants(admin, taskData),
       taskData,
     );
+    await onProgress(20, {
+      status: "Applying",
+      analyzedVariants: targetVariants.length,
+    }, { force: true });
+
     const excludedVariantIds = await loadExcludedVariantIds(admin, taskData);
-    await onProgress(25, {
+    await onProgress(30, {
       status: "Applying",
       analyzedVariants: targetVariants.length,
     }, { force: true });

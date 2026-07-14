@@ -1634,6 +1634,18 @@ function summarizeVariantValue(variants, field) {
   return "Multiple";
 }
 
+function isDefaultVariantTitle(title) {
+  const normalized = String(title || "").trim().toLowerCase();
+  return normalized === "default title" || normalized === "default";
+}
+
+function getDefaultVariant(variants) {
+  if (!variants.length) return null;
+  if (variants.length === 1) return variants[0];
+
+  return variants.find((variant) => isDefaultVariantTitle(variant.title)) || variants[0];
+}
+
 function createProductGroups(task, shopifyStoreHandle, shopCurrency) {
   const groups = new Map();
   const originalVariants = task.executionSummary?.originalVariants || [];
@@ -1692,7 +1704,7 @@ function createProductGroups(task, shopifyStoreHandle, shopCurrency) {
 
     if (record?.cost !== record?.nextCost) group.costChangeCount += 1;
 
-    group.changeItems.push(...buildVariantChangeItems(record, shopCurrency));
+    const changeItems = buildVariantChangeItems(record, shopCurrency);
 
     group.variants.push({
       rowId: `${groupKey}-${variantId || index}`,
@@ -1704,7 +1716,8 @@ function createProductGroups(task, shopifyStoreHandle, shopCurrency) {
       newSetPrice: record?.nextPrice,
       cost: record?.cost,
       newSetCost: record?.nextCost,
-      changes: buildVariantChanges(record, shopCurrency),
+      changes: changeItems.map((change) => change.text),
+      changeItems,
       adminUrl: getVariantAdminUrl(shopifyStoreHandle, productId, variantId),
       type,
     });
@@ -1730,6 +1743,9 @@ function createProductGroups(task, shopifyStoreHandle, shopCurrency) {
         : "",
     ].filter(Boolean);
 
+    const defaultVariant = getDefaultVariant(group.variants);
+    const defaultVariantChangeItems = defaultVariant?.changeItems || [];
+
     return {
       ...group,
       changes: changes.length
@@ -1737,7 +1753,7 @@ function createProductGroups(task, shopifyStoreHandle, shopCurrency) {
         : [shouldShowPriceNoChange(task) ? "Price: no change" : "No changes recorded"],
       otherChanges: group.variants.flatMap((variant) => variant.changes),
       changeSummary: summarizeProductChanges(
-        group.changeItems,
+        defaultVariantChangeItems,
         shouldShowPriceNoChange(task) ? "Price: no change" : "",
       ),
       price: summarizeVariantValue(group.variants, "price"),
