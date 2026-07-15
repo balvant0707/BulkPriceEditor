@@ -336,8 +336,8 @@ function RecommendedAppsSection() {
                 minWidth: 220,
                 display: "flex",
                 flexDirection: "column",
-                justifyContent: "center",
-                gap: 16,
+                justifyContent: "space-between",
+                gap: 10,
                 background: "#ffffff",
               }}
             >
