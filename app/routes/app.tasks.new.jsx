@@ -3811,26 +3811,6 @@ export default function NewTaskPage() {
                   )}
                 </SectionCard>
 
-                <SectionCard title="Apply changes to">
-                  <BlockStack gap="200">
-                    <Checkbox
-                      label="Active Products"
-                      checked={applyToActiveProducts}
-                      onChange={setApplyToActiveProducts}
-                    />
-                    <Checkbox
-                      label="Draft Products"
-                      checked={applyToDraftProducts}
-                      onChange={setApplyToDraftProducts}
-                    />
-                    <Checkbox
-                      label="Soldout Products"
-                      checked={applyToSoldoutProducts}
-                      onChange={setApplyToSoldoutProducts}
-                    />
-                  </BlockStack>
-                </SectionCard>
-
                 <SectionCard title="Price">
                   <PriceChangeFields
                     fieldPrefix="price"
@@ -3928,6 +3908,26 @@ export default function NewTaskPage() {
                     applyToDraftProducts={applyToDraftProducts}
                     applyToSoldoutProducts={applyToSoldoutProducts}
                   />
+                </SectionCard>
+
+                <SectionCard title="Apply changes to">
+                  <BlockStack gap="200">
+                    <Checkbox
+                      label="Active Products"
+                      checked={applyToActiveProducts}
+                      onChange={setApplyToActiveProducts}
+                    />
+                    <Checkbox
+                      label="Draft Products"
+                      checked={applyToDraftProducts}
+                      onChange={setApplyToDraftProducts}
+                    />
+                    <Checkbox
+                      label="Soldout Products"
+                      checked={applyToSoldoutProducts}
+                      onChange={setApplyToSoldoutProducts}
+                    />
+                  </BlockStack>
                 </SectionCard>
 
                 <SectionCard title="Exclude discounted">

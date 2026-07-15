@@ -2117,26 +2117,6 @@ export default function NewSalePage() {
                 ) : null}
               </SectionCard>
 
-              <SectionCard title="Apply changes to">
-                <BlockStack gap="200">
-                  <Checkbox
-                    label="Active Products"
-                    checked={form.applyToActiveProducts}
-                    onChange={setField("applyToActiveProducts")}
-                  />
-                  <Checkbox
-                    label="Draft Products"
-                    checked={form.applyToDraftProducts}
-                    onChange={setField("applyToDraftProducts")}
-                  />
-                  <Checkbox
-                    label="Soldout Products"
-                    checked={form.applyToSoldoutProducts}
-                    onChange={setField("applyToSoldoutProducts")}
-                  />
-                </BlockStack>
-              </SectionCard>
-
               <SectionCard title="Price">
                 <FormLayout>
                   <Select
@@ -2320,6 +2300,26 @@ export default function NewSalePage() {
                     setExcludeTags((items) => items.filter((item) => item.id !== id))
                   }
                 />
+              </SectionCard>
+
+              <SectionCard title="Apply changes to">
+                <BlockStack gap="200">
+                  <Checkbox
+                    label="Active Products"
+                    checked={form.applyToActiveProducts}
+                    onChange={setField("applyToActiveProducts")}
+                  />
+                  <Checkbox
+                    label="Draft Products"
+                    checked={form.applyToDraftProducts}
+                    onChange={setField("applyToDraftProducts")}
+                  />
+                  <Checkbox
+                    label="Soldout Products"
+                    checked={form.applyToSoldoutProducts}
+                    onChange={setField("applyToSoldoutProducts")}
+                  />
+                </BlockStack>
               </SectionCard>
 
               <SectionCard title="Exclude discounted">
