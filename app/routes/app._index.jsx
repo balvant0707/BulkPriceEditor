@@ -468,7 +468,7 @@ export default function AppIndex() {
     <>
       <TitleBar title="Pryxo Price Editor" />
 
-      <Page title="Pryxo Price Editor">
+      <Page title="Dashboard">
         <Layout>
           <Layout.Section variant="oneHalf">
             <MetricCard
