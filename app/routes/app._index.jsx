@@ -322,7 +322,7 @@ function RecommendedAppsSection() {
           style={{
             display: "grid",
             gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-            gap: 16,
+            gap: 10,
             overflowX: "auto",
           }}
         >
@@ -331,12 +331,12 @@ function RecommendedAppsSection() {
               key={app.name}
               style={{
                 border: "1px solid #e1e3e5",
-                padding: 18,
+                padding: 10,
                 minHeight: 220,
                 minWidth: 220,
                 display: "flex",
                 flexDirection: "column",
-                justifyContent: "space-between",
+                justifyContent: "center",
                 gap: 16,
                 background: "#ffffff",
               }}
