@@ -321,8 +321,9 @@ function RecommendedAppsSection() {
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-            gap: 20,
+            gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+            gap: 16,
+            overflowX: "auto",
           }}
         >
           {recommendedApps.map((app) => (
@@ -330,8 +331,9 @@ function RecommendedAppsSection() {
               key={app.name}
               style={{
                 border: "1px solid #e1e3e5",
-                padding: 20,
-                minHeight: 194,
+                padding: 18,
+                minHeight: 220,
+                minWidth: 220,
                 display: "flex",
                 flexDirection: "column",
                 justifyContent: "space-between",
@@ -340,25 +342,18 @@ function RecommendedAppsSection() {
               }}
             >
               <BlockStack gap="300">
-                <InlineStack align="space-between" blockAlign="start" gap="300">
-                  <InlineStack gap="300" blockAlign="start" wrap={false}>
-                    <img
-                      src={app.image}
-                      alt=""
-                      width="48"
-                      height="48"
-                      style={{
-                        borderRadius: 6,
-                        flex: "0 0 auto",
-                        objectFit: "cover",
-                      }}
-                    />
-
-                    <Text as="h3" variant="headingMd">
-                      {app.name}
-                    </Text>
-                  </InlineStack>
-
+                <InlineStack align="space-between" blockAlign="center" gap="300">
+                  <img
+                    src={app.image}
+                    alt=""
+                    width="48"
+                    height="48"
+                    style={{
+                      borderRadius: 6,
+                      flex: "0 0 auto",
+                      objectFit: "cover",
+                    }}
+                  />
                   <Box
                     background="bg-fill-secondary"
                     paddingBlock="150"
@@ -370,6 +365,10 @@ function RecommendedAppsSection() {
                     </Text>
                   </Box>
                 </InlineStack>
+
+                <Text as="h3" variant="headingMd">
+                  {app.name}
+                </Text>
 
                 <Text as="p" tone="subdued">
                   {app.description}
