@@ -376,7 +376,7 @@ function RecommendedAppsSection() {
               </BlockStack>
 
               <div>
-                <Button url={app.url} external variant="primary">
+                <Button url={app.url} external variant="primary" target="_blank">
                   View app
                 </Button>
               </div>
