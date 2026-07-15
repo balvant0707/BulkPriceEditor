@@ -139,7 +139,7 @@ export default function ToolsPage() {
 
   return (
     <Frame>
-      <Page title="Tools">
+      <Page title="Pryxo Bulk Price Editor">
         <TitleBar title="Tools" />
 
         <Layout>
