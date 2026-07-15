@@ -701,7 +701,7 @@ const roundingOptions = [
 function SectionCard({ title, children }) {
   return (
     <Card>
-      <BlockStack gap="400">
+      <BlockStack gap="100">
         <Text as="h2" variant="headingMd">
           {title}
         </Text>
@@ -766,7 +766,7 @@ function SelectedList({ items, onRemove, emptyText }) {
   }
 
   return (
-    <BlockStack gap="200">
+    <BlockStack gap="100">
       {items.map((item) => (
         <Box
           key={item.id}
@@ -782,7 +782,7 @@ function SelectedList({ items, onRemove, emptyText }) {
                 imageUrl={item.imageUrl}
                 imageAlt={item.imageAlt}
               />
-              <BlockStack gap="050">
+              <BlockStack gap="50">
                 <Text as="p" variant="bodyMd" fontWeight="semibold">
                   {item.title}
                 </Text>
@@ -947,7 +947,7 @@ function PickerModal({
               justifyContent: "center",
             }}
           >
-            <BlockStack gap="300" inlineAlign="center">
+            <BlockStack gap="100" inlineAlign="center">
               <Spinner accessibilityLabel={`Loading ${resourceLabel}`} size="large" />
               <Text as="p" tone="subdued">
                 Loading {resourceLabel}...
@@ -1103,7 +1103,7 @@ function PickerModal({
                               imageAlt={item.imageAlt}
                             />
 
-                            <BlockStack gap="050">
+                            <BlockStack gap="50">
                               <Text as="span" variant="bodyMd">
                                 {item.title}
                               </Text>
@@ -1147,7 +1147,7 @@ function PickerModal({
 
                 {loadingMore ? (
                   <Box padding="400">
-                    <BlockStack gap="200" inlineAlign="center">
+                    <BlockStack gap="100" inlineAlign="center">
                       <Spinner
                         accessibilityLabel={`Loading more ${resourceLabel}`}
                         size="small"
@@ -1221,7 +1221,7 @@ function InlineTagSearch({
   );
 
   return (
-    <BlockStack gap="200">
+    <BlockStack gap="100">
       <Popover
         active={active}
         preferredAlignment="left"
@@ -1239,7 +1239,7 @@ function InlineTagSearch({
         onClose={onClose}
       >
         <Box padding="300">
-          <BlockStack gap="300">
+          <BlockStack gap="100">
             <Text as="p" fontWeight="semibold">
               Suggestions
             </Text>
@@ -1420,7 +1420,7 @@ function SaleRoundingFields({
   };
 
   return (
-    <BlockStack gap="300">
+    <BlockStack gap="100">
       <Select
         label="Rounding"
         name={`${prefix}_rounding_mode`}
@@ -2049,7 +2049,7 @@ export default function NewSalePage() {
       >
         <Layout>
           <Layout.Section>
-            <BlockStack gap="400">
+            <BlockStack gap="100">
               {actionData?.error ? (
                 <Banner tone="critical">{actionData.error}</Banner>
               ) : null}
@@ -2396,7 +2396,7 @@ export default function NewSalePage() {
 
 
               <SectionCard title="Advanced" style={{ marginBottom: "1rem" }}>
-                <BlockStack gap="400">
+                <BlockStack gap="100">
                   <Checkbox
                     label="Add tags while sale is active"
                     checked={form.addTagsEnabled}
@@ -2404,7 +2404,7 @@ export default function NewSalePage() {
                   />
 
                   {form.addTagsEnabled ? (
-                    <BlockStack gap="300">
+                    <BlockStack gap="100">
                       <InlineStack gap="300" blockAlign="center">
                         <Text as="p" fontWeight="semibold">
                           Tags to add
@@ -2445,7 +2445,7 @@ export default function NewSalePage() {
                   />
 
                   {form.removeTagsEnabled ? (
-                    <BlockStack gap="300">
+                    <BlockStack gap="200">
                       <InlineTagSearch
                         label="Tags to remove"
                         selectedTags={tagsToRemove}

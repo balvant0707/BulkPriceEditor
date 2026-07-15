@@ -2649,7 +2649,7 @@ function ResourcePickerModal({
                               imageAlt={item.imageAlt}
                             />
 
-                            <BlockStack gap="050">
+                            <BlockStack gap="50">
                               <Text as="span" variant="bodyMd">
                                 {item.title}
                               </Text>
