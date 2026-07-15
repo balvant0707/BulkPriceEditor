@@ -1268,7 +1268,7 @@ function ConditionPicker({
   if (value === "selected_collections") {
     return (
       <BlockStack gap="300">
-        <InlineStack gap="10px" blockAlign="center">
+        <InlineStack gap="300" blockAlign="center">
           <Text as="p" fontWeight="semibold">
             Collections
           </Text>
@@ -1286,7 +1286,7 @@ function ConditionPicker({
   if (value === "selected_products") {
     return (
       <BlockStack gap="300">
-        <InlineStack gap="10px" blockAlign="center">
+        <InlineStack gap="300" blockAlign="center">
           <Text as="p" fontWeight="semibold">
             Products
           </Text>
@@ -1304,7 +1304,7 @@ function ConditionPicker({
   if (value === "selected_products_with_variants") {
     return (
       <BlockStack gap="300">
-        <InlineStack gap="10px" blockAlign="center">
+        <InlineStack gap="300" blockAlign="center">
           <Text as="p" fontWeight="semibold">
             Product variants
           </Text>
@@ -1322,7 +1322,7 @@ function ConditionPicker({
   if (value === "selected_tags") {
     return (
       <BlockStack gap="300">
-        <InlineStack gap="10px" blockAlign="center">
+        <InlineStack gap="300" blockAlign="center">
           <Text as="p" fontWeight="semibold">
             Tags
           </Text>
@@ -2306,7 +2306,7 @@ export default function NewSalePage() {
 
                   {form.addTagsEnabled ? (
                     <BlockStack gap="300">
-                      <InlineStack gap="10px" blockAlign="center">
+                      <InlineStack gap="300" blockAlign="center">
                         <Text as="p" fontWeight="semibold">
                           Tags to add
                         </Text>
