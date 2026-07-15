@@ -10,7 +10,6 @@ import {
   BlockStack,
   Box,
   Link,
-  List,
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import {
@@ -51,21 +50,38 @@ const saleStatDefinitions = [
   { id: "completed", label: "Completed", url: "/app/sales?status=completed" },
 ];
 
-const changelogItems = [
+const recommendedApps = [
   {
-    text: "You can now choose which minute of the hour auto-reapply runs for sales and tasks.",
-    month: "Jun'26",
-    url: "#",
+    name: "Fomoify Sales Popup & Proof",
+    description:
+      "Increase trust using real-time sales popups and conversion proof nudges.",
+    category: "Social Proof",
+    url: "https://apps.shopify.com/fomoify-sales-popup-proof",
+    image: "/image/CKapsur_zpUDEAE=.png",
   },
   {
-    text: "You can now edit markets that share a catalog with other markets.",
-    month: "Jun'26",
-    url: "#",
+    name: "MixBox - Box & Bundle Builder",
+    description:
+      "Build custom bundles and boxed products to increase average order value.",
+    category: "Bundle",
+    url: "https://apps.shopify.com/mixbox-box-bundle-builder",
+    image: "/image/CL-nruWY_pMDEAE=.png",
   },
   {
-    text: "You can now exclude discounted products alongside other exclusions (collections, products, or tags).",
-    month: "May'26",
-    url: "#",
+    name: "Nex AI SEO Product Description",
+    description:
+      "Generate SEO-friendly content to improve visibility and conversion.",
+    category: "SEO",
+    url: "https://apps.shopify.com/ai-seo-product-description",
+    image: "/image/CJbj1a_i9pQDEAE=.png",
+  },
+  {
+    name: "CartLift: Cart Drawer & Upsell",
+    description:
+      "Create a high-converting cart drawer with upsells and progress offers.",
+    category: "Upsell",
+    url: "https://apps.shopify.com/cartlift-slide-cart-drawer-upsell",
+    image: "/image/b55a28208623440fd6a8987892e4aec3_200x200.png",
   },
 ];
 
@@ -294,31 +310,80 @@ function StatsCard({
   );
 }
 
-function WhatsNewCard() {
+function RecommendedAppsSection() {
   return (
     <Card>
-      <BlockStack gap="200">
+      <BlockStack gap="400">
         <Text as="h2" variant="headingMd">
-          What&apos;s new
+          Recommended Our Growth Apps
         </Text>
 
-        <List type="bullet">
-          {changelogItems.map((item) => (
-            <List.Item key={`${item.text}-${item.month}`}>
-              {item.text}{" "}
-              <Link url={item.url}>
-                Learn more
-              </Link>{" "}
-              ({item.month})
-            </List.Item>
-          ))}
-        </List>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+            gap: 20,
+          }}
+        >
+          {recommendedApps.map((app) => (
+            <div
+              key={app.name}
+              style={{
+                border: "1px solid #e1e3e5",
+                padding: 20,
+                minHeight: 194,
+                display: "flex",
+                flexDirection: "column",
+                justifyContent: "space-between",
+                gap: 16,
+                background: "#ffffff",
+              }}
+            >
+              <BlockStack gap="300">
+                <InlineStack align="space-between" blockAlign="start" gap="300">
+                  <InlineStack gap="300" blockAlign="start" wrap={false}>
+                    <img
+                      src={app.image}
+                      alt=""
+                      width="48"
+                      height="48"
+                      style={{
+                        borderRadius: 6,
+                        flex: "0 0 auto",
+                        objectFit: "cover",
+                      }}
+                    />
 
-        <Box>
-          <Button url="https://app.bulkpriceeditor.com/changelog" external>
-            View full changelog
-          </Button>
-        </Box>
+                    <Text as="h3" variant="headingMd">
+                      {app.name}
+                    </Text>
+                  </InlineStack>
+
+                  <Box
+                    background="bg-fill-secondary"
+                    paddingBlock="150"
+                    paddingInline="300"
+                    borderRadius="200"
+                  >
+                    <Text as="span" variant="bodySm" fontWeight="semibold">
+                      {app.category}
+                    </Text>
+                  </Box>
+                </InlineStack>
+
+                <Text as="p" tone="subdued">
+                  {app.description}
+                </Text>
+              </BlockStack>
+
+              <div>
+                <Button url={app.url} external variant="primary">
+                  View app
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
       </BlockStack>
     </Card>
   );
@@ -445,7 +510,7 @@ export default function AppIndex() {
           </Layout.Section>
 
           <Layout.Section>
-            <WhatsNewCard />
+            <RecommendedAppsSection />
           </Layout.Section>
 
           <Layout.Section>
