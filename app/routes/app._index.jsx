@@ -47,7 +47,7 @@ const saleStatDefinitions = [
   { id: "all", label: "All sales", url: "/app/sales" },
   { id: "active", label: "Active", url: "/app/sales?status=active" },
   { id: "scheduled", label: "Scheduled", url: "/app/sales?status=scheduled" },
-  { id: "completed", label: "Completed", url: "/app/sales?status=completed" },
+  { id: "completed", label: "Completed", url: "/app/sales?status=Canceled" },
 ];
 
 const recommendedApps = [
