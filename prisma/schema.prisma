@@ -75,6 +75,8 @@ model Task {
   executionSummary     Json?
   autoReapply          Boolean   @default(false)
   autoReapplyChanges   Boolean   @default(false)
+  autoReapplyIntervalUnit  String    @default("hours") @db.VarChar(16)
+  autoReapplyIntervalValue Int       @default(1)
   startedAt            DateTime?
   completedAt          DateTime?
   createdAt            DateTime  @default(now())
@@ -188,6 +190,8 @@ model Sale {
   removeTagsEnabled     Boolean   @default(false)
   trackConditionChanges Boolean   @default(false)
   autoReapplyChanges    Boolean   @default(false)
+  autoReapplyIntervalUnit  String    @default("hours") @db.VarChar(16)
+  autoReapplyIntervalValue Int       @default(1)
   startedAt             DateTime?
   completedAt           DateTime?
   createdAt             DateTime  @default(now())

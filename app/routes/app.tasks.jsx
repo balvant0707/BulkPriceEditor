@@ -36,7 +36,7 @@ import { withShopifyEmbeddedParams } from "../lib/shopify-embedded-url";
 import { commitFlashSession, getFlashSession } from "../lib/flash.server";
 import {
   AUTO_REAPPLY_TEXT,
-  getAutoReapplyLastRun,
+  formatAutoReapplyInterval,
   isAutoReapplyEnabled,
 } from "../lib/task-auto-reapply";
 
@@ -293,7 +293,7 @@ function getTaskChangeItems(task) {
 }
 
 function AutoReapplyMessage({ task }) {
-  const autoReapplyLastRun = getAutoReapplyLastRun(task);
+  const intervalText = formatAutoReapplyInterval(task);
 
   return (
     <BlockStack gap="050">
@@ -318,7 +318,7 @@ function AutoReapplyMessage({ task }) {
         </svg>
 
         <Text as="span" tone="subdued">
-          {AUTO_REAPPLY_TEXT}
+          {AUTO_REAPPLY_TEXT} - {intervalText}
         </Text>
       </div>
     </BlockStack>

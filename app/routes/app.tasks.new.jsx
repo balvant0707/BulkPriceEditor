@@ -36,6 +36,7 @@ import { authenticate } from "../shopify.server";
 import { withShopifyEmbeddedParams } from "../lib/shopify-embedded-url";
 import { loadSettings } from "../lib/product-reports.server";
 import { DEFAULT_REPORT_SETTINGS } from "../lib/product-reports";
+import { getAutoReapplyIntervalConfig } from "../lib/task-auto-reapply";
 import { commitFlashSession, getFlashSession } from "../lib/flash.server";
 import {
   DISCOUNTED_SKIP_REASONS,
@@ -617,6 +618,34 @@ function hasFormValue(formData, name) {
   return formData.has(name);
 }
 
+function getAllowedExcludeValues(applyScope) {
+  const hiddenByApplyScope = {
+    selected_collections: new Set(["selected_collections"]),
+    selected_products: new Set(["selected_collections", "selected_products"]),
+    selected_products_with_variants: new Set([
+      "selected_collections",
+      "selected_products",
+      "selected_products_with_variants",
+    ]),
+  };
+  const hiddenValues = hiddenByApplyScope[applyScope] || new Set();
+
+  return excludeChoices
+    .map((choice) => choice.value)
+    .filter((value) => !hiddenValues.has(value));
+}
+
+function getExcludeChoicesForApply(applyScope) {
+  const allowedValues = new Set(getAllowedExcludeValues(applyScope));
+  return excludeChoices.filter((choice) => allowedValues.has(choice.value));
+}
+
+function normalizeExcludeScopeForApply(excludeScope, applyScope) {
+  return getAllowedExcludeValues(applyScope).includes(excludeScope)
+    ? excludeScope
+    : "nothing";
+}
+
 function formDataToConfiguration(formData) {
   const configuration = {};
 
@@ -727,7 +756,20 @@ function buildTaskData(shop, formData) {
   const reapplyMinute = clampReapplyMinute(
     getFormValue(formData, "reapply_minute", DEFAULT_REPORT_SETTINGS.reapplyMinute),
   );
+  const autoReapplyIntervalUnit =
+    getFormValue(formData, "auto_reapply_interval_unit", "hours") === "days"
+      ? "days"
+      : "hours";
+  const autoReapplyIntervalValue = clampAutoReapplyIntervalValue(
+    getFormValue(formData, "auto_reapply_interval_value", "1"),
+    autoReapplyIntervalUnit,
+  );
   const configuration = formDataToConfiguration(formData);
+  const applyScope = getFormValue(formData, "condition", "whole_store");
+  const excludeScope = normalizeExcludeScopeForApply(
+    getFormValue(formData, "exclude", "nothing"),
+    applyScope,
+  );
 
   return {
     shop: resolvedShop,
@@ -747,8 +789,8 @@ function buildTaskData(shop, formData) {
     priceChange: buildChangeData(formData, "price"),
     compareAtPriceChange: buildChangeData(formData, "compare_at_price"),
     costPerItemChange: buildChangeData(formData, "cost_per_item"),
-    applyScope: getFormValue(formData, "condition", "whole_store"),
-    excludeScope: getFormValue(formData, "exclude", "nothing"),
+    applyScope,
+    excludeScope,
     discountedScope: normalizeDiscountedScope(
       getFormValue(formData, "exclude_discounted", "nothing"),
     ),
@@ -782,9 +824,15 @@ function buildTaskData(shop, formData) {
       include_draft_products: String(includeDraftProducts),
       reapplyMinute: String(reapplyMinute),
       reapply_minute: String(reapplyMinute),
+      autoReapplyIntervalUnit: autoReapplyIntervalUnit,
+      auto_reapply_interval_unit: autoReapplyIntervalUnit,
+      autoReapplyIntervalValue: String(autoReapplyIntervalValue),
+      auto_reapply_interval_value: String(autoReapplyIntervalValue),
     },
     autoReapply: hasFormValue(formData, "auto_reapply_changes"),
     autoReapplyChanges: hasFormValue(formData, "auto_reapply_changes"),
+    autoReapplyIntervalUnit,
+    autoReapplyIntervalValue,
   };
 }
 
@@ -792,6 +840,14 @@ function clampReapplyMinute(value) {
   const minute = Number(value);
   if (!Number.isFinite(minute)) return Number(DEFAULT_REPORT_SETTINGS.reapplyMinute);
   return Math.max(0, Math.min(59, Math.trunc(minute)));
+}
+
+function clampAutoReapplyIntervalValue(value, unit) {
+  const number = Number(value);
+  const max = unit === "days" ? 30 : 720;
+
+  if (!Number.isFinite(number)) return 1;
+  return Math.max(1, Math.min(max, Math.trunc(number)));
 }
 
 function validateTaskData(taskData) {
@@ -3388,6 +3444,15 @@ export default function NewTaskPage() {
   const [autoReapply, setAutoReapply] = useState(
     Boolean(task?.autoReapplyChanges || configuration.auto_reapply_changes),
   );
+  const initialAutoReapplyInterval = getAutoReapplyIntervalConfig(task || {
+    configuration,
+  });
+  const [autoReapplyIntervalUnit, setAutoReapplyIntervalUnit] = useState(
+    initialAutoReapplyInterval.unit,
+  );
+  const [autoReapplyIntervalValue, setAutoReapplyIntervalValue] = useState(
+    String(initialAutoReapplyInterval.value),
+  );
 
   const [applyCollections, setApplyCollections] = useState(
     collectionConfigToSelectedItems(configuration, "apply"),
@@ -3423,6 +3488,10 @@ export default function NewTaskPage() {
   const autoReapplyUnavailable =
     estimatedAutoReapplyPriceChanges != null &&
     estimatedAutoReapplyPriceChanges > MAX_AUTO_REAPPLY_PRICE_CHANGES;
+  const filteredExcludeChoices = useMemo(
+    () => getExcludeChoicesForApply(applyTo[0]),
+    [applyTo],
+  );
 
   useEffect(() => {
     const marketIds = new Set(markets.map((market) => market.id));
@@ -3437,6 +3506,29 @@ export default function NewTaskPage() {
       setAutoReapply(false);
     }
   }, [autoReapplyUnavailable]);
+
+  useEffect(() => {
+    const normalizedExclude = normalizeExcludeScopeForApply(exclude[0], applyTo[0]);
+
+    if (normalizedExclude !== exclude[0]) {
+      setExclude([normalizedExclude]);
+    }
+
+    if (applyTo[0] === "selected_collections") {
+      setExcludeCollections([]);
+    }
+
+    if (applyTo[0] === "selected_products") {
+      setExcludeCollections([]);
+      setExcludeProducts([]);
+    }
+
+    if (applyTo[0] === "selected_products_with_variants") {
+      setExcludeCollections([]);
+      setExcludeProducts([]);
+      setExcludeVariants([]);
+    }
+  }, [applyTo, exclude]);
 
   const handleApplyChangesToChange = (value) => {
     setApplyChangesTo(value);
@@ -3665,7 +3757,7 @@ export default function NewTaskPage() {
                     name="exclude"
                     selected={exclude}
                     onChange={setExclude}
-                    choices={excludeChoices}
+                    choices={filteredExcludeChoices}
                   />
                   <ConditionScopeInputs
                     sectionPrefix="exclude"
@@ -3706,17 +3798,44 @@ export default function NewTaskPage() {
                     value={
                       autoReapply && !autoReapplyUnavailable
                         ? "enabled"
-                        : "disabled"
+                      : "disabled"
                     }
                   />
                   <Checkbox
-                    label="Automatically re-apply price changes (every hour)"
+                    label="Automatically re-apply price changes"
                     name="auto_reapply_changes"
                     checked={autoReapply && !autoReapplyUnavailable}
                     onChange={setAutoReapply}
                     disabled={autoReapplyUnavailable}
                     helpText="Prevents third-party apps from overriding prices after task completion. Works for tasks with up to 10,000 price changes."
                   />
+                  {autoReapply && !autoReapplyUnavailable ? (
+                    <FormLayout>
+                      <FormLayout.Group>
+                        <TextField
+                          label="Repeat every"
+                          name="auto_reapply_interval_value"
+                          type="number"
+                          min={1}
+                          max={autoReapplyIntervalUnit === "days" ? 30 : 720}
+                          value={autoReapplyIntervalValue}
+                          onChange={setAutoReapplyIntervalValue}
+                          autoComplete="off"
+                        />
+
+                        <Select
+                          label="Interval"
+                          name="auto_reapply_interval_unit"
+                          options={[
+                            { label: "Hours", value: "hours" },
+                            { label: "Days", value: "days" },
+                          ]}
+                          value={autoReapplyIntervalUnit}
+                          onChange={setAutoReapplyIntervalUnit}
+                        />
+                      </FormLayout.Group>
+                    </FormLayout>
+                  ) : null}
                   {autoReapplyUnavailable ? (
                     <Banner tone="warning">
                       Automatic re-apply is only available for tasks affecting

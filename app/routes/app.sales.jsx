@@ -47,6 +47,7 @@ import {
   normalizeSaleStatus,
   SALE_STATUS,
 } from "../lib/sale-status";
+import { formatAutoReapplyInterval } from "../lib/task-auto-reapply";
 
 const CREATE_SALE_URL = "/app/sales/new";
 const SALES_URL = "/app/sales";
@@ -247,7 +248,9 @@ function getSaleChangeText(sale) {
   const price = formatChange(sale.priceChange, "price");
   const compareAt = formatChange(sale.compareAtPriceChange, "compare at price");
   const changes = [price, compareAt].filter(Boolean);
-  if (sale.autoReapplyChanges) changes.push("Auto re-apply changes");
+  if (sale.autoReapplyChanges) {
+    changes.push(`Auto re-apply changes - ${formatAutoReapplyInterval(sale)}`);
+  }
   return changes;
 }
 
@@ -580,7 +583,7 @@ export default function SalesPage() {
         <IndexTable.Cell>
           <BlockStack gap="050">
             {getSaleChangeText(sale).map((change) => (
-              change === "Auto re-apply changes" ? (
+              change.startsWith("Auto re-apply changes") ? (
                 <InlineStack key={change} gap="150" blockAlign="center" wrap={false}>
                   <ReapplyIcon />
                   <Text as="span" tone="subdued">

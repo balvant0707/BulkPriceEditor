@@ -11,6 +11,7 @@ import {
   splitVariantsByDiscountedScope,
 } from "../lib/task-discounted-exclusion";
 import { DEFAULT_REPORT_SETTINGS } from "../lib/product-reports";
+import { getNextAutoReapplyRunMs } from "../lib/task-auto-reapply";
 import { updateMarketPrices } from "../services/market-pricing.server";
 
 const AUTO_REAPPLY_INTERVAL_MS = 60 * 60 * 1000;
@@ -1248,7 +1249,7 @@ function isAutoReapplyDue(task, nowMs = Date.now()) {
 
   if (!baseRunMs) return true;
 
-  return nowMs >= getNextHourlyRunMs(baseRunMs, getConfiguredReapplyMinute(task));
+  return nowMs >= getNextAutoReapplyRunMs(task, baseRunMs);
 }
 
 function getShopifyApiVersion() {

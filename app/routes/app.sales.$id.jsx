@@ -43,6 +43,7 @@ import {
 import {
   generateProductReport,
 } from "../lib/product-reports.server";
+import { formatAutoReapplyInterval } from "../lib/task-auto-reapply";
 import {
   normalizeShop,
   REPORT_TYPES,
@@ -290,6 +291,8 @@ export const action = async ({ request, params }) => {
         removeTagsEnabled: sale.removeTagsEnabled,
         trackConditionChanges: sale.trackConditionChanges,
         autoReapplyChanges: sale.autoReapplyChanges,
+        autoReapplyIntervalUnit: sale.autoReapplyIntervalUnit,
+        autoReapplyIntervalValue: sale.autoReapplyIntervalValue,
       },
     });
 
@@ -1032,7 +1035,7 @@ function SaleDetailsContent() {
                       <InlineStack gap="150" blockAlign="center" wrap={false}>
                         <ReapplyIcon />
                         <Text as="p" tone="subdued">
-                          Automatically re-apply price changes (every hour, up to 10,000 changes)
+                          Automatically re-apply price changes (up to 10,000 changes) - {formatAutoReapplyInterval(sale)}
                         </Text>
                       </InlineStack>
                     ) : null}

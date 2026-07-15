@@ -7,6 +7,7 @@ import {
 } from "../../lib/sales.server";
 import { SALE_STATUS } from "../../lib/sale-status";
 import { DEFAULT_REPORT_SETTINGS } from "../../lib/product-reports";
+import { getNextAutoReapplyRunMs } from "../../lib/task-auto-reapply";
 import { inngest } from "../client";
 
 const SALES_CRON_BATCH_SIZE = 20;
@@ -169,7 +170,7 @@ function shouldTrackSaleCondition(sale) {
   const lastRunAt = new Date(lastRun).getTime();
   if (Number.isNaN(lastRunAt)) return true;
 
-  return Date.now() >= getNextHourlyRunMs(lastRunAt, getConfiguredReapplyMinute(sale));
+  return Date.now() >= getNextAutoReapplyRunMs(sale, lastRunAt);
 }
 
 function getConfiguredReapplyMinute(sale) {

@@ -40,6 +40,7 @@ import { withShopifyEmbeddedParams } from "../lib/shopify-embedded-url";
 import { loadSettings } from "../lib/product-reports.server";
 import { DEFAULT_REPORT_SETTINGS } from "../lib/product-reports";
 import { commitFlashSession, getFlashSession } from "../lib/flash.server";
+import { getAutoReapplyIntervalConfig } from "../lib/task-auto-reapply";
 import {
   createSaleExecutionSummary,
   SALE_STATUS,
@@ -306,6 +307,17 @@ function parseDateTimeParts(date, time) {
 
 function buildSaleData(shop, title, payload) {
   const form = payload.form || {};
+  const applyScope = form.applyCondition || "whole_store";
+  const excludeScope = normalizeExcludeScopeForApply(
+    form.excludeCondition || "nothing",
+    applyScope,
+  );
+  const autoReapplyIntervalUnit =
+    form.autoReapplyIntervalUnit === "days" ? "days" : "hours";
+  const autoReapplyIntervalValue = clampAutoReapplyIntervalValue(
+    form.autoReapplyIntervalValue ?? 1,
+    autoReapplyIntervalUnit,
+  );
   const startAt = parseScheduleDate(
     form.startDate,
     form.startTime,
@@ -352,8 +364,8 @@ function buildSaleData(shop, title, payload) {
         endingPattern: (form.compareEndingDigits || []).join(""),
       },
     },
-    applyScope: form.applyCondition || "whole_store",
-    excludeScope: form.excludeCondition || "nothing",
+    applyScope,
+    excludeScope,
     discountedScope: form.excludeDiscounted || "nothing",
     applyResources: {
       collections: payload.applyCollections || [],
@@ -388,6 +400,10 @@ function buildSaleData(shop, title, payload) {
       reapply_minute: String(
         clampReapplyMinute(form.reapplyMinute ?? DEFAULT_REPORT_SETTINGS.reapplyMinute),
       ),
+      autoReapplyIntervalUnit,
+      auto_reapply_interval_unit: autoReapplyIntervalUnit,
+      autoReapplyIntervalValue: String(autoReapplyIntervalValue),
+      auto_reapply_interval_value: String(autoReapplyIntervalValue),
     },
     startAt,
     endAt,
@@ -395,6 +411,8 @@ function buildSaleData(shop, title, payload) {
     removeTagsEnabled: Boolean(form.removeTagsEnabled),
     trackConditionChanges: Boolean(form.trackConditionChanges),
     autoReapplyChanges: Boolean(form.autoReapplyChanges),
+    autoReapplyIntervalUnit,
+    autoReapplyIntervalValue,
   };
 }
 
@@ -402,6 +420,14 @@ function clampReapplyMinute(value) {
   const minute = Number(value);
   if (!Number.isFinite(minute)) return Number(DEFAULT_REPORT_SETTINGS.reapplyMinute);
   return Math.max(0, Math.min(59, Math.trunc(minute)));
+}
+
+function clampAutoReapplyIntervalValue(value, unit) {
+  const number = Number(value);
+  const max = unit === "days" ? 30 : 720;
+
+  if (!Number.isFinite(number)) return 1;
+  return Math.max(1, Math.min(max, Math.trunc(number)));
 }
 
 function validateSaleData(saleData) {
@@ -591,6 +617,34 @@ const excludeOptions = [
   { label: "Selected products with variants", value: "selected_products_with_variants" },
   { label: "Selected tags", value: "selected_tags" },
 ];
+
+function getAllowedExcludeValues(applyScope) {
+  const hiddenByApplyScope = {
+    selected_collections: new Set(["selected_collections"]),
+    selected_products: new Set(["selected_collections", "selected_products"]),
+    selected_products_with_variants: new Set([
+      "selected_collections",
+      "selected_products",
+      "selected_products_with_variants",
+    ]),
+  };
+  const hiddenValues = hiddenByApplyScope[applyScope] || new Set();
+
+  return excludeOptions
+    .map((option) => option.value)
+    .filter((value) => !hiddenValues.has(value));
+}
+
+function getExcludeOptionsForApply(applyScope) {
+  const allowedValues = new Set(getAllowedExcludeValues(applyScope));
+  return excludeOptions.filter((option) => allowedValues.has(option.value));
+}
+
+function normalizeExcludeScopeForApply(excludeScope, applyScope) {
+  return getAllowedExcludeValues(applyScope).includes(excludeScope)
+    ? excludeScope
+    : "nothing";
+}
 
 const excludeDiscountedOptions = [
   { label: "Nothing", value: "nothing" },
@@ -1453,10 +1507,11 @@ export default function NewSalePage() {
   const navigation = useNavigation();
   const isSubmitting = navigation.state !== "idle";
   const now = useMemo(() => new Date(), []);
-  const defaultEndAt = useMemo(() => addHours(now, 1), [now]);
-  const today = getLocalDateInputValue(now);
   const initialPayload = sale?.configuration || {};
   const initialForm = initialPayload.form || {};
+  const initialAutoReapplyInterval = getAutoReapplyIntervalConfig(sale || {
+    configuration: initialPayload,
+  });
   const marketOptions = useMemo(
     () => markets.map((market) => ({ label: market.label, value: market.id })),
     [markets],
@@ -1509,7 +1564,7 @@ export default function NewSalePage() {
       settings.reapplyMinute ??
       DEFAULT_REPORT_SETTINGS.reapplyMinute,
 
-    startDate: initialForm.startDate || sale?.schedule?.startDate || today,
+    startDate: initialForm.startDate || sale?.schedule?.startDate || "",
     startTime:
       initialForm.startTime ||
       sale?.schedule?.startTime ||
@@ -1518,11 +1573,11 @@ export default function NewSalePage() {
     endDate:
       initialForm.endDate ||
       sale?.schedule?.endDate ||
-      getLocalDateInputValue(defaultEndAt),
+      "",
     endTime:
       initialForm.endTime ||
       sale?.schedule?.endTime ||
-      getLocalTimeInputValue(defaultEndAt),
+      getLocalTimeInputValue(addHours(now, 1)),
 
     addTagsEnabled: Boolean(initialForm.addTagsEnabled ?? sale?.addTagsEnabled),
     removeTagsEnabled: Boolean(
@@ -1533,6 +1588,17 @@ export default function NewSalePage() {
     ),
     autoReapplyChanges: Boolean(
       initialForm.autoReapplyChanges ?? sale?.autoReapplyChanges,
+    ),
+    autoReapplyIntervalUnit:
+      initialForm.autoReapplyIntervalUnit ||
+      initialPayload.autoReapplyIntervalUnit ||
+      initialPayload.auto_reapply_interval_unit ||
+      initialAutoReapplyInterval.unit,
+    autoReapplyIntervalValue: String(
+      initialForm.autoReapplyIntervalValue ||
+      initialPayload.autoReapplyIntervalValue ||
+      initialPayload.auto_reapply_interval_value ||
+      initialAutoReapplyInterval.value,
     ),
   });
   const selectedMarketDetails = useMemo(
@@ -1590,6 +1656,10 @@ export default function NewSalePage() {
   const [removeTagSuggestionsOpen, setRemoveTagSuggestionsOpen] = useState(false);
   const [removeTagItems, setRemoveTagItems] = useState([]);
   const [removeTagError, setRemoveTagError] = useState("");
+  const filteredExcludeOptions = useMemo(
+    () => getExcludeOptionsForApply(form.applyCondition),
+    [form.applyCondition],
+  );
   const requestIdRef = useRef(0);
   const latestRequestIdRef = useRef("");
   const removeTagRequestIdRef = useRef(0);
@@ -1602,6 +1672,32 @@ export default function NewSalePage() {
       markets: current.markets.filter((marketId) => marketIds.has(marketId)),
     }));
   }, [markets]);
+
+  useEffect(() => {
+    const normalizedExclude = normalizeExcludeScopeForApply(
+      form.excludeCondition,
+      form.applyCondition,
+    );
+
+    if (normalizedExclude !== form.excludeCondition) {
+      setField("excludeCondition")(normalizedExclude);
+    }
+
+    if (form.applyCondition === "selected_collections") {
+      setExcludeCollections([]);
+    }
+
+    if (form.applyCondition === "selected_products") {
+      setExcludeCollections([]);
+      setExcludeProducts([]);
+    }
+
+    if (form.applyCondition === "selected_products_with_variants") {
+      setExcludeCollections([]);
+      setExcludeProducts([]);
+      setExcludeVariants([]);
+    }
+  }, [form.applyCondition, form.excludeCondition]);
 
   const setField = (field) => (value) => {
     setForm((current) => ({ ...current, [field]: value }));
@@ -2100,7 +2196,7 @@ export default function NewSalePage() {
                 <ChoiceList
                   title="Exclude"
                   titleHidden
-                  choices={excludeOptions}
+                  choices={filteredExcludeOptions}
                   selected={[form.excludeCondition]}
                   onChange={(value) => setField("excludeCondition")(value[0])}
                 />
@@ -2282,11 +2378,37 @@ export default function NewSalePage() {
                   />
 
                   <Checkbox
-                    label="Automatically re-apply price changes (every hour)"
+                    label="Automatically re-apply price changes"
                     helpText="Prevents third-party apps from overriding prices for active sale. Works for sales with up to 10,000 price changes."
                     checked={form.autoReapplyChanges}
                     onChange={setField("autoReapplyChanges")}
                   />
+
+                  {form.autoReapplyChanges ? (
+                    <FormLayout>
+                      <FormLayout.Group>
+                        <TextField
+                          label="Repeat every"
+                          type="number"
+                          min={1}
+                          max={form.autoReapplyIntervalUnit === "days" ? 30 : 720}
+                          value={form.autoReapplyIntervalValue}
+                          onChange={setField("autoReapplyIntervalValue")}
+                          autoComplete="off"
+                        />
+
+                        <Select
+                          label="Interval"
+                          options={[
+                            { label: "Hours", value: "hours" },
+                            { label: "Days", value: "days" },
+                          ]}
+                          value={form.autoReapplyIntervalUnit}
+                          onChange={setField("autoReapplyIntervalUnit")}
+                        />
+                      </FormLayout.Group>
+                    </FormLayout>
+                  ) : null}
 
                 </BlockStack>
               </SectionCard>

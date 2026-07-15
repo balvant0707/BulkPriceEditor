@@ -1,7 +1,11 @@
 export const AUTO_REAPPLY_TEXT =
-  "Automatically re-apply price changes (every hour, up to 10,000 changes)";
+  "Automatically re-apply price changes (up to 10,000 changes)";
 export const AUTO_REAPPLY_INTERVAL_MS = 60 * 60 * 1000;
 const DEFAULT_REAPPLY_MINUTE = 20;
+const DEFAULT_REAPPLY_INTERVAL_UNIT = "hours";
+const DEFAULT_REAPPLY_INTERVAL_VALUE = 1;
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
 
 export function isEnabledValue(value) {
   if (value === true) return true;
@@ -51,9 +55,7 @@ export function getAutoReapplyNextRunAt(task) {
   const baseMs = baseDate.getTime();
   if (Number.isNaN(baseMs)) return "";
 
-  return new Date(
-    getNextHourlyRunMs(baseMs, getConfiguredReapplyMinute(task)),
-  ).toISOString();
+  return new Date(getNextAutoReapplyRunMs(task, baseMs)).toISOString();
 }
 
 export function getConfiguredReapplyMinute(task) {
@@ -78,6 +80,64 @@ export function getNextHourlyRunMs(baseMs, minute) {
   }
 
   return next.getTime();
+}
+
+export function getAutoReapplyIntervalConfig(record) {
+  const configuration = getObjectValue(record?.configuration);
+  const form = getObjectValue(configuration.form);
+  const rawUnit =
+    record?.autoReapplyIntervalUnit ||
+    form.autoReapplyIntervalUnit ||
+    form.auto_reapply_interval_unit ||
+    configuration.autoReapplyIntervalUnit ||
+    configuration.auto_reapply_interval_unit ||
+    DEFAULT_REAPPLY_INTERVAL_UNIT;
+  const unit = rawUnit === "days" ? "days" : "hours";
+  const rawValue =
+    record?.autoReapplyIntervalValue ||
+    form.autoReapplyIntervalValue ||
+    form.auto_reapply_interval_value ||
+    configuration.autoReapplyIntervalValue ||
+    configuration.auto_reapply_interval_value ||
+    DEFAULT_REAPPLY_INTERVAL_VALUE;
+  const value = Number(rawValue);
+  const max = unit === "days" ? 30 : 720;
+
+  return {
+    unit,
+    value: Number.isFinite(value)
+      ? Math.max(1, Math.min(max, Math.trunc(value)))
+      : DEFAULT_REAPPLY_INTERVAL_VALUE,
+  };
+}
+
+export function getAutoReapplyIntervalMs(record) {
+  const { unit, value } = getAutoReapplyIntervalConfig(record);
+  return value * (unit === "days" ? DAY_MS : HOUR_MS);
+}
+
+export function getNextAutoReapplyRunMs(record, baseMs) {
+  const intervalMs = getAutoReapplyIntervalMs(record);
+  const minute = getConfiguredReapplyMinute(record);
+  const next = new Date(baseMs + intervalMs);
+
+  next.setUTCMinutes(minute, 0, 0);
+
+  if (next.getTime() <= baseMs) {
+    next.setTime(next.getTime() + intervalMs);
+    next.setUTCMinutes(minute, 0, 0);
+  }
+
+  return next.getTime();
+}
+
+export function formatAutoReapplyInterval(record) {
+  const { unit, value } = getAutoReapplyIntervalConfig(record);
+  const label = unit === "days"
+    ? value === 1 ? "day" : "days"
+    : value === 1 ? "hour" : "hours";
+
+  return `Every ${value} ${label}`;
 }
 
 export function getObjectValue(value) {

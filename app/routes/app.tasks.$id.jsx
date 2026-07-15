@@ -29,6 +29,7 @@ import { authenticate } from "../shopify.server";
 import { commitFlashSession, getFlashSession } from "../lib/flash.server";
 import {
   AUTO_REAPPLY_TEXT,
+  formatAutoReapplyInterval,
   getAutoReapplyLastRun,
   getAutoReapplyNextRunAt,
   getDisabledAutoReapplyConfiguration,
@@ -365,6 +366,7 @@ function ChangeDetails({ task }) {
   const autoReapplyLastRun = getAutoReapplyLastRun(task);
   const autoReapplyNextRunAt = getAutoReapplyNextRunAt(task);
   const showAutoReapply = isAutoReapplyEnabled(task);
+  const autoReapplyIntervalText = formatAutoReapplyInterval(task);
   const changes = getTaskChangeItems(task);
   const [nowMs, setNowMs] = useState(() => Date.now());
 
@@ -405,7 +407,7 @@ function ChangeDetails({ task }) {
           </svg>
 
           <Text as="p" tone="subdued">
-            {AUTO_REAPPLY_TEXT}
+            {AUTO_REAPPLY_TEXT} - {autoReapplyIntervalText}
           </Text>
         </div>
       )}
