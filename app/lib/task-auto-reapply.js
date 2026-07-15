@@ -4,8 +4,14 @@ export const AUTO_REAPPLY_INTERVAL_MS = 60 * 60 * 1000;
 const DEFAULT_REAPPLY_MINUTE = 20;
 const DEFAULT_REAPPLY_INTERVAL_UNIT = "hours";
 const DEFAULT_REAPPLY_INTERVAL_VALUE = 1;
-const HOUR_MS = 60 * 60 * 1000;
+const MINUTE_MS = 60 * 1000;
+const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
+const AUTO_REAPPLY_INTERVAL_MAX_VALUES = {
+  minutes: 43200,
+  hours: 720,
+  days: 30,
+};
 
 export function isEnabledValue(value) {
   if (value === true) return true;
@@ -92,7 +98,9 @@ export function getAutoReapplyIntervalConfig(record) {
     configuration.autoReapplyIntervalUnit ||
     configuration.auto_reapply_interval_unit ||
     DEFAULT_REAPPLY_INTERVAL_UNIT;
-  const unit = rawUnit === "days" ? "days" : "hours";
+  const unit = ["minutes", "hours", "days"].includes(rawUnit)
+    ? rawUnit
+    : DEFAULT_REAPPLY_INTERVAL_UNIT;
   const rawValue =
     record?.autoReapplyIntervalValue ||
     form.autoReapplyIntervalValue ||
@@ -101,7 +109,9 @@ export function getAutoReapplyIntervalConfig(record) {
     configuration.auto_reapply_interval_value ||
     DEFAULT_REAPPLY_INTERVAL_VALUE;
   const value = Number(rawValue);
-  const max = unit === "days" ? 30 : 720;
+  const max =
+    AUTO_REAPPLY_INTERVAL_MAX_VALUES[unit] ||
+    AUTO_REAPPLY_INTERVAL_MAX_VALUES[DEFAULT_REAPPLY_INTERVAL_UNIT];
 
   return {
     unit,
@@ -113,6 +123,7 @@ export function getAutoReapplyIntervalConfig(record) {
 
 export function getAutoReapplyIntervalMs(record) {
   const { unit, value } = getAutoReapplyIntervalConfig(record);
+  if (unit === "minutes") return value * MINUTE_MS;
   return value * (unit === "days" ? DAY_MS : HOUR_MS);
 }
 
@@ -133,9 +144,18 @@ export function getNextAutoReapplyRunMs(record, baseMs) {
 
 export function formatAutoReapplyInterval(record) {
   const { unit, value } = getAutoReapplyIntervalConfig(record);
-  const label = unit === "days"
-    ? value === 1 ? "day" : "days"
-    : value === 1 ? "hour" : "hours";
+  const label =
+    unit === "minutes"
+      ? value === 1
+        ? "minute"
+        : "minutes"
+      : unit === "days"
+        ? value === 1
+          ? "day"
+          : "days"
+        : value === 1
+          ? "hour"
+          : "hours";
 
   return `Every ${value} ${label}`;
 }

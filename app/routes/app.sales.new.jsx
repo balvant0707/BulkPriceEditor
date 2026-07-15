@@ -312,8 +312,23 @@ function buildSaleData(shop, title, payload) {
     form.excludeCondition || "nothing",
     applyScope,
   );
-  const autoReapplyIntervalUnit =
-    form.autoReapplyIntervalUnit === "days" ? "days" : "hours";
+  const applyToActiveProducts = getBooleanFormValue(
+    form.applyToActiveProducts,
+    true,
+  );
+  const applyToDraftProducts = getBooleanFormValue(
+    form.applyToDraftProducts,
+    true,
+  );
+  const applyToSoldoutProducts = getBooleanFormValue(
+    form.applyToSoldoutProducts,
+    true,
+  );
+  const autoReapplyIntervalUnit = ["minutes", "hours", "days"].includes(
+    form.autoReapplyIntervalUnit,
+  )
+    ? form.autoReapplyIntervalUnit
+    : "hours";
   const autoReapplyIntervalValue = clampAutoReapplyIntervalValue(
     form.autoReapplyIntervalValue ?? 1,
     autoReapplyIntervalUnit,
@@ -337,6 +352,9 @@ function buildSaleData(shop, title, payload) {
     status: "pending",
     changeType: form.changeType || "products",
     applyToFixedPrices: Boolean(form.applyToFixedPrices),
+    applyToActiveProducts,
+    applyToDraftProducts,
+    applyToSoldoutProducts,
     markets: payload.selectedMarketDetails || [],
     priceChange: {
       action: form.priceAction || "",
@@ -392,8 +410,14 @@ function buildSaleData(shop, title, payload) {
     },
     configuration: {
       ...payload,
-      includeDraftProducts: String(form.includeDraftProducts ?? true),
-      include_draft_products: String(form.includeDraftProducts ?? true),
+      includeDraftProducts: String(applyToDraftProducts),
+      include_draft_products: String(applyToDraftProducts),
+      applyToActiveProducts: String(applyToActiveProducts),
+      apply_to_active_products: String(applyToActiveProducts),
+      applyToDraftProducts: String(applyToDraftProducts),
+      apply_to_draft_products: String(applyToDraftProducts),
+      applyToSoldoutProducts: String(applyToSoldoutProducts),
+      apply_to_soldout_products: String(applyToSoldoutProducts),
       reapplyMinute: String(
         clampReapplyMinute(form.reapplyMinute ?? DEFAULT_REPORT_SETTINGS.reapplyMinute),
       ),
@@ -424,13 +448,28 @@ function clampReapplyMinute(value) {
 
 function clampAutoReapplyIntervalValue(value, unit) {
   const number = Number(value);
-  const max = unit === "days" ? 30 : 720;
+  const max = unit === "minutes" ? 43200 : unit === "days" ? 30 : 720;
 
   if (!Number.isFinite(number)) return 1;
   return Math.max(1, Math.min(max, Math.trunc(number)));
 }
 
+function getBooleanFormValue(value, defaultValue = true) {
+  if (value === undefined || value === null || value === "") return defaultValue;
+  return !["false", "0", "off", "no", "disabled"].includes(
+    String(value).toLowerCase(),
+  );
+}
+
 function validateSaleData(saleData) {
+  if (
+    !saleData.applyToActiveProducts &&
+    !saleData.applyToDraftProducts &&
+    !saleData.applyToSoldoutProducts
+  ) {
+    return "Choose at least one product status to apply changes to.";
+  }
+
   if (saleData.changeType !== "markets") return "";
 
   const markets = saleData.markets || [];
@@ -1512,6 +1551,12 @@ export default function NewSalePage() {
   const initialAutoReapplyInterval = getAutoReapplyIntervalConfig(sale || {
     configuration: initialPayload,
   });
+  const initialIncludeDraftProducts =
+    initialForm.includeDraftProducts ??
+    initialPayload.includeDraftProducts ??
+    initialPayload.include_draft_products ??
+    settings.includeDraftProducts ??
+    DEFAULT_REPORT_SETTINGS.includeDraftProducts;
   const minScheduleDate = getLocalDateInputValue(now);
   const marketOptions = useMemo(
     () => markets.map((market) => ({ label: market.label, value: market.id })),
@@ -1553,11 +1598,28 @@ export default function NewSalePage() {
     excludeDiscounted:
       initialForm.excludeDiscounted || sale?.discountedScope || "nothing",
     includeDraftProducts:
-      initialForm.includeDraftProducts ??
-      initialPayload.includeDraftProducts ??
-      initialPayload.include_draft_products ??
-      settings.includeDraftProducts ??
-      DEFAULT_REPORT_SETTINGS.includeDraftProducts,
+      initialIncludeDraftProducts,
+    applyToActiveProducts: getBooleanFormValue(
+      initialForm.applyToActiveProducts ??
+        initialPayload.applyToActiveProducts ??
+        initialPayload.apply_to_active_products ??
+        sale?.applyToActiveProducts,
+      true,
+    ),
+    applyToDraftProducts: getBooleanFormValue(
+      initialForm.applyToDraftProducts ??
+        initialPayload.applyToDraftProducts ??
+        initialPayload.apply_to_draft_products ??
+        sale?.applyToDraftProducts,
+      String(initialIncludeDraftProducts) !== "false",
+    ),
+    applyToSoldoutProducts: getBooleanFormValue(
+      initialForm.applyToSoldoutProducts ??
+        initialPayload.applyToSoldoutProducts ??
+        initialPayload.apply_to_soldout_products ??
+        sale?.applyToSoldoutProducts,
+      true,
+    ),
     reapplyMinute:
       initialForm.reapplyMinute ??
       initialPayload.reapplyMinute ??
@@ -1734,7 +1796,10 @@ export default function NewSalePage() {
     const params = new URLSearchParams({
       type,
       requestId: latestRequestIdRef.current,
-      includeDraftProducts: String(form.includeDraftProducts),
+      includeDraftProducts: String(form.applyToDraftProducts),
+      applyToActiveProducts: String(form.applyToActiveProducts),
+      applyToDraftProducts: String(form.applyToDraftProducts),
+      applyToSoldoutProducts: String(form.applyToSoldoutProducts),
     });
 
     if (query) params.set("query", query);
@@ -2050,6 +2115,26 @@ export default function NewSalePage() {
                     ))}
                   </BlockStack>
                 ) : null}
+              </SectionCard>
+
+              <SectionCard title="Apply changes to">
+                <BlockStack gap="200">
+                  <Checkbox
+                    label="Active Products"
+                    checked={form.applyToActiveProducts}
+                    onChange={setField("applyToActiveProducts")}
+                  />
+                  <Checkbox
+                    label="Draft Products"
+                    checked={form.applyToDraftProducts}
+                    onChange={setField("applyToDraftProducts")}
+                  />
+                  <Checkbox
+                    label="Soldout Products"
+                    checked={form.applyToSoldoutProducts}
+                    onChange={setField("applyToSoldoutProducts")}
+                  />
+                </BlockStack>
               </SectionCard>
 
               <SectionCard title="Price">
@@ -2405,7 +2490,13 @@ export default function NewSalePage() {
                           label="Repeat every"
                           type="number"
                           min={1}
-                          max={form.autoReapplyIntervalUnit === "days" ? 30 : 720}
+                          max={
+                            form.autoReapplyIntervalUnit === "minutes"
+                              ? 43200
+                              : form.autoReapplyIntervalUnit === "days"
+                                ? 30
+                                : 720
+                          }
                           value={form.autoReapplyIntervalValue}
                           onChange={setField("autoReapplyIntervalValue")}
                           autoComplete="off"
@@ -2414,6 +2505,7 @@ export default function NewSalePage() {
                         <Select
                           label="Interval"
                           options={[
+                            { label: "Minutes", value: "minutes" },
                             { label: "Hours", value: "hours" },
                             { label: "Days", value: "days" },
                           ]}

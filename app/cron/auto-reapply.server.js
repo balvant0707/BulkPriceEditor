@@ -37,6 +37,7 @@ const TASK_VARIANTS_QUERY = `#graphql
           id
           title
           status
+          totalInventory
           productType
           tags
         }
@@ -67,6 +68,7 @@ const TASK_NODES_QUERY = `#graphql
           id
           title
           status
+          totalInventory
           productType
           tags
         }
@@ -76,6 +78,7 @@ const TASK_NODES_QUERY = `#graphql
         title
         productType
         status
+        totalInventory
         tags
         variants(first: 100) {
           nodes {
@@ -93,6 +96,7 @@ const TASK_NODES_QUERY = `#graphql
               id
               title
               status
+              totalInventory
               productType
               tags
             }
@@ -108,6 +112,7 @@ const TASK_NODES_QUERY = `#graphql
             title
             productType
             status
+            totalInventory
             tags
             variants(first: 100) {
               nodes {
@@ -125,6 +130,7 @@ const TASK_NODES_QUERY = `#graphql
                   id
                   title
                   status
+                  totalInventory
                   productType
                   tags
                 }
@@ -144,6 +150,7 @@ const TASK_PRODUCT_VARIANTS_FOR_PRODUCT_QUERY = `#graphql
       title
       productType
       status
+      totalInventory
       tags
       variants(first: $first, after: $after) {
         nodes {
@@ -161,6 +168,7 @@ const TASK_PRODUCT_VARIANTS_FOR_PRODUCT_QUERY = `#graphql
             id
             title
             status
+            totalInventory
             productType
             tags
           }
@@ -821,22 +829,54 @@ async function loadVariantsFromTags(admin, tagNames) {
   return variants.slice(0, MAX_TASK_VARIANTS);
 }
 
-function shouldIncludeDraftProducts(record) {
+function getProductStateFilters(record) {
   const configuration = getObjectValue(record?.configuration);
-  const value =
+  const includeDraftFallback =
     configuration.includeDraftProducts ??
     configuration.include_draft_products ??
     DEFAULT_REPORT_SETTINGS.includeDraftProducts;
 
-  return String(value) !== "false";
+  return {
+    active: getBooleanConfigValue(
+      record?.applyToActiveProducts ??
+        configuration.applyToActiveProducts ??
+        configuration.apply_to_active_products,
+      true,
+    ),
+    draft: getBooleanConfigValue(
+      record?.applyToDraftProducts ??
+        configuration.applyToDraftProducts ??
+        configuration.apply_to_draft_products,
+      String(includeDraftFallback) !== "false",
+    ),
+    soldout: getBooleanConfigValue(
+      record?.applyToSoldoutProducts ??
+        configuration.applyToSoldoutProducts ??
+        configuration.apply_to_soldout_products,
+      true,
+    ),
+  };
+}
+
+function getBooleanConfigValue(value, defaultValue = true) {
+  if (value === undefined || value === null || value === "") return defaultValue;
+  return !["false", "0", "off", "no", "disabled"].includes(
+    String(value).toLowerCase(),
+  );
 }
 
 function filterVariantsByProductStatus(variants, record) {
-  if (shouldIncludeDraftProducts(record)) return variants;
+  const filters = getProductStateFilters(record);
 
   return (variants || []).filter((variant) => {
     const status = String(variant?.product?.status || "").toUpperCase();
-    return !status || status === "ACTIVE";
+    const totalInventory = Number(variant?.product?.totalInventory);
+    const soldout = Number.isFinite(totalInventory) && totalInventory <= 0;
+
+    if (soldout && !filters.soldout) return false;
+    if (status === "DRAFT") return filters.draft;
+    if (!status || status === "ACTIVE") return filters.active;
+    return false;
   });
 }
 

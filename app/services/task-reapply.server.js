@@ -3,6 +3,7 @@ import {
   normalizeDiscountedScope,
   splitVariantsByDiscountedScope,
 } from "../lib/task-discounted-exclusion";
+import { DEFAULT_REPORT_SETTINGS } from "../lib/product-reports";
 import { updateMarketPrices } from "./market-pricing.server";
 
 const TASK_VARIANTS_QUERY = `#graphql
@@ -22,6 +23,8 @@ const TASK_VARIANTS_QUERY = `#graphql
         product {
           id
           title
+          status
+          totalInventory
           productType
           tags
         }
@@ -51,6 +54,8 @@ const TASK_NODES_QUERY = `#graphql
         product {
           id
           title
+          status
+          totalInventory
           productType
           tags
         }
@@ -59,6 +64,8 @@ const TASK_NODES_QUERY = `#graphql
         id
         title
         productType
+        status
+        totalInventory
         tags
         variants(first: 100) {
           nodes {
@@ -75,6 +82,8 @@ const TASK_NODES_QUERY = `#graphql
             product {
               id
               title
+              status
+              totalInventory
               productType
               tags
             }
@@ -91,6 +100,8 @@ const TASK_PRODUCT_VARIANTS_FOR_PRODUCT_QUERY = `#graphql
       id
       title
       productType
+      status
+      totalInventory
       tags
       variants(first: $first, after: $after) {
         nodes {
@@ -107,6 +118,8 @@ const TASK_PRODUCT_VARIANTS_FOR_PRODUCT_QUERY = `#graphql
           product {
             id
             title
+            status
+            totalInventory
             productType
             tags
           }
@@ -185,7 +198,10 @@ export async function executeAutoReapplyTask(admin, task) {
     throw new Error("Auto re-apply skipped because the task shop is missing.");
   }
 
-  const targetVariants = await loadTargetVariants(admin, task);
+  const targetVariants = filterVariantsByProductStatus(
+    await loadTargetVariants(admin, task),
+    task,
+  );
   const excludedVariantIds = await loadExcludedVariantIds(admin, task);
   const selectedVariants = uniqueVariants(targetVariants).filter(
     (variant) => !excludedVariantIds.has(variant.id),
@@ -482,6 +498,75 @@ async function loadVariantsFromTags(admin, tagNames = []) {
   }
 
   return variants.slice(0, MAX_TASK_VARIANTS);
+}
+
+function getObjectValue(value) {
+  if (!value) return {};
+  if (typeof value === "object" && !Array.isArray(value)) return { ...value };
+
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? { ...parsed }
+        : {};
+    } catch {
+      return {};
+    }
+  }
+
+  return {};
+}
+
+function getProductStateFilters(record) {
+  const configuration = getObjectValue(record?.configuration);
+  const includeDraftFallback =
+    configuration.includeDraftProducts ??
+    configuration.include_draft_products ??
+    DEFAULT_REPORT_SETTINGS.includeDraftProducts;
+
+  return {
+    active: getBooleanConfigValue(
+      record?.applyToActiveProducts ??
+        configuration.applyToActiveProducts ??
+        configuration.apply_to_active_products,
+      true,
+    ),
+    draft: getBooleanConfigValue(
+      record?.applyToDraftProducts ??
+        configuration.applyToDraftProducts ??
+        configuration.apply_to_draft_products,
+      String(includeDraftFallback) !== "false",
+    ),
+    soldout: getBooleanConfigValue(
+      record?.applyToSoldoutProducts ??
+        configuration.applyToSoldoutProducts ??
+        configuration.apply_to_soldout_products,
+      true,
+    ),
+  };
+}
+
+function getBooleanConfigValue(value, defaultValue = true) {
+  if (value === undefined || value === null || value === "") return defaultValue;
+  return !["false", "0", "off", "no", "disabled"].includes(
+    String(value).toLowerCase(),
+  );
+}
+
+function filterVariantsByProductStatus(variants, record) {
+  const filters = getProductStateFilters(record);
+
+  return (variants || []).filter((variant) => {
+    const status = String(variant?.product?.status || "").toUpperCase();
+    const totalInventory = Number(variant?.product?.totalInventory);
+    const soldout = Number.isFinite(totalInventory) && totalInventory <= 0;
+
+    if (soldout && !filters.soldout) return false;
+    if (status === "DRAFT") return filters.draft;
+    if (!status || status === "ACTIVE") return filters.active;
+    return false;
+  });
 }
 
 function getDiscountedScope(taskData) {

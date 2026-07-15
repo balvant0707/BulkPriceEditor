@@ -103,6 +103,7 @@ const TASK_VARIANTS_QUERY = `#graphql
           id
           title
           status
+          totalInventory
           productType
           tags
         }
@@ -133,6 +134,7 @@ const TASK_NODES_QUERY = `#graphql
           id
           title
           status
+          totalInventory
           productType
           tags
         }
@@ -142,6 +144,7 @@ const TASK_NODES_QUERY = `#graphql
         title
         productType
         status
+        totalInventory
         tags
         variants(first: 100) {
           nodes {
@@ -159,6 +162,7 @@ const TASK_NODES_QUERY = `#graphql
               id
               title
               status
+              totalInventory
               productType
               tags
             }
@@ -174,6 +178,7 @@ const TASK_NODES_QUERY = `#graphql
             title
             productType
             status
+            totalInventory
             tags
             variants(first: 100) {
               nodes {
@@ -191,6 +196,7 @@ const TASK_NODES_QUERY = `#graphql
                   id
                   title
                   status
+                  totalInventory
                   productType
                   tags
                 }
@@ -210,6 +216,7 @@ const TASK_PRODUCT_VARIANTS_FOR_PRODUCT_QUERY = `#graphql
       title
       productType
       status
+      totalInventory
       tags
       variants(first: $first, after: $after) {
         nodes {
@@ -227,6 +234,7 @@ const TASK_PRODUCT_VARIANTS_FOR_PRODUCT_QUERY = `#graphql
             id
             title
             status
+            totalInventory
             productType
             tags
           }
@@ -747,19 +755,35 @@ function buildTaskData(shop, formData) {
   const excludeProducts = buildSelectedProductRecords(formData, "exclude");
   const applyVariants = buildSelectedVariantRecords(formData, "apply");
   const excludeVariants = buildSelectedVariantRecords(formData, "exclude");
-  const includeDraftProducts =
-    getFormValue(
-      formData,
-      "include_draft_products",
-      DEFAULT_REPORT_SETTINGS.includeDraftProducts,
-    ) !== "false";
+  const applyToActiveProducts = getBooleanFormValue(
+    formData,
+    "apply_to_active_products",
+    true,
+  );
+  const applyToDraftProducts = getBooleanFormValue(
+    formData,
+    "apply_to_draft_products",
+    true,
+  );
+  const applyToSoldoutProducts = getBooleanFormValue(
+    formData,
+    "apply_to_soldout_products",
+    true,
+  );
+  const includeDraftProducts = applyToDraftProducts;
   const reapplyMinute = clampReapplyMinute(
     getFormValue(formData, "reapply_minute", DEFAULT_REPORT_SETTINGS.reapplyMinute),
   );
-  const autoReapplyIntervalUnit =
-    getFormValue(formData, "auto_reapply_interval_unit", "hours") === "days"
-      ? "days"
-      : "hours";
+  const rawAutoReapplyIntervalUnit = getFormValue(
+    formData,
+    "auto_reapply_interval_unit",
+    "hours",
+  );
+  const autoReapplyIntervalUnit = ["minutes", "hours", "days"].includes(
+    rawAutoReapplyIntervalUnit,
+  )
+    ? rawAutoReapplyIntervalUnit
+    : "hours";
   const autoReapplyIntervalValue = clampAutoReapplyIntervalValue(
     getFormValue(formData, "auto_reapply_interval_value", "1"),
     autoReapplyIntervalUnit,
@@ -776,6 +800,9 @@ function buildTaskData(shop, formData) {
     status: "draft",
     applyChangesTo: getFormValue(formData, "apply_changes_to", "products"),
     applyToFixedPrices: hasFormValue(formData, "apply_to_fixed_prices"),
+    applyToActiveProducts,
+    applyToDraftProducts,
+    applyToSoldoutProducts,
     selectedMarkets: selectedMarketIds.map((id, index) => ({
       id,
       name: selectedMarketNames[index] || "",
@@ -822,6 +849,12 @@ function buildTaskData(shop, formData) {
       ...configuration,
       includeDraftProducts: String(includeDraftProducts),
       include_draft_products: String(includeDraftProducts),
+      applyToActiveProducts: String(applyToActiveProducts),
+      apply_to_active_products: String(applyToActiveProducts),
+      applyToDraftProducts: String(applyToDraftProducts),
+      apply_to_draft_products: String(applyToDraftProducts),
+      applyToSoldoutProducts: String(applyToSoldoutProducts),
+      apply_to_soldout_products: String(applyToSoldoutProducts),
       reapplyMinute: String(reapplyMinute),
       reapply_minute: String(reapplyMinute),
       autoReapplyIntervalUnit: autoReapplyIntervalUnit,
@@ -842,15 +875,30 @@ function clampReapplyMinute(value) {
   return Math.max(0, Math.min(59, Math.trunc(minute)));
 }
 
+function getBooleanFormValue(formData, name, defaultValue = true) {
+  const value = getFormValue(formData, name, defaultValue ? "true" : "false");
+  return !["false", "0", "off", "no", "disabled"].includes(
+    String(value).toLowerCase(),
+  );
+}
+
 function clampAutoReapplyIntervalValue(value, unit) {
   const number = Number(value);
-  const max = unit === "days" ? 30 : 720;
+  const max = unit === "minutes" ? 43200 : unit === "days" ? 30 : 720;
 
   if (!Number.isFinite(number)) return 1;
   return Math.max(1, Math.min(max, Math.trunc(number)));
 }
 
 function validateTaskData(taskData) {
+  if (
+    !taskData.applyToActiveProducts &&
+    !taskData.applyToDraftProducts &&
+    !taskData.applyToSoldoutProducts
+  ) {
+    return "Choose at least one product status to apply changes to.";
+  }
+
   if (taskData.applyChangesTo === "markets") {
     const markets = taskData.selectedMarkets || [];
     if (!markets.length) return "Choose at least one Shopify Market.";
@@ -1664,22 +1712,54 @@ async function loadVariantsFromTags(admin, tagNames) {
   return variants.slice(0, MAX_TASK_VARIANTS);
 }
 
-function shouldIncludeDraftProducts(record) {
+function getProductStateFilters(record) {
   const configuration = record?.configuration || {};
-  const value =
+  const includeDraftFallback =
     configuration.includeDraftProducts ??
     configuration.include_draft_products ??
     DEFAULT_REPORT_SETTINGS.includeDraftProducts;
 
-  return String(value) !== "false";
+  return {
+    active: getBooleanConfigValue(
+      record?.applyToActiveProducts ??
+        configuration.applyToActiveProducts ??
+        configuration.apply_to_active_products,
+      true,
+    ),
+    draft: getBooleanConfigValue(
+      record?.applyToDraftProducts ??
+        configuration.applyToDraftProducts ??
+        configuration.apply_to_draft_products,
+      String(includeDraftFallback) !== "false",
+    ),
+    soldout: getBooleanConfigValue(
+      record?.applyToSoldoutProducts ??
+        configuration.applyToSoldoutProducts ??
+        configuration.apply_to_soldout_products,
+      true,
+    ),
+  };
+}
+
+function getBooleanConfigValue(value, defaultValue = true) {
+  if (value === undefined || value === null || value === "") return defaultValue;
+  return !["false", "0", "off", "no", "disabled"].includes(
+    String(value).toLowerCase(),
+  );
 }
 
 function filterVariantsByProductStatus(variants, record) {
-  if (shouldIncludeDraftProducts(record)) return variants;
+  const filters = getProductStateFilters(record);
 
   return (variants || []).filter((variant) => {
     const status = String(variant?.product?.status || "").toUpperCase();
-    return !status || status === "ACTIVE";
+    const totalInventory = Number(variant?.product?.totalInventory);
+    const soldout = Number.isFinite(totalInventory) && totalInventory <= 0;
+
+    if (soldout && !filters.soldout) return false;
+    if (status === "DRAFT") return filters.draft;
+    if (!status || status === "ACTIVE") return filters.active;
+    return false;
   });
 }
 
@@ -2675,6 +2755,9 @@ function ResourcePickerField({
   selectedTags,
   setSelectedTags,
   includeDraftProducts = "true",
+  applyToActiveProducts = true,
+  applyToDraftProducts = true,
+  applyToSoldoutProducts = true,
 }) {
   const [activePicker, setActivePicker] = useState(null);
   const [resourceItems, setResourceItems] = useState([]);
@@ -2725,7 +2808,10 @@ function ResourcePickerField({
     const params = new URLSearchParams({
       type,
       requestId: latestRequestIdRef.current,
-      includeDraftProducts,
+      includeDraftProducts: String(applyToDraftProducts),
+      applyToActiveProducts: String(applyToActiveProducts),
+      applyToDraftProducts: String(applyToDraftProducts),
+      applyToSoldoutProducts: String(applyToSoldoutProducts),
     });
 
     if (query.trim()) params.set("query", query.trim());
@@ -3396,6 +3482,21 @@ export default function NewTaskPage() {
     "include_draft_products",
     String(settings.includeDraftProducts ?? DEFAULT_REPORT_SETTINGS.includeDraftProducts),
   );
+  const initialApplyToActiveProducts = getConfigValue(
+    configuration,
+    "apply_to_active_products",
+    String(task?.applyToActiveProducts ?? true),
+  );
+  const initialApplyToDraftProducts = getConfigValue(
+    configuration,
+    "apply_to_draft_products",
+    String(task?.applyToDraftProducts ?? includeDraftProducts !== "false"),
+  );
+  const initialApplyToSoldoutProducts = getConfigValue(
+    configuration,
+    "apply_to_soldout_products",
+    String(task?.applyToSoldoutProducts ?? true),
+  );
   const reapplyMinute = getConfigValue(
     configuration,
     "reapply_minute",
@@ -3407,6 +3508,15 @@ export default function NewTaskPage() {
   );
   const [applyToFixedPrices, setApplyToFixedPrices] = useState(
     Boolean(task?.applyToFixedPrices || configuration.apply_to_fixed_prices),
+  );
+  const [applyToActiveProducts, setApplyToActiveProducts] = useState(
+    initialApplyToActiveProducts !== "false",
+  );
+  const [applyToDraftProducts, setApplyToDraftProducts] = useState(
+    initialApplyToDraftProducts !== "false",
+  );
+  const [applyToSoldoutProducts, setApplyToSoldoutProducts] = useState(
+    initialApplyToSoldoutProducts !== "false",
   );
   const [selectedMarkets, setSelectedMarkets] = useState(
     getConfigArray(configuration, "selected_market_ids[]").length
@@ -3585,7 +3695,22 @@ export default function NewTaskPage() {
           <input
             type="hidden"
             name="include_draft_products"
-            value={includeDraftProducts}
+            value={String(applyToDraftProducts)}
+          />
+          <input
+            type="hidden"
+            name="apply_to_active_products"
+            value={String(applyToActiveProducts)}
+          />
+          <input
+            type="hidden"
+            name="apply_to_draft_products"
+            value={String(applyToDraftProducts)}
+          />
+          <input
+            type="hidden"
+            name="apply_to_soldout_products"
+            value={String(applyToSoldoutProducts)}
           />
           <input type="hidden" name="reapply_minute" value={reapplyMinute} />
 
@@ -3686,6 +3811,26 @@ export default function NewTaskPage() {
                   )}
                 </SectionCard>
 
+                <SectionCard title="Apply changes to">
+                  <BlockStack gap="200">
+                    <Checkbox
+                      label="Active Products"
+                      checked={applyToActiveProducts}
+                      onChange={setApplyToActiveProducts}
+                    />
+                    <Checkbox
+                      label="Draft Products"
+                      checked={applyToDraftProducts}
+                      onChange={setApplyToDraftProducts}
+                    />
+                    <Checkbox
+                      label="Soldout Products"
+                      checked={applyToSoldoutProducts}
+                      onChange={setApplyToSoldoutProducts}
+                    />
+                  </BlockStack>
+                </SectionCard>
+
                 <SectionCard title="Price">
                   <PriceChangeFields
                     fieldPrefix="price"
@@ -3746,7 +3891,10 @@ export default function NewTaskPage() {
                     setSelectedVariants={setApplyVariants}
                     selectedTags={applyTags}
                     setSelectedTags={setApplyTags}
-                    includeDraftProducts={includeDraftProducts}
+                    includeDraftProducts={String(applyToDraftProducts)}
+                    applyToActiveProducts={applyToActiveProducts}
+                    applyToDraftProducts={applyToDraftProducts}
+                    applyToSoldoutProducts={applyToSoldoutProducts}
                   />
                 </SectionCard>
 
@@ -3775,7 +3923,10 @@ export default function NewTaskPage() {
                     setSelectedVariants={setExcludeVariants}
                     selectedTags={excludeTags}
                     setSelectedTags={setExcludeTags}
-                    includeDraftProducts={includeDraftProducts}
+                    includeDraftProducts={String(applyToDraftProducts)}
+                    applyToActiveProducts={applyToActiveProducts}
+                    applyToDraftProducts={applyToDraftProducts}
+                    applyToSoldoutProducts={applyToSoldoutProducts}
                   />
                 </SectionCard>
 
@@ -3817,7 +3968,13 @@ export default function NewTaskPage() {
                           name="auto_reapply_interval_value"
                           type="number"
                           min={1}
-                          max={autoReapplyIntervalUnit === "days" ? 30 : 720}
+                          max={
+                            autoReapplyIntervalUnit === "minutes"
+                              ? 43200
+                              : autoReapplyIntervalUnit === "days"
+                                ? 30
+                                : 720
+                          }
                           value={autoReapplyIntervalValue}
                           onChange={setAutoReapplyIntervalValue}
                           autoComplete="off"
@@ -3827,6 +3984,7 @@ export default function NewTaskPage() {
                           label="Interval"
                           name="auto_reapply_interval_unit"
                           options={[
+                            { label: "Minutes", value: "minutes" },
                             { label: "Hours", value: "hours" },
                             { label: "Days", value: "days" },
                           ]}

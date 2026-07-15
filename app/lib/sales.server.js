@@ -23,6 +23,7 @@ const SALE_VARIANTS_QUERY = `#graphql
           id
           title
           status
+          totalInventory
           tags
         }
       }
@@ -47,6 +48,7 @@ const SALE_NODES_QUERY = `#graphql
           id
           title
           status
+          totalInventory
           tags
         }
       }
@@ -54,6 +56,7 @@ const SALE_NODES_QUERY = `#graphql
         id
         title
         status
+        totalInventory
         tags
         variants(first: 100) {
           nodes {
@@ -66,6 +69,7 @@ const SALE_NODES_QUERY = `#graphql
               id
               title
               status
+              totalInventory
               tags
             }
           }
@@ -79,6 +83,7 @@ const SALE_NODES_QUERY = `#graphql
             id
             title
             status
+            totalInventory
             variants(first: 100) {
               nodes {
                 id
@@ -90,6 +95,7 @@ const SALE_NODES_QUERY = `#graphql
                   id
                   title
                   status
+                  totalInventory
                   tags
                 }
               }
@@ -115,6 +121,7 @@ const SALE_PRODUCT_VARIANTS_FOR_PRODUCT_QUERY = `#graphql
             id
             title
             status
+            totalInventory
             tags
           }
         }
@@ -549,24 +556,59 @@ async function loadSaleMatchingVariants(admin, sale, options = {}) {
   return { targetVariants, variants, skippedDiscountedVariants: skipped };
 }
 
-function shouldIncludeDraftProducts(sale) {
+function getSaleProductStateFilters(sale) {
   const configuration = sale?.configuration || {};
   const form = configuration.form || {};
-  const value =
+  const includeDraftFallback =
     form.includeDraftProducts ??
     configuration.includeDraftProducts ??
     configuration.include_draft_products ??
     DEFAULT_REPORT_SETTINGS.includeDraftProducts;
 
-  return String(value) !== "false";
+  return {
+    active: getBooleanConfigValue(
+      sale?.applyToActiveProducts ??
+        form.applyToActiveProducts ??
+        configuration.applyToActiveProducts ??
+        configuration.apply_to_active_products,
+      true,
+    ),
+    draft: getBooleanConfigValue(
+      sale?.applyToDraftProducts ??
+        form.applyToDraftProducts ??
+        configuration.applyToDraftProducts ??
+        configuration.apply_to_draft_products,
+      String(includeDraftFallback) !== "false",
+    ),
+    soldout: getBooleanConfigValue(
+      sale?.applyToSoldoutProducts ??
+        form.applyToSoldoutProducts ??
+        configuration.applyToSoldoutProducts ??
+        configuration.apply_to_soldout_products,
+      true,
+    ),
+  };
+}
+
+function getBooleanConfigValue(value, defaultValue = true) {
+  if (value === undefined || value === null || value === "") return defaultValue;
+  return !["false", "0", "off", "no", "disabled"].includes(
+    String(value).toLowerCase(),
+  );
 }
 
 function filterSaleVariantsByProductStatus(variants, sale) {
-  if (shouldIncludeDraftProducts(sale)) return variants;
+  const filters = getSaleProductStateFilters(sale);
 
   return (variants || []).filter((variant) => {
     const status = String(variant?.product?.status || "").toUpperCase();
-    return !status || status === "ACTIVE";
+    const totalInventory = Number(variant?.product?.totalInventory);
+    const soldout = Number.isFinite(totalInventory) && totalInventory <= 0;
+
+    if (soldout && !filters.soldout) return false;
+    if (status === "DRAFT") return filters.draft;
+    if (!status || status === "ACTIVE") return filters.active;
+    return false;
   });
 }
 

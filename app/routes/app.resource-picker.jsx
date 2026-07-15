@@ -53,6 +53,7 @@ const RESOURCE_QUERIES = {
             }
           }
           status
+          totalInventory
           variantsCount {
             count
           }
@@ -82,6 +83,7 @@ const RESOURCE_QUERIES = {
             id
             title
             status
+            totalInventory
             featuredImage {
               url
               altText
@@ -149,6 +151,11 @@ function normalizeItems(
   searchQuery = "",
   currencyCode = "",
   includeDraftProducts = true,
+  productStateFilters = {
+    active: true,
+    draft: includeDraftProducts,
+    soldout: true,
+  },
 ) {
   if (type === "collection") {
     return nodes.map((collection) => ({
@@ -163,9 +170,7 @@ function normalizeItems(
   if (type === "variant") {
     return nodes
       .filter((variant) => {
-        if (includeDraftProducts) return true;
-        const status = String(variant.product?.status || "").toUpperCase();
-        return !status || status === "ACTIVE";
+        return shouldIncludeProductByState(variant.product, productStateFilters);
       })
       .map((variant) => ({
         id: variant.id,
@@ -194,17 +199,19 @@ function normalizeItems(
       }));
   }
 
-  return nodes.map((product) => ({
-    id: product.id,
-    title: product.title,
-    imageUrl: product.featuredImage?.url || "",
-    imageAlt: product.featuredImage?.altText || product.title,
-    displayPrice: formatProductPriceRange(product.priceRangeV2),
-    status: product.status
-      ? product.status.charAt(0) + product.status.slice(1).toLowerCase()
-      : "",
-    variantsCount: product.variantsCount?.count ?? 0,
-  }));
+  return nodes
+    .filter((product) => shouldIncludeProductByState(product, productStateFilters))
+    .map((product) => ({
+      id: product.id,
+      title: product.title,
+      imageUrl: product.featuredImage?.url || "",
+      imageAlt: product.featuredImage?.altText || product.title,
+      displayPrice: formatProductPriceRange(product.priceRangeV2),
+      status: product.status
+        ? product.status.charAt(0) + product.status.slice(1).toLowerCase()
+        : "",
+      variantsCount: product.variantsCount?.count ?? 0,
+    }));
 }
 
 export async function loader({ request }) {
@@ -215,7 +222,14 @@ export async function loader({ request }) {
   const searchQuery = url.searchParams.get("query")?.trim() || null;
   const requestId = url.searchParams.get("requestId") || "";
   const includeDraftProducts = url.searchParams.get("includeDraftProducts") !== "false";
-  const query = buildResourceQuery(type, searchQuery, includeDraftProducts);
+  const productStateFilters = {
+    active: url.searchParams.get("applyToActiveProducts") !== "false",
+    draft:
+      url.searchParams.get("applyToDraftProducts") !== "false" &&
+      includeDraftProducts,
+    soldout: url.searchParams.get("applyToSoldoutProducts") !== "false",
+  };
+  const query = buildResourceQuery(type, searchQuery, productStateFilters);
 
   if (!RESOURCE_QUERIES[type]) {
     return json(
@@ -270,6 +284,7 @@ export async function loader({ request }) {
       searchQuery || "",
       payload.data?.shop?.currencyCode || "",
       includeDraftProducts,
+      productStateFilters,
     ),
     pageInfo:
       type === "tag"
@@ -282,9 +297,25 @@ export async function loader({ request }) {
   });
 }
 
-function buildResourceQuery(type, searchQuery, includeDraftProducts) {
-  if (includeDraftProducts || type !== "product") return searchQuery;
+function buildResourceQuery(type, searchQuery, productStateFilters) {
+  if (type !== "product") return searchQuery;
 
-  const activeQuery = "status:active";
-  return searchQuery ? `${searchQuery} ${activeQuery}` : activeQuery;
+  const statusQueries = [];
+  if (productStateFilters.active) statusQueries.push("status:active");
+  if (productStateFilters.draft) statusQueries.push("status:draft");
+
+  if (statusQueries.length !== 1) return searchQuery;
+
+  return searchQuery ? `${searchQuery} ${statusQueries[0]}` : statusQueries[0];
+}
+
+function shouldIncludeProductByState(product, filters) {
+  const status = String(product?.status || "").toUpperCase();
+  const totalInventory = Number(product?.totalInventory);
+  const soldout = Number.isFinite(totalInventory) && totalInventory <= 0;
+
+  if (soldout && !filters.soldout) return false;
+  if (status === "DRAFT") return filters.draft;
+  if (!status || status === "ACTIVE") return filters.active;
+  return false;
 }
