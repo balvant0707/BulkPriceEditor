@@ -1041,7 +1041,7 @@ function TasksListPage({ tasks }) {
 
   return (
     <Page
-      title="Tasks"
+      title="Pryxo Bulk Price Editor"
       primaryAction={{
         content: "Create task",
         url: newTaskUrl,

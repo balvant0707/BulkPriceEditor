@@ -570,7 +570,7 @@ export default function SalesPage() {
       <IndexTable.Row id={String(sale.id)} key={sale.id} position={index}>
         <IndexTable.Cell>
           <BlockStack gap="050">
-            <Text as="span" variant="bodyMd" fontWeight="semibold">
+            <Text as="span" variant="bodyMd">
               <Link url={`/app/sales/${sale.id}`} removeUnderline>
                 {sale.title}
               </Link>
@@ -588,7 +588,7 @@ export default function SalesPage() {
                   </Text>
                 </InlineStack>
               ) : (
-                <Text as="span" key={change} fontWeight="semibold">
+                <Text as="span" key={change}>
                   {change}
                 </Text>
               )
@@ -597,7 +597,7 @@ export default function SalesPage() {
         </IndexTable.Cell>
         <IndexTable.Cell>
           <BlockStack gap="050">
-            <Text as="span" fontWeight="semibold">
+            <Text as="span">
               {sale.changeType === "markets" ? "Markets" : "Products"}
             </Text>
             {sale.changeType === "markets" ? (
@@ -608,12 +608,12 @@ export default function SalesPage() {
           </BlockStack>
         </IndexTable.Cell>
         <IndexTable.Cell>
-          <Text as="span" fontWeight="semibold">
+          <Text as="span">
             {formatApplyScope(sale)}
           </Text>
         </IndexTable.Cell>
         <IndexTable.Cell>
-          <Text as="span" fontWeight="semibold">
+          <Text as="span">
             {formatExcludeScope(sale)}
           </Text>
         </IndexTable.Cell>
@@ -685,7 +685,7 @@ export default function SalesPage() {
       </TitleBar>
 
       <Page
-        title="Sales"
+        title="Pryxo Bulk Price Editor"
         primaryAction={{
           content: "Create sale",
           onAction: () => navigate(createSaleUrl),
