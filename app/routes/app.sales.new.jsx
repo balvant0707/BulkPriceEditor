@@ -1512,6 +1512,7 @@ export default function NewSalePage() {
   const initialAutoReapplyInterval = getAutoReapplyIntervalConfig(sale || {
     configuration: initialPayload,
   });
+  const minScheduleDate = getLocalDateInputValue(now);
   const marketOptions = useMemo(
     () => markets.map((market) => ({ label: market.label, value: market.id })),
     [markets],
@@ -1660,6 +1661,7 @@ export default function NewSalePage() {
     () => getExcludeOptionsForApply(form.applyCondition),
     [form.applyCondition],
   );
+  const minEndDate = form.startDate || minScheduleDate;
   const requestIdRef = useRef(0);
   const latestRequestIdRef = useRef("");
   const removeTagRequestIdRef = useRef(0);
@@ -1698,6 +1700,16 @@ export default function NewSalePage() {
       setExcludeVariants([]);
     }
   }, [form.applyCondition, form.excludeCondition]);
+
+  useEffect(() => {
+    if (form.startDate && form.startDate < minScheduleDate) {
+      setField("startDate")(minScheduleDate);
+    }
+
+    if (form.endDate && form.endDate < minEndDate) {
+      setField("endDate")(minEndDate);
+    }
+  }, [form.startDate, form.endDate, minScheduleDate, minEndDate]);
 
   const setField = (field) => (value) => {
     setForm((current) => ({ ...current, [field]: value }));
@@ -2249,6 +2261,7 @@ export default function NewSalePage() {
                       type="date"
                       value={form.startDate}
                       onChange={setField("startDate")}
+                      min={minScheduleDate}
                       autoComplete="off"
                     />
 
@@ -2280,6 +2293,7 @@ export default function NewSalePage() {
                         type="date"
                         value={form.endDate}
                         onChange={setField("endDate")}
+                        min={minEndDate}
                         autoComplete="off"
                       />
 
