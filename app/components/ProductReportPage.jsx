@@ -122,7 +122,10 @@ export default function ProductReportPage({ type }) {
     try {
       const response = await fetch(exportUrl, {
         credentials: "same-origin",
-        headers: { Accept: "application/vnd.ms-excel" },
+        headers: {
+          Accept:
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        },
       });
 
       if (!response.ok) {

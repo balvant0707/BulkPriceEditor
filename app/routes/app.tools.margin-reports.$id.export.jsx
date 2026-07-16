@@ -32,7 +32,7 @@ export async function loader({ request, params }) {
   });
 
   return buildExcelResponse({
-    filename: `products-margin-report-${reportId}.xls`,
+    filename: `products-margin-report-${reportId}.xlsx`,
     type: REPORT_TYPES.margin,
     rows,
   });

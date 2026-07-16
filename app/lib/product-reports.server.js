@@ -334,12 +334,16 @@ export function buildExcelResponse({ filename, type, rows }) {
           row.discountPercent == null ? "" : `${row.discountPercent}% off`,
         ],
   );
-  const workbook = buildExcelHtmlTable(title, [headers, ...reportRows]);
+  const workbook = buildXlsxWorkbook(title, [headers, ...reportRows]);
+  const safeFilename = String(filename || "product-report.xlsx")
+    .replace(/\.(xls|csv)$/i, ".xlsx")
+    .replace(/\.xlsx$/i, ".xlsx");
 
   return new Response(workbook, {
     headers: {
-      "Content-Type": "application/vnd.ms-excel",
-      "Content-Disposition": `attachment; filename="${filename}"`,
+      "Content-Type":
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "Content-Disposition": `attachment; filename="${safeFilename}"`,
     },
   });
 }
@@ -589,36 +593,183 @@ function escapeCsvValue(value) {
   return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 }
 
-function buildExcelHtmlTable(title, rows) {
-  return `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <style>
-    table { border-collapse: collapse; }
-    th, td { border: 1px solid #d9d9d9; padding: 6px 8px; white-space: nowrap; }
-    th { font-weight: 700; background: #f3f4f6; }
-    .title { font-size: 16px; font-weight: 700; background: #ffffff; }
-  </style>
-</head>
-<body>
-  <table>
-    <tr><td class="title" colspan="${rows[0]?.length || 1}">${escapeHtml(title)}</td></tr>
-${rows.map((row, index) => buildExcelHtmlRow(row, index === 0)).join("")}
-  </table>
-</body>
-</html>`;
+function buildXlsxWorkbook(title, rows) {
+  const sheetRows = [[title], ...rows];
+  const files = [
+    {
+      path: "[Content_Types].xml",
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+</Types>`,
+    },
+    {
+      path: "_rels/.rels",
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>`,
+    },
+    {
+      path: "xl/workbook.xml",
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets>
+    <sheet name="Report" sheetId="1" r:id="rId1"/>
+  </sheets>
+</workbook>`,
+    },
+    {
+      path: "xl/_rels/workbook.xml.rels",
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+</Relationships>`,
+    },
+    {
+      path: "xl/worksheets/sheet1.xml",
+      content: buildWorksheetXml(sheetRows),
+    },
+  ];
+
+  return buildZip(files);
 }
 
-function buildExcelHtmlRow(row, isHeader = false) {
-  const tag = isHeader ? "th" : "td";
-  return `    <tr>${row
-    .map((value) => `<${tag}>${escapeHtml(value)}</${tag}>`)
-    .join("")}</tr>
-`;
+function buildWorksheetXml(rows) {
+  const xmlRows = rows
+    .map((row, rowIndex) => {
+      const rowNumber = rowIndex + 1;
+      const cells = row
+        .map((value, cellIndex) => {
+          const cellRef = `${columnName(cellIndex + 1)}${rowNumber}`;
+          return `<c r="${cellRef}" t="inlineStr"><is><t>${escapeXml(value)}</t></is></c>`;
+        })
+        .join("");
+
+      return `<row r="${rowNumber}">${cells}</row>`;
+    })
+    .join("");
+
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData>${xmlRows}</sheetData>
+</worksheet>`;
 }
 
-function escapeHtml(value) {
+function columnName(number) {
+  let name = "";
+  let value = number;
+
+  while (value > 0) {
+    const remainder = (value - 1) % 26;
+    name = String.fromCharCode(65 + remainder) + name;
+    value = Math.floor((value - 1) / 26);
+  }
+
+  return name;
+}
+
+function buildZip(files) {
+  const localParts = [];
+  const centralParts = [];
+  let offset = 0;
+
+  for (const file of files) {
+    const name = encodeUtf8(file.path);
+    const data = encodeUtf8(file.content);
+    const crc = crc32(data);
+    const localHeader = new Uint8Array(30 + name.length);
+    const localView = new DataView(localHeader.buffer);
+
+    localView.setUint32(0, 0x04034b50, true);
+    localView.setUint16(4, 20, true);
+    localView.setUint16(6, 0x0800, true);
+    localView.setUint16(8, 0, true);
+    localView.setUint32(10, 0, true);
+    localView.setUint32(14, crc, true);
+    localView.setUint32(18, data.length, true);
+    localView.setUint32(22, data.length, true);
+    localView.setUint16(26, name.length, true);
+    localHeader.set(name, 30);
+
+    localParts.push(localHeader, data);
+
+    const centralHeader = new Uint8Array(46 + name.length);
+    const centralView = new DataView(centralHeader.buffer);
+
+    centralView.setUint32(0, 0x02014b50, true);
+    centralView.setUint16(4, 20, true);
+    centralView.setUint16(6, 20, true);
+    centralView.setUint16(8, 0x0800, true);
+    centralView.setUint16(10, 0, true);
+    centralView.setUint32(12, 0, true);
+    centralView.setUint32(16, crc, true);
+    centralView.setUint32(20, data.length, true);
+    centralView.setUint32(24, data.length, true);
+    centralView.setUint16(28, name.length, true);
+    centralView.setUint32(42, offset, true);
+    centralHeader.set(name, 46);
+
+    centralParts.push(centralHeader);
+    offset += localHeader.length + data.length;
+  }
+
+  const centralDirectorySize = centralParts.reduce((sum, part) => sum + part.length, 0);
+  const endRecord = new Uint8Array(22);
+  const endView = new DataView(endRecord.buffer);
+
+  endView.setUint32(0, 0x06054b50, true);
+  endView.setUint16(8, files.length, true);
+  endView.setUint16(10, files.length, true);
+  endView.setUint32(12, centralDirectorySize, true);
+  endView.setUint32(16, offset, true);
+
+  return concatUint8Arrays([...localParts, ...centralParts, endRecord]);
+}
+
+function encodeUtf8(value) {
+  return new TextEncoder().encode(String(value));
+}
+
+function concatUint8Arrays(parts) {
+  const totalLength = parts.reduce((sum, part) => sum + part.length, 0);
+  const output = new Uint8Array(totalLength);
+  let offset = 0;
+
+  for (const part of parts) {
+    output.set(part, offset);
+    offset += part.length;
+  }
+
+  return output;
+}
+
+function crc32(data) {
+  let crc = 0xffffffff;
+
+  for (const byte of data) {
+    crc = CRC32_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  }
+
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+const CRC32_TABLE = new Uint32Array(
+  Array.from({ length: 256 }, (_, index) => {
+    let crc = index;
+
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = crc & 1 ? 0xedb88320 ^ (crc >>> 1) : crc >>> 1;
+    }
+
+    return crc >>> 0;
+  }),
+);
+
+function escapeXml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")

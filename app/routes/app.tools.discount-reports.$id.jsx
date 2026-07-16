@@ -41,7 +41,7 @@ export async function loader({ request, params }) {
 
     if (exportType === "excel" || exportType === "xls") {
       return buildExcelResponse({
-        filename: `products-discount-report-${reportId}.xls`,
+        filename: `products-discount-report-${reportId}.xlsx`,
         type: REPORT_TYPES.discount,
         rows,
       });
