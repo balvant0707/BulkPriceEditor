@@ -37,12 +37,16 @@ export default function ProductReportPage({ type }) {
   const currentPage = Number(loaderData.currentPage || 1);
   const query = loaderData.query || "";
   const filter = loaderData.filter || "all";
+  const dateFrom = loaderData.dateFrom || "";
+  const dateTo = loaderData.dateTo || "";
   const shopifyStoreHandle = loaderData.shopifyStoreHandle || "";
   const submit = useSubmit();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [queryValue, setQueryValue] = useState(query || "");
   const [filterValue, setFilterValue] = useState(filter || "all");
+  const [dateFromValue, setDateFromValue] = useState(dateFrom || "");
+  const [dateToValue, setDateToValue] = useState(dateTo || "");
   const title =
     type === REPORT_TYPES.margin
       ? "Products Margin Report"
@@ -59,6 +63,14 @@ export default function ProductReportPage({ type }) {
   useEffect(() => {
     setFilterValue(filter || "all");
   }, [filter]);
+
+  useEffect(() => {
+    setDateFromValue(dateFrom || "");
+  }, [dateFrom]);
+
+  useEffect(() => {
+    setDateToValue(dateTo || "");
+  }, [dateTo]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -78,6 +90,16 @@ export default function ProductReportPage({ type }) {
   const handleFilterChange = (value) => {
     setFilterValue(value);
     updateSearch({ margin: value === "all" ? "" : value, page: "" });
+  };
+
+  const handleDateFromChange = (value) => {
+    setDateFromValue(value);
+    updateSearch({ dateFrom: value, page: "" });
+  };
+
+  const handleDateToChange = (value) => {
+    setDateToValue(value);
+    updateSearch({ dateTo: value, page: "" });
   };
 
   const handlePrevious = () => {
@@ -175,7 +197,12 @@ export default function ProductReportPage({ type }) {
         <BlockStack gap="0">
           <Box padding="400" background="bg-surface-secondary">
             <InlineGrid
-              columns={type === REPORT_TYPES.margin ? "1fr 240px" : "1fr"}
+              columns={{
+                xs: "1fr",
+                sm: type === REPORT_TYPES.margin
+                  ? "minmax(220px, 1fr) 180px 180px 180px"
+                  : "minmax(220px, 1fr) 180px 180px",
+              }}
               gap="400"
             >
               <TextField
@@ -198,6 +225,24 @@ export default function ProductReportPage({ type }) {
                   onChange={handleFilterChange}
                 />
               ) : null}
+
+              <TextField
+                label="From date"
+                type="date"
+                value={dateFromValue}
+                onChange={handleDateFromChange}
+                max={dateToValue || undefined}
+                autoComplete="off"
+              />
+
+              <TextField
+                label="To date"
+                type="date"
+                value={dateToValue}
+                onChange={handleDateToChange}
+                min={dateFromValue || undefined}
+                autoComplete="off"
+              />
             </InlineGrid>
           </Box>
 

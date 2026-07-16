@@ -16,6 +16,8 @@ export async function loader({ request, params }) {
   const url = new URL(request.url);
   const reportId = Number(params.id);
   const query = url.searchParams.get("q") || "";
+  const dateFrom = url.searchParams.get("dateFrom") || "";
+  const dateTo = url.searchParams.get("dateTo") || "";
 
   if (!Number.isInteger(reportId) || reportId <= 0) {
     throw new Response("Report not found", { status: 404 });
@@ -28,6 +30,8 @@ export async function loader({ request, params }) {
       reportId,
       query,
       filter: "all",
+      dateFrom,
+      dateTo,
     });
 
     return buildCsvResponse({
@@ -44,6 +48,8 @@ export async function loader({ request, params }) {
     reportId,
     query,
     filter: "all",
+    dateFrom,
+    dateTo,
     page,
     pageSize: PAGE_SIZE,
   });
@@ -52,6 +58,8 @@ export async function loader({ request, params }) {
     ...data,
     query,
     filter: "all",
+    dateFrom,
+    dateTo,
     shopifyStoreHandle: getShopifyStoreHandle(shop),
   });
 }

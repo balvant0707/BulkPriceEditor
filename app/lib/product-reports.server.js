@@ -175,6 +175,8 @@ export async function loadReportPage({
   reportId,
   query = "",
   filter = "all",
+  dateFrom = "",
+  dateTo = "",
   page = 1,
   pageSize = 25,
 }) {
@@ -190,7 +192,15 @@ export async function loadReportPage({
     throw new Response("Report not found", { status: 404 });
   }
 
-  const where = buildRowsWhere({ reportId, shop, type, query, filter });
+  const where = buildRowsWhere({
+    reportId,
+    shop,
+    type,
+    query,
+    filter,
+    dateFrom,
+    dateTo,
+  });
   const totalRows = await db.productReportRow.count({ where });
   const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
   const currentPage = Math.max(1, Math.min(page, totalPages));
@@ -210,7 +220,15 @@ export async function loadReportPage({
   };
 }
 
-export async function loadReportExportRows({ shop, type, reportId, query, filter }) {
+export async function loadReportExportRows({
+  shop,
+  type,
+  reportId,
+  query,
+  filter,
+  dateFrom = "",
+  dateTo = "",
+}) {
   const report = await db.productReport.findFirst({
     where: {
       id: reportId,
@@ -225,7 +243,15 @@ export async function loadReportExportRows({ shop, type, reportId, query, filter
   }
 
   const rows = await db.productReportRow.findMany({
-    where: buildRowsWhere({ reportId, shop, type, query, filter }),
+    where: buildRowsWhere({
+      reportId,
+      shop,
+      type,
+      query,
+      filter,
+      dateFrom,
+      dateTo,
+    }),
     orderBy: [{ productTitle: "asc" }, { variantTitle: "asc" }, { id: "asc" }],
   });
 
@@ -366,13 +392,14 @@ async function shopifyGraphql(admin, query, variables = {}) {
   return payload.data;
 }
 
-function buildRowsWhere({ reportId, shop, type, query, filter }) {
+function buildRowsWhere({ reportId, shop, type, query, filter, dateFrom, dateTo }) {
   const trimmedQuery = String(query || "").trim();
   const where = {
     reportId,
     shop,
     type,
   };
+  const createdAt = buildDateRangeFilter(dateFrom, dateTo);
 
   if (trimmedQuery) {
     where.OR = [
@@ -390,7 +417,40 @@ function buildRowsWhere({ reportId, shop, type, query, filter }) {
     }
   }
 
+  if (createdAt) {
+    where.createdAt = createdAt;
+  }
+
   return where;
+}
+
+function buildDateRangeFilter(dateFrom, dateTo) {
+  const from = parseDateOnly(dateFrom, false);
+  const to = parseDateOnly(dateTo, true);
+  const range = {};
+
+  if (from) range.gte = from;
+  if (to) range.lte = to;
+
+  return Object.keys(range).length ? range : null;
+}
+
+function parseDateOnly(value, endOfDay = false) {
+  const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+
+  const [, year, month, day] = match.map(Number);
+  const date = new Date(Date.UTC(
+    year,
+    month - 1,
+    day,
+    endOfDay ? 23 : 0,
+    endOfDay ? 59 : 0,
+    endOfDay ? 59 : 0,
+    endOfDay ? 999 : 0,
+  ));
+
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function serializeReport(report) {
