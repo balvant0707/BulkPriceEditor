@@ -332,7 +332,7 @@ function RecommendedAppsSection() {
               style={{
                 border: "1px solid #e1e3e5",
                 padding: 10,
-                minHeight: 220,
+                minHeight: 200,
                 minWidth: 220,
                 display: "flex",
                 flexDirection: "column",
@@ -341,7 +341,7 @@ function RecommendedAppsSection() {
                 background: "#ffffff",
               }}
             >
-              <BlockStack gap="100">
+              <BlockStack gap="200">
                 <InlineStack align="space-between" blockAlign="center" gap="300">
                   <img
                     src={app.image}
