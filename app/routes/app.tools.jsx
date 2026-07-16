@@ -79,12 +79,29 @@ function ToolCard({
   description,
   generateIntent,
   latestReportUrl,
+  exportFilename,
   onReportGenerated,
   onMessage,
 }) {
   const fetcher = useFetcher();
   const isGenerating = fetcher.state !== "idle";
   const currentReportUrl = fetcher.data?.latestReportUrl || latestReportUrl;
+  const [isExporting, setIsExporting] = useState(false);
+
+  const handleExportCsv = async () => {
+    if (!currentReportUrl || isExporting) return;
+
+    setIsExporting(true);
+
+    try {
+      await downloadCsvReport(`${currentReportUrl}?export=csv`, exportFilename);
+    } catch (error) {
+      console.error(error);
+      onMessage("Unable to download report CSV.");
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   useEffect(() => {
     if (fetcher.data?.message) {
@@ -118,10 +135,50 @@ function ToolCard({
           <Button url={currentReportUrl || undefined} disabled={!currentReportUrl}>
             View latest report
           </Button>
+
+          <Button
+            onClick={handleExportCsv}
+            loading={isExporting}
+            disabled={!currentReportUrl || isExporting}
+          >
+            Export CSV
+          </Button>
         </ButtonGroup>
       </BlockStack>
     </Card>
   );
+}
+
+async function downloadCsvReport(url, fallbackFilename) {
+  const response = await fetch(url, {
+    credentials: "same-origin",
+    headers: {
+      Accept: "text/csv",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error("Unable to export report CSV.");
+  }
+
+  const blob = await response.blob();
+  const downloadUrl = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = downloadUrl;
+  link.download =
+    getCsvFilename(response.headers.get("Content-Disposition")) ||
+    fallbackFilename ||
+    "product-report.csv";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(downloadUrl);
+}
+
+function getCsvFilename(contentDisposition) {
+  const match = String(contentDisposition || "").match(/filename="([^"]+)"/i);
+  return match?.[1] || "";
 }
 
 export default function ToolsPage() {
@@ -149,6 +206,7 @@ export default function ToolsPage() {
               description="Analyze gross margins across your catalog. See price, cost, and margin for each variant to identify pricing opportunities."
               generateIntent="generate_margin_report"
               latestReportUrl={marginReportUrl}
+              exportFilename="products-margin-report.csv"
               onReportGenerated={setMarginReportUrl}
               onMessage={setToast}
             />
@@ -160,6 +218,7 @@ export default function ToolsPage() {
               description="Find products that still have compare-at prices set - from manual edits or other apps. Review them before running a cleanup task."
               generateIntent="generate_discount_report"
               latestReportUrl={discountReportUrl}
+              exportFilename="products-discount-report.csv"
               onReportGenerated={setDiscountReportUrl}
               onMessage={setToast}
             />
