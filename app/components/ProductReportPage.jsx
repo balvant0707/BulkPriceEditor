@@ -47,7 +47,6 @@ export default function ProductReportPage({ type }) {
   const [filterValue, setFilterValue] = useState(filter || "all");
   const [dateFromValue, setDateFromValue] = useState(dateFrom || "");
   const [dateToValue, setDateToValue] = useState(dateTo || "");
-  const [isExporting, setIsExporting] = useState(false);
   const title =
     type === REPORT_TYPES.margin
       ? "Products Margin Report"
@@ -112,39 +111,15 @@ export default function ProductReportPage({ type }) {
     updateSearch({ page: String(currentPage + 1) });
   };
 
-  const handleExportCsv = async () => {
-    if (isExporting) return;
+  const handleExportCsv = () => {
+    const link = document.createElement("a");
 
-    setIsExporting(true);
-
-    try {
-      const response = await fetch(exportUrl, {
-        credentials: "same-origin",
-        headers: {
-          Accept: "text/csv",
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error("Unable to export report CSV.");
-      }
-
-      const blob = await response.blob();
-      const downloadUrl = window.URL.createObjectURL(blob);
-      const link = document.createElement("a");
-
-      link.href = downloadUrl;
-      link.download = getCsvFilename(response.headers.get("Content-Disposition"), type);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(downloadUrl);
-    } catch (error) {
-      console.error(error);
-      window.location.assign(exportUrl);
-    } finally {
-      setIsExporting(false);
-    }
+    link.href = exportUrl;
+    link.download = getCsvFilename("", type);
+    link.rel = "noopener";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
   };
 
   const updateSearch = (updates) => {
@@ -221,8 +196,6 @@ export default function ProductReportPage({ type }) {
         {
           content: "Export CSV",
           onAction: handleExportCsv,
-          loading: isExporting,
-          disabled: isExporting,
         },
       ]}
       fullWidth
