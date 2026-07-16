@@ -3958,7 +3958,7 @@ export default function NewTaskPage() {
                     checked={autoReapply && !autoReapplyUnavailable}
                     onChange={setAutoReapply}
                     disabled={autoReapplyUnavailable}
-                    helpText="Prevents third-party apps from overriding prices after task completion. Works for tasks with up to 10,000 price changes."
+                    helpText="Prevents third-party apps from overriding prices after task completion. The cron checks tasks regularly and re-applies prices only when the selected repeat interval is due. Works for tasks with up to 10,000 price changes."
                   />
                   {autoReapply && !autoReapplyUnavailable ? (
                     <FormLayout>

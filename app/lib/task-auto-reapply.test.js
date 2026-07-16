@@ -7,22 +7,22 @@ import {
 } from "./task-auto-reapply.js";
 
 describe("task auto reapply timing", () => {
-  it("uses the configured reapply minute for the next hourly run", () => {
+  it("uses the selected interval for the next default hourly run", () => {
     const nextRunAt = getAutoReapplyNextRunAt({
       completedAt: "2026-07-14T10:45:00.000Z",
       configuration: { reapply_minute: "20" },
     });
 
-    assert.equal(nextRunAt, "2026-07-14T11:20:00.000Z");
+    assert.equal(nextRunAt, "2026-07-14T11:45:00.000Z");
   });
 
-  it("moves to the following hour when the configured minute already passed", () => {
+  it("does not snap interval runs to the configured reapply minute", () => {
     const nextRunAt = getAutoReapplyNextRunAt({
       completedAt: "2026-07-14T10:25:00.000Z",
       configuration: { reapplyMinute: "20" },
     });
 
-    assert.equal(nextRunAt, "2026-07-14T11:20:00.000Z");
+    assert.equal(nextRunAt, "2026-07-14T11:25:00.000Z");
   });
 
   it("clamps invalid configured minutes", () => {
@@ -42,7 +42,7 @@ describe("task auto reapply timing", () => {
       },
     });
 
-    assert.equal(nextRunAt, "2026-07-14T16:20:00.000Z");
+    assert.equal(nextRunAt, "2026-07-14T16:45:00.000Z");
   });
 
   it("uses configured minute intervals", () => {
@@ -55,7 +55,7 @@ describe("task auto reapply timing", () => {
       },
     };
 
-    assert.equal(getAutoReapplyNextRunAt(task), "2026-07-14T11:20:00.000Z");
+    assert.equal(getAutoReapplyNextRunAt(task), "2026-07-14T11:15:00.000Z");
     assert.equal(formatAutoReapplyInterval(task), "Every 30 minutes");
   });
 
@@ -69,7 +69,7 @@ describe("task auto reapply timing", () => {
       },
     };
 
-    assert.equal(getAutoReapplyNextRunAt(task), "2026-07-16T10:20:00.000Z");
+    assert.equal(getAutoReapplyNextRunAt(task), "2026-07-16T10:45:00.000Z");
     assert.equal(formatAutoReapplyInterval(task), "Every 2 days");
   });
 });

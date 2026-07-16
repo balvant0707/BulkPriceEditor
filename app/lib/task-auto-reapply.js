@@ -129,17 +129,7 @@ export function getAutoReapplyIntervalMs(record) {
 
 export function getNextAutoReapplyRunMs(record, baseMs) {
   const intervalMs = getAutoReapplyIntervalMs(record);
-  const minute = getConfiguredReapplyMinute(record);
-  const next = new Date(baseMs + intervalMs);
-
-  next.setUTCMinutes(minute, 0, 0);
-
-  if (next.getTime() <= baseMs) {
-    next.setTime(next.getTime() + intervalMs);
-    next.setUTCMinutes(minute, 0, 0);
-  }
-
-  return next.getTime();
+  return baseMs + intervalMs;
 }
 
 export function formatAutoReapplyInterval(record) {

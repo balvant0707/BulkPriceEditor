@@ -1,5 +1,5 @@
 // app/cron/auto-reapply.server.js
-// Runs the hourly Auto Re-Apply Price Changes job.
+// Runs the Auto Re-Apply Price Changes poller.
 // Place this file at: app/cron/auto-reapply.server.js
 
 import { pathToFileURL } from "url";
@@ -15,6 +15,7 @@ import { getNextAutoReapplyRunMs } from "../lib/task-auto-reapply";
 import { updateMarketPrices } from "../services/market-pricing.server";
 
 const AUTO_REAPPLY_INTERVAL_MS = 60 * 60 * 1000;
+const AUTO_REAPPLY_POLL_INTERVAL_MS = 60 * 1000;
 const AUTO_REAPPLY_RUNNING_LOCK_MS = 55 * 60 * 1000;
 const AUTO_REAPPLY_BATCH_SIZE = 25;
 const DEFAULT_SHOPIFY_API_VERSION = "2025-04";
@@ -1579,7 +1580,7 @@ export function startAutoReapplyCron(options = {}) {
 
   const intervalMs = Math.max(
     60 * 1000,
-    Number(options.intervalMs || AUTO_REAPPLY_INTERVAL_MS),
+    Number(options.intervalMs || AUTO_REAPPLY_POLL_INTERVAL_MS),
   );
 
   if (options.runImmediately) {

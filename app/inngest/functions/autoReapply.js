@@ -7,7 +7,7 @@ export const autoReapply = inngest.createFunction(
   {
     id: "auto-reapply",
     name: "Auto Reapply Tasks",
-    triggers: [{ cron: "*/5 * * * *" }],
+    triggers: [{ cron: "* * * * *" }],
   },
   async ({ logger }) => {
     const log = logger || console;
