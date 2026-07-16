@@ -20,14 +20,16 @@ import { withShopifyEmbeddedParams } from "../lib/shopify-embedded-url";
 
 export async function loader({ request }) {
   const { billing } = await authenticate.admin(request);
+  const billingTestMode = isBillingTestMode();
   const billingCheck = await billing.check({
     plans: ALL_PRICING_PLAN_KEYS,
-    isTest: isBillingTestMode(),
+    isTest: billingTestMode,
   });
   const activeSubscription = billingCheck.appSubscriptions?.[0] || null;
 
   return json({
     activePlan: activeSubscription?.name || "",
+    billingTestMode,
     hasActivePayment: Boolean(billingCheck.hasActivePayment),
   });
 }
@@ -41,7 +43,7 @@ export async function action({ request }) {
     return json({ ok: false, message: "Invalid plan selected." }, { status: 400 });
   }
 
-  const returnPath = withShopifyEmbeddedParams("/app/pricing", request, session.shop);
+  const returnPath = withShopifyEmbeddedParams("/app/billing", request, session.shop);
   const returnUrl = new URL(
     returnPath,
     process.env.SHOPIFY_APP_URL || request.url,
@@ -56,10 +58,10 @@ export async function action({ request }) {
 
 function isBillingTestMode() {
   if (process.env.SHOPIFY_BILLING_TEST) {
-    return process.env.SHOPIFY_BILLING_TEST === "true";
+    return process.env.SHOPIFY_BILLING_TEST !== "false";
   }
 
-  return process.env.NODE_ENV !== "production";
+  return true;
 }
 
 function getSelectedInterval(searchParams) {
@@ -152,7 +154,7 @@ function Check({ children }) {
 }
 
 export default function PricingPage() {
-  const { activePlan } = useLoaderData();
+  const { activePlan, billingTestMode } = useLoaderData();
   const navigation = useNavigation();
   const [searchParams, setSearchParams] = useSearchParams();
   const interval = getSelectedInterval(searchParams);
@@ -174,6 +176,12 @@ export default function PricingPage() {
         <Layout>
           <Layout.Section>
             <BlockStack gap="600">
+              {billingTestMode ? (
+                <InlineStack align="center">
+                  <Badge tone="attention">Shopify billing test mode</Badge>
+                </InlineStack>
+              ) : null}
+
               <InlineStack align="center">
                 <ButtonGroup variant="segmented">
                   <Button
