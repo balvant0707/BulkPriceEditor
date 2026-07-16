@@ -688,7 +688,7 @@ export default function SalesPage() {
       </TitleBar>
 
       <Page
-        title="Pryxo Bulk Price Editor"
+        title="Sales"
         primaryAction={{
           content: "Create sale",
           onAction: () => navigate(createSaleUrl),

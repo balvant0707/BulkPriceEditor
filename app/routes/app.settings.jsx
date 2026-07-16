@@ -124,7 +124,7 @@ export default function SettingsPage() {
   return (
     <Frame>
       <Page title="Settings">
-        <TitleBar title="Settings" />
+        <TitleBar title="Pryxo Bulk Price Editor" />
 
         <fetcher.Form method="post">
           <Layout>

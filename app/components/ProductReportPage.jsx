@@ -30,16 +30,14 @@ const REPORT_TYPES = {
 };
 
 export default function ProductReportPage({ type }) {
-  const {
-    rows,
-    totalRows,
-    totalPages,
-    currentPage,
-    query,
-    filter,
-    report,
-    shopifyStoreHandle,
-  } = useLoaderData();
+  const loaderData = useLoaderData() || {};
+  const rows = Array.isArray(loaderData.rows) ? loaderData.rows : [];
+  const totalRows = Number(loaderData.totalRows || 0);
+  const totalPages = Number(loaderData.totalPages || 1);
+  const currentPage = Number(loaderData.currentPage || 1);
+  const query = loaderData.query || "";
+  const filter = loaderData.filter || "all";
+  const shopifyStoreHandle = loaderData.shopifyStoreHandle || "";
   const submit = useSubmit();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -88,6 +86,10 @@ export default function ProductReportPage({ type }) {
 
   const handleNext = () => {
     updateSearch({ page: String(currentPage + 1) });
+  };
+
+  const handleExportCsv = () => {
+    window.location.assign(exportUrl);
   };
 
   const updateSearch = (updates) => {
@@ -162,12 +164,12 @@ export default function ProductReportPage({ type }) {
       secondaryActions={[
         {
           content: "Export CSV",
-          url: exportUrl,
+          onAction: handleExportCsv,
         },
       ]}
       fullWidth
     >
-      <TitleBar title={title} />
+      <TitleBar title="Pryxo Bulk Price Editor" />
 
       <Card padding="0">
         <BlockStack gap="0">

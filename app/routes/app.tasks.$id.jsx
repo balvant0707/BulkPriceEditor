@@ -2391,7 +2391,7 @@ function ProductDetailsView({ task, productDetails, navigate }) {
         onAction: () => navigate(`/app/tasks/${task.id}`),
       }}
     >
-      <TitleBar title="Price change details" />
+      <TitleBar title="Pryxo Bulk Price Editor" />
 
       <Layout>
         <Layout.Section>
@@ -2745,7 +2745,7 @@ export default function TaskDetailsPage() {
       backAction={{ content: "Tasks", onAction: () => navigate("/app/tasks") }}
       secondaryActions={pageSecondaryActions}
     >
-      <TitleBar title="Task details" />
+      <TitleBar title="Pryxo Bulk Price Editor" />
 
       <Modal
         open={rollbackModalOpen}

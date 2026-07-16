@@ -715,7 +715,7 @@ function EmptyTasksPage() {
         disabled: isOpeningNewTask,
       }}
     >
-      <TitleBar title="Tasks" />
+      <TitleBar title="Pryxo Bulk Price Editor" />
       <style>{`
         .Polaris-Modal-Dialog__Modal {
           max-width: 480px;
@@ -1041,7 +1041,7 @@ function TasksListPage({ tasks }) {
 
   return (
     <Page
-      title="Pryxo Bulk Price Editor"
+      title="Tasks"
       primaryAction={{
         content: "Create task",
         url: newTaskUrl,
@@ -1050,7 +1050,7 @@ function TasksListPage({ tasks }) {
       }}
       fullWidth
     >
-      <TitleBar title="Tasks" />
+      <TitleBar title="Pryxo Bulk Price Editor" />
 
       <Card padding="0">
             <Tabs

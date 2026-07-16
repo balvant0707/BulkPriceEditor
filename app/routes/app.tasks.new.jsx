@@ -3660,7 +3660,7 @@ export default function NewTaskPage() {
 
   return (
     <>
-      <TitleBar title={task ? "Edit task" : "New task"} />
+      <TitleBar title="Pryxo Bulk Price Editor" />
 
       <Page
         title={task ? "Edit task" : "New task"}
