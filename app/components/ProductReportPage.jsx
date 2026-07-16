@@ -49,6 +49,7 @@ export default function ProductReportPage({ type }) {
   const [filterValue, setFilterValue] = useState(filter || "all");
   const [dateFromValue, setDateFromValue] = useState(dateFrom || "");
   const [dateToValue, setDateToValue] = useState(dateTo || "");
+  const [isExporting, setIsExporting] = useState(false);
   const title =
     type === REPORT_TYPES.margin
       ? "Products Margin Report"
@@ -113,15 +114,37 @@ export default function ProductReportPage({ type }) {
     updateSearch({ page: String(currentPage + 1) });
   };
 
-  const handleExportCsv = () => {
-    const link = document.createElement("a");
+  const handleExportCsv = async () => {
+    if (isExporting) return;
 
-    link.href = exportUrl;
-    link.download = getExcelFilename(type);
-    link.rel = "noopener";
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
+    setIsExporting(true);
+
+    try {
+      const response = await fetch(exportUrl, {
+        credentials: "same-origin",
+        headers: { Accept: "application/vnd.ms-excel" },
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to export report.");
+      }
+
+      const blob = await response.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+
+      link.href = downloadUrl;
+      link.download = getExcelFilename(type);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (error) {
+      console.error(error);
+      window.location.assign(exportUrl);
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const updateSearch = (updates) => {
@@ -198,6 +221,8 @@ export default function ProductReportPage({ type }) {
         {
           content: "Export Excel",
           onAction: handleExportCsv,
+          loading: isExporting,
+          disabled: isExporting,
         },
       ]}
       fullWidth
