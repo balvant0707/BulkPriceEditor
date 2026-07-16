@@ -2,12 +2,15 @@ import "@shopify/shopify-app-remix/adapters/node";
 import {
   ApiVersion,
   AppDistribution,
+  BillingInterval,
+  BillingReplacementBehavior,
   shopifyApp,
 } from "@shopify/shopify-app-remix/server";
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
 import prisma from "./db.server";
 import { syncShopDetails } from "./models/shop.server";
 import { sendAppInstalledEmails } from "./emails/mail.server";
+import { PRICING_PLANS } from "./lib/pricing-plans";
 
 const shopify = shopifyApp({
   apiKey: process.env.SHOPIFY_API_KEY,
@@ -24,6 +27,68 @@ const shopify = shopifyApp({
       if (syncResult?.wasInstalled) {
         await sendAppInstalledEmails(syncResult.shop);
       }
+    },
+  },
+  billing: {
+    [PRICING_PLANS.basicMonthly]: {
+      replacementBehavior: BillingReplacementBehavior.ApplyImmediately,
+      lineItems: [
+        {
+          amount: 9.99,
+          currencyCode: "USD",
+          interval: BillingInterval.Every30Days,
+        },
+      ],
+    },
+    [PRICING_PLANS.advancedMonthly]: {
+      replacementBehavior: BillingReplacementBehavior.ApplyImmediately,
+      lineItems: [
+        {
+          amount: 14.99,
+          currencyCode: "USD",
+          interval: BillingInterval.Every30Days,
+        },
+      ],
+    },
+    [PRICING_PLANS.premiumMonthly]: {
+      replacementBehavior: BillingReplacementBehavior.ApplyImmediately,
+      lineItems: [
+        {
+          amount: 24.99,
+          currencyCode: "USD",
+          interval: BillingInterval.Every30Days,
+        },
+      ],
+    },
+    [PRICING_PLANS.basicYearly]: {
+      replacementBehavior: BillingReplacementBehavior.ApplyImmediately,
+      lineItems: [
+        {
+          amount: 89,
+          currencyCode: "USD",
+          interval: BillingInterval.Annual,
+        },
+      ],
+    },
+    [PRICING_PLANS.advancedYearly]: {
+      replacementBehavior: BillingReplacementBehavior.ApplyImmediately,
+      lineItems: [
+        {
+          amount: 134,
+          currencyCode: "USD",
+          interval: BillingInterval.Annual,
+        },
+      ],
+    },
+    [PRICING_PLANS.premiumYearly]: {
+      replacementBehavior: BillingReplacementBehavior.ApplyImmediately,
+      lineItems: [
+        {
+          amount: 224,
+          currencyCode: "USD",
+          interval: BillingInterval.Annual,
+        },
+      ],
     },
   },
   distribution: AppDistribution.AppStore,
