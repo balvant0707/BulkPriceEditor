@@ -1,5 +1,6 @@
 import {
   useLoaderData,
+  useLocation,
   useNavigate,
   useSearchParams,
   useSubmit,
@@ -41,6 +42,7 @@ export default function ProductReportPage({ type }) {
   const dateTo = loaderData.dateTo || "";
   const shopifyStoreHandle = loaderData.shopifyStoreHandle || "";
   const submit = useSubmit();
+  const location = useLocation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [queryValue, setQueryValue] = useState(query || "");
@@ -83,10 +85,10 @@ export default function ProductReportPage({ type }) {
 
   const exportUrl = useMemo(() => {
     const params = new URLSearchParams(searchParams);
-    params.set("export", "excel");
+    params.delete("page");
     params.set("timezoneOffsetMinutes", String(new Date().getTimezoneOffset()));
-    return `?${params.toString()}`;
-  }, [searchParams]);
+    return `${location.pathname.replace(/\/$/, "")}/export?${params.toString()}`;
+  }, [location.pathname, searchParams]);
 
   const handleFilterChange = (value) => {
     setFilterValue(value);
