@@ -61,10 +61,10 @@ function isBillingTestMode() {
 
 function getBillingReturnUrl(shop) {
   const storeHandle = String(shop || "").replace(".myshopify.com", "");
-  const appHandle = process.env.SHOPIFY_APP_HANDLE || process.env.SHOPIFY_API_KEY;
+  const appHandle = process.env.SHOPIFY_APP_HANDLE || "bulk-price-editor";
 
   if (storeHandle && appHandle) {
-    return `https://admin.shopify.com/store/${storeHandle}/apps/${appHandle}`;
+    return `https://admin.shopify.com/store/${storeHandle}/apps/${appHandle}/app/`;
   }
 
   return new URL("/app", process.env.SHOPIFY_APP_URL || "https://app.local").toString();

@@ -3,8 +3,8 @@
 client_id = "c0a4f57c6f2803211055e011288accb6"
 application_url = "https://bulk-price-editor-lz64.vercel.app"
 embedded = true
-name = "Bulk Price Editor"
-
+name = "Pryxo Bulk Price Editor"
+handle = "bulk-price-editor-86"
 [webhooks]
 api_version = "2026-07"
 
