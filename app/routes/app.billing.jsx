@@ -16,7 +16,6 @@ import {
 } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
 import { ALL_PRICING_PLAN_KEYS, PLAN_TIERS } from "../lib/pricing-plans";
-import { withShopifyEmbeddedParams } from "../lib/shopify-embedded-url";
 
 export async function loader({ request }) {
   const { billing } = await authenticate.admin(request);
@@ -43,11 +42,7 @@ export async function action({ request }) {
     return json({ ok: false, message: "Invalid plan selected." }, { status: 400 });
   }
 
-  const returnPath = withShopifyEmbeddedParams("/app/billing", request, session.shop);
-  const returnUrl = new URL(
-    returnPath,
-    process.env.SHOPIFY_APP_URL || request.url,
-  ).toString();
+  const returnUrl = getBillingReturnUrl(session.shop);
 
   return billing.request({
     plan,
@@ -62,6 +57,17 @@ function isBillingTestMode() {
   }
 
   return true;
+}
+
+function getBillingReturnUrl(shop) {
+  const storeHandle = String(shop || "").replace(".myshopify.com", "");
+  const appHandle = process.env.SHOPIFY_APP_HANDLE || process.env.SHOPIFY_API_KEY;
+
+  if (storeHandle && appHandle) {
+    return `https://admin.shopify.com/store/${storeHandle}/apps/${appHandle}`;
+  }
+
+  return new URL("/app", process.env.SHOPIFY_APP_URL || "https://app.local").toString();
 }
 
 function getSelectedInterval(searchParams) {
