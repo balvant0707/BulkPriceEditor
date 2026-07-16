@@ -1627,7 +1627,10 @@ export default function NewSalePage() {
       settings.reapplyMinute ??
       DEFAULT_REPORT_SETTINGS.reapplyMinute,
 
-    startDate: initialForm.startDate || sale?.schedule?.startDate || "",
+    startDate:
+      initialForm.startDate ||
+      sale?.schedule?.startDate ||
+      getLocalDateInputValue(now),
     startTime:
       initialForm.startTime ||
       sale?.schedule?.startTime ||
@@ -1636,7 +1639,9 @@ export default function NewSalePage() {
     endDate:
       initialForm.endDate ||
       sale?.schedule?.endDate ||
-      "",
+      (initialForm.setEndDate || sale?.schedule?.setEndDate
+        ? getLocalDateInputValue(now)
+        : ""),
     endTime:
       initialForm.endTime ||
       sale?.schedule?.endTime ||
@@ -2362,7 +2367,15 @@ export default function NewSalePage() {
                   <Checkbox
                     label="Set end date"
                     checked={form.setEndDate}
-                    onChange={setField("setEndDate")}
+                    onChange={(checked) => {
+                      setForm((current) => ({
+                        ...current,
+                        setEndDate: checked,
+                        endDate: checked && !current.endDate
+                          ? current.startDate || minScheduleDate
+                          : current.endDate,
+                      }));
+                    }}
                   />
 
                   {form.setEndDate && (
@@ -2399,6 +2412,7 @@ export default function NewSalePage() {
                 <BlockStack gap="100">
                   <Checkbox
                     label="Add tags while sale is active"
+                    helpText="When the sale starts, these tags are added to matching products. When the sale ends or is disabled, the app removes the same tags."
                     checked={form.addTagsEnabled}
                     onChange={setField("addTagsEnabled")}
                   />
@@ -2440,6 +2454,7 @@ export default function NewSalePage() {
 
                   <Checkbox
                     label="Remove tags while sale is active"
+                    helpText="When the sale starts, these tags are removed from matching products. When the sale ends or is disabled, the app adds them back."
                     checked={form.removeTagsEnabled}
                     onChange={setField("removeTagsEnabled")}
                   />
@@ -2471,14 +2486,14 @@ export default function NewSalePage() {
 
                   <Checkbox
                     label="Track changes in condition automatically (every hour)"
-                    helpText="New matching products will be added, non matching products will be excluded"
+                    helpText="Every hour while the sale is active, the app checks the selected condition again. New matching products are added to the sale, and products that no longer match are removed from the active sale."
                     checked={form.trackConditionChanges}
                     onChange={setField("trackConditionChanges")}
                   />
 
                   <Checkbox
                     label="Automatically re-apply price changes"
-                    helpText="Prevents third-party apps from overriding prices for active sale. Works for sales with up to 10,000 price changes."
+                    helpText="While the sale is active, the app re-applies the sale prices on the selected repeat interval. Use this when another app or import may overwrite prices. Works for sales with up to 10,000 price changes."
                     checked={form.autoReapplyChanges}
                     onChange={setField("autoReapplyChanges")}
                   />

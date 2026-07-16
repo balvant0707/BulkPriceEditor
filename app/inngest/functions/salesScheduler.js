@@ -114,11 +114,15 @@ async function runSalesScheduler() {
   }
 
   const dueTrackConditionSales = trackConditionSales
-    .filter((sale) => shouldTrackSaleCondition(sale))
+    .map((sale) => ({
+      sale,
+      dueActions: getSaleConditionDueActions(sale),
+    }))
+    .filter(({ dueActions }) => dueActions.due)
     .slice(0, SALES_CRON_BATCH_SIZE);
 
-  for (const sale of dueTrackConditionSales) {
-    results.push(await trackSaleCondition(sale));
+  for (const { sale, dueActions } of dueTrackConditionSales) {
+    results.push(await trackSaleCondition(sale, dueActions));
   }
 
   return {
@@ -161,8 +165,24 @@ function getSaleConditionLastRun(sale) {
   );
 }
 
-function shouldTrackSaleCondition(sale) {
-  if (!sale.shop || runningConditionSaleIds.has(sale.id)) return false;
+function getSaleAutoReapplyLastRun(sale) {
+  const configuration = getObjectValue(sale.configuration);
+  const executionSummary = getObjectValue(sale.executionSummary);
+
+  return (
+    executionSummary.autoReapplyLastRunAt ||
+    executionSummary.lastAutoReapplyRunAt ||
+    configuration.auto_reapply_last_run_at ||
+    sale.completedAt ||
+    sale.startedAt ||
+    sale.updatedAt ||
+    sale.createdAt ||
+    ""
+  );
+}
+
+function isSaleConditionTrackingDue(sale) {
+  if (!sale.trackConditionChanges) return false;
 
   const lastRun = getSaleConditionLastRun(sale);
   if (!lastRun) return true;
@@ -170,7 +190,38 @@ function shouldTrackSaleCondition(sale) {
   const lastRunAt = new Date(lastRun).getTime();
   if (Number.isNaN(lastRunAt)) return true;
 
+  return Date.now() >= getNextHourlyRunMs(lastRunAt, getConfiguredReapplyMinute(sale));
+}
+
+function isSaleAutoReapplyDue(sale) {
+  if (!sale.autoReapplyChanges) return false;
+
+  const lastRun = getSaleAutoReapplyLastRun(sale);
+  if (!lastRun) return true;
+
+  const lastRunAt = new Date(lastRun).getTime();
+  if (Number.isNaN(lastRunAt)) return true;
+
   return Date.now() >= getNextAutoReapplyRunMs(sale, lastRunAt);
+}
+
+function getSaleConditionDueActions(sale) {
+  if (!sale.shop || runningConditionSaleIds.has(sale.id)) {
+    return {
+      due: false,
+      trackConditionDue: false,
+      autoReapplyDue: false,
+    };
+  }
+
+  const trackConditionDue = isSaleConditionTrackingDue(sale);
+  const autoReapplyDue = isSaleAutoReapplyDue(sale);
+
+  return {
+    due: trackConditionDue || autoReapplyDue,
+    trackConditionDue,
+    autoReapplyDue,
+  };
 }
 
 function getConfiguredReapplyMinute(sale) {
@@ -372,7 +423,7 @@ async function endSale(sale) {
   }
 }
 
-async function trackSaleCondition(sale) {
+async function trackSaleCondition(sale, dueActions = null) {
   if (runningConditionSaleIds.has(sale.id)) {
     return {
       ok: true,
@@ -384,6 +435,7 @@ async function trackSaleCondition(sale) {
   }
 
   runningConditionSaleIds.add(sale.id);
+  const resolvedDueActions = dueActions || getSaleConditionDueActions(sale);
 
   try {
     const claimed = await db.sale.updateMany({
@@ -414,10 +466,44 @@ async function trackSaleCondition(sale) {
 
     const { admin } = await unauthenticated.admin(sale.shop);
     const tracked = await executeSaleConditionChangeRecord(admin, sale, {
-      reapplyExisting: Boolean(sale.autoReapplyChanges),
-      trackConditionChanges: Boolean(sale.trackConditionChanges),
+      reapplyExisting: Boolean(resolvedDueActions.autoReapplyDue),
+      trackConditionChanges: Boolean(resolvedDueActions.trackConditionDue),
     });
     const now = new Date().toISOString();
+    const nextConfiguration = {
+      ...(sale.configuration || {}),
+    };
+    const nextExecutionSummary = {
+      ...(sale.executionSummary || {}),
+      originalVariants: tracked.originalVariants,
+      originalMarketPrices:
+        tracked.originalMarketPrices ||
+        sale.executionSummary?.originalMarketPrices ||
+        [],
+      progress: 100,
+      trackConditionLastResult: {
+        ok: tracked.ok,
+        analyzedVariants: tracked.analyzedVariants,
+        addedVariants: tracked.addedVariants,
+        removedVariants: tracked.removedVariants,
+        taggedProducts: tracked.taggedProducts,
+        errors: tracked.errors,
+      },
+      logs: [
+        ...((sale.executionSummary || {}).logs || []),
+        ...(tracked.logs || []),
+      ],
+    };
+
+    if (resolvedDueActions.trackConditionDue) {
+      nextConfiguration.track_condition_changes_last_run_at = now;
+      nextExecutionSummary.trackConditionLastRunAt = now;
+    }
+
+    if (resolvedDueActions.autoReapplyDue) {
+      nextConfiguration.auto_reapply_last_run_at = now;
+      nextExecutionSummary.autoReapplyLastRunAt = now;
+    }
 
     await db.sale.updateMany({
       where: {
@@ -427,32 +513,8 @@ async function trackSaleCondition(sale) {
       },
       data: {
         status: normalizeSchedulerActiveStatus(sale.status),
-        configuration: {
-          ...(sale.configuration || {}),
-          track_condition_changes_last_run_at: now,
-        },
-        executionSummary: {
-          ...(sale.executionSummary || {}),
-          originalVariants: tracked.originalVariants,
-          originalMarketPrices:
-            tracked.originalMarketPrices ||
-            sale.executionSummary?.originalMarketPrices ||
-            [],
-          progress: 100,
-          trackConditionLastRunAt: now,
-          trackConditionLastResult: {
-            ok: tracked.ok,
-            analyzedVariants: tracked.analyzedVariants,
-            addedVariants: tracked.addedVariants,
-            removedVariants: tracked.removedVariants,
-            taggedProducts: tracked.taggedProducts,
-            errors: tracked.errors,
-          },
-          logs: [
-            ...((sale.executionSummary || {}).logs || []),
-            ...(tracked.logs || []),
-          ],
-        },
+        configuration: nextConfiguration,
+        executionSummary: nextExecutionSummary,
       },
     });
 
@@ -465,6 +527,31 @@ async function trackSaleCondition(sale) {
     };
   } catch (error) {
     const now = new Date().toISOString();
+    const nextConfiguration = {
+      ...(sale.configuration || {}),
+    };
+    const nextExecutionSummary = {
+      ...(sale.executionSummary || {}),
+      progress: 100,
+      status: "Condition check failed",
+      trackConditionLastResult: {
+        ok: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Unable to track sale condition changes.",
+      },
+    };
+
+    if (resolvedDueActions.trackConditionDue) {
+      nextConfiguration.track_condition_changes_last_run_at = now;
+      nextExecutionSummary.trackConditionLastRunAt = now;
+    }
+
+    if (resolvedDueActions.autoReapplyDue) {
+      nextConfiguration.auto_reapply_last_run_at = now;
+      nextExecutionSummary.autoReapplyLastRunAt = now;
+    }
 
     await db.sale.updateMany({
       where: {
@@ -474,23 +561,8 @@ async function trackSaleCondition(sale) {
       },
       data: {
         status: normalizeSchedulerActiveStatus(sale.status),
-        configuration: {
-          ...(sale.configuration || {}),
-          track_condition_changes_last_run_at: now,
-        },
-        executionSummary: {
-          ...(sale.executionSummary || {}),
-          progress: 100,
-          status: "Condition check failed",
-          trackConditionLastRunAt: now,
-          trackConditionLastResult: {
-            ok: false,
-            error:
-              error instanceof Error
-                ? error.message
-                : "Unable to track sale condition changes.",
-          },
-        },
+        configuration: nextConfiguration,
+        executionSummary: nextExecutionSummary,
       },
     });
 

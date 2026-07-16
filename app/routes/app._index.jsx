@@ -245,7 +245,7 @@ function MetricCard({ title, value }) {
     <Card>
       <Box paddingBlock="300">
         <BlockStack gap="200" align="center" inlineAlign="center">
-          <Text as="h2" variant="headingMd" alignment="center">
+          <Text as="span" fontWeight="semibold" alignment="center">
             {title}
           </Text>
           <Text as="p" variant="headingLg" alignment="center">
@@ -337,11 +337,11 @@ function RecommendedAppsSection() {
                 display: "flex",
                 flexDirection: "column",
                 justifyContent: "space-between",
-                gap: 10,
+                gap: 5,
                 background: "#ffffff",
               }}
             >
-              <BlockStack gap="300">
+              <BlockStack gap="100">
                 <InlineStack align="space-between" blockAlign="center" gap="300">
                   <img
                     src={app.image}
@@ -366,7 +366,7 @@ function RecommendedAppsSection() {
                   </Box>
                 </InlineStack>
 
-                <Text as="h3" variant="headingMd">
+                <Text as="p" fontWeight="semibold">
                   {app.name}
                 </Text>
 
