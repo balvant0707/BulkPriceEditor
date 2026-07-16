@@ -18,6 +18,7 @@ export async function loader({ request, params }) {
   const query = url.searchParams.get("q") || "";
   const dateFrom = url.searchParams.get("dateFrom") || "";
   const dateTo = url.searchParams.get("dateTo") || "";
+  const timezoneOffsetMinutes = url.searchParams.get("timezoneOffsetMinutes") || "";
 
   if (!Number.isInteger(reportId) || reportId <= 0) {
     throw new Response("Report not found", { status: 404 });
@@ -32,6 +33,7 @@ export async function loader({ request, params }) {
       filter: "all",
       dateFrom,
       dateTo,
+      timezoneOffsetMinutes,
     });
 
     return buildCsvResponse({
@@ -50,6 +52,7 @@ export async function loader({ request, params }) {
     filter: "all",
     dateFrom,
     dateTo,
+    timezoneOffsetMinutes,
     page,
     pageSize: PAGE_SIZE,
   });

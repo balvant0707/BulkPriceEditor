@@ -47,6 +47,7 @@ export default function ProductReportPage({ type }) {
   const [filterValue, setFilterValue] = useState(filter || "all");
   const [dateFromValue, setDateFromValue] = useState(dateFrom || "");
   const [dateToValue, setDateToValue] = useState(dateTo || "");
+  const [isExporting, setIsExporting] = useState(false);
   const title =
     type === REPORT_TYPES.margin
       ? "Products Margin Report"
@@ -84,6 +85,7 @@ export default function ProductReportPage({ type }) {
   const exportUrl = useMemo(() => {
     const params = new URLSearchParams(searchParams);
     params.set("export", "csv");
+    params.set("timezoneOffsetMinutes", String(new Date().getTimezoneOffset()));
     return `?${params.toString()}`;
   }, [searchParams]);
 
@@ -110,8 +112,39 @@ export default function ProductReportPage({ type }) {
     updateSearch({ page: String(currentPage + 1) });
   };
 
-  const handleExportCsv = () => {
-    window.location.assign(exportUrl);
+  const handleExportCsv = async () => {
+    if (isExporting) return;
+
+    setIsExporting(true);
+
+    try {
+      const response = await fetch(exportUrl, {
+        credentials: "same-origin",
+        headers: {
+          Accept: "text/csv",
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to export report CSV.");
+      }
+
+      const blob = await response.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+
+      link.href = downloadUrl;
+      link.download = getCsvFilename(response.headers.get("Content-Disposition"), type);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (error) {
+      console.error(error);
+      window.location.assign(exportUrl);
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const updateSearch = (updates) => {
@@ -125,6 +158,7 @@ export default function ProductReportPage({ type }) {
       }
     }
 
+    params.set("timezoneOffsetMinutes", String(new Date().getTimezoneOffset()));
     submit(params, { method: "get", replace: true });
   };
 
@@ -187,6 +221,8 @@ export default function ProductReportPage({ type }) {
         {
           content: "Export CSV",
           onAction: handleExportCsv,
+          loading: isExporting,
+          disabled: isExporting,
         },
       ]}
       fullWidth
@@ -365,4 +401,13 @@ function formatDate(value) {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+function getCsvFilename(contentDisposition, type) {
+  const match = String(contentDisposition || "").match(/filename="([^"]+)"/i);
+  if (match?.[1]) return match[1];
+
+  return type === REPORT_TYPES.margin
+    ? "products-margin-report.csv"
+    : "products-discount-report.csv";
 }

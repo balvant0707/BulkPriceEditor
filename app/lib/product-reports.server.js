@@ -177,6 +177,7 @@ export async function loadReportPage({
   filter = "all",
   dateFrom = "",
   dateTo = "",
+  timezoneOffsetMinutes = "",
   page = 1,
   pageSize = 25,
 }) {
@@ -200,6 +201,7 @@ export async function loadReportPage({
     filter,
     dateFrom,
     dateTo,
+    timezoneOffsetMinutes,
   });
   const totalRows = await db.productReportRow.count({ where });
   const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
@@ -228,6 +230,7 @@ export async function loadReportExportRows({
   filter,
   dateFrom = "",
   dateTo = "",
+  timezoneOffsetMinutes = "",
 }) {
   const report = await db.productReport.findFirst({
     where: {
@@ -251,6 +254,7 @@ export async function loadReportExportRows({
       filter,
       dateFrom,
       dateTo,
+      timezoneOffsetMinutes,
     }),
     orderBy: [{ productTitle: "asc" }, { variantTitle: "asc" }, { id: "asc" }],
   });
@@ -392,14 +396,23 @@ async function shopifyGraphql(admin, query, variables = {}) {
   return payload.data;
 }
 
-function buildRowsWhere({ reportId, shop, type, query, filter, dateFrom, dateTo }) {
+function buildRowsWhere({
+  reportId,
+  shop,
+  type,
+  query,
+  filter,
+  dateFrom,
+  dateTo,
+  timezoneOffsetMinutes,
+}) {
   const trimmedQuery = String(query || "").trim();
   const where = {
     reportId,
     shop,
     type,
   };
-  const createdAt = buildDateRangeFilter(dateFrom, dateTo);
+  const createdAt = buildDateRangeFilter(dateFrom, dateTo, timezoneOffsetMinutes);
 
   if (trimmedQuery) {
     where.OR = [
@@ -424,23 +437,29 @@ function buildRowsWhere({ reportId, shop, type, query, filter, dateFrom, dateTo 
   return where;
 }
 
-function buildDateRangeFilter(dateFrom, dateTo) {
-  const from = parseDateOnly(dateFrom, false);
-  const to = parseDateOnly(dateTo, true);
+function buildDateRangeFilter(dateFrom, dateTo, timezoneOffsetMinutes) {
+  const from = parseDateOnly(dateFrom, false, timezoneOffsetMinutes);
+  const to = parseDateOnly(dateTo, true, timezoneOffsetMinutes);
   const range = {};
 
-  if (from) range.gte = from;
-  if (to) range.lte = to;
+  if (from && to && from > to) {
+    range.gte = to;
+    range.lte = from;
+  } else {
+    if (from) range.gte = from;
+    if (to) range.lte = to;
+  }
 
   return Object.keys(range).length ? range : null;
 }
 
-function parseDateOnly(value, endOfDay = false) {
+function parseDateOnly(value, endOfDay = false, timezoneOffsetMinutes = "") {
   const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) return null;
 
   const [, year, month, day] = match.map(Number);
-  const date = new Date(Date.UTC(
+  const offset = Number(timezoneOffsetMinutes);
+  const utcMs = Date.UTC(
     year,
     month - 1,
     day,
@@ -448,7 +467,10 @@ function parseDateOnly(value, endOfDay = false) {
     endOfDay ? 59 : 0,
     endOfDay ? 59 : 0,
     endOfDay ? 999 : 0,
-  ));
+  );
+  const date = Number.isFinite(offset)
+    ? new Date(utcMs + offset * 60 * 1000)
+    : new Date(utcMs);
 
   return Number.isNaN(date.getTime()) ? null : date;
 }
