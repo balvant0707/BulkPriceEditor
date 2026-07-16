@@ -83,7 +83,7 @@ export default function ProductReportPage({ type }) {
 
   const exportUrl = useMemo(() => {
     const params = new URLSearchParams(searchParams);
-    params.set("export", "csv");
+    params.set("export", "excel");
     params.set("timezoneOffsetMinutes", String(new Date().getTimezoneOffset()));
     return `?${params.toString()}`;
   }, [searchParams]);
@@ -115,7 +115,7 @@ export default function ProductReportPage({ type }) {
     const link = document.createElement("a");
 
     link.href = exportUrl;
-    link.download = getCsvFilename("", type);
+    link.download = getExcelFilename(type);
     link.rel = "noopener";
     document.body.appendChild(link);
     link.click();
@@ -194,7 +194,7 @@ export default function ProductReportPage({ type }) {
       backAction={{ content: "Tools", onAction: () => navigate("/app/tools") }}
       secondaryActions={[
         {
-          content: "Export CSV",
+          content: "Export Excel",
           onAction: handleExportCsv,
         },
       ]}
@@ -376,11 +376,8 @@ function formatDate(value) {
   });
 }
 
-function getCsvFilename(contentDisposition, type) {
-  const match = String(contentDisposition || "").match(/filename="([^"]+)"/i);
-  if (match?.[1]) return match[1];
-
+function getExcelFilename(type) {
   return type === REPORT_TYPES.margin
-    ? "products-margin-report.csv"
-    : "products-discount-report.csv";
+    ? "products-margin-report.xls"
+    : "products-discount-report.xls";
 }

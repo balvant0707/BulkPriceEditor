@@ -1,6 +1,7 @@
 import { json } from "@remix-run/node";
 import {
   buildCsvResponse,
+  buildExcelResponse,
   loadReportExportRows,
   loadReportPage,
 } from "../lib/product-reports.server";
@@ -24,7 +25,9 @@ export async function loader({ request, params }) {
     throw new Response("Report not found", { status: 404 });
   }
 
-  if (url.searchParams.get("export") === "csv") {
+  const exportType = url.searchParams.get("export");
+
+  if (exportType === "csv" || exportType === "excel" || exportType === "xls") {
     const rows = await loadReportExportRows({
       shop,
       type: REPORT_TYPES.discount,
@@ -35,6 +38,14 @@ export async function loader({ request, params }) {
       dateTo,
       timezoneOffsetMinutes,
     });
+
+    if (exportType === "excel" || exportType === "xls") {
+      return buildExcelResponse({
+        filename: `products-discount-report-${reportId}.xls`,
+        type: REPORT_TYPES.discount,
+        rows,
+      });
+    }
 
     return buildCsvResponse({
       filename: `products-discount-report-${reportId}.csv`,

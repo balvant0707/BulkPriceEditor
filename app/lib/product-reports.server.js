@@ -299,6 +299,51 @@ export function buildCsvResponse({ filename, type, rows }) {
   });
 }
 
+export function buildExcelResponse({ filename, type, rows }) {
+  const headers =
+    type === REPORT_TYPES.margin
+      ? ["Product", "Variant", "SKU", "Price", "Cost", "Margin"]
+      : ["Product", "Variant", "SKU", "Price", "Compare at price", "Discount"];
+  const sheetName =
+    type === REPORT_TYPES.margin ? "Products Margin Report" : "Products Discount Report";
+  const excelRows = [
+    headers.map((value) => ({ value, type: "String" })),
+    ...rows.map((row) =>
+      type === REPORT_TYPES.margin
+        ? [
+            { value: row.productTitle, type: "String" },
+            { value: row.variantTitle, type: "String" },
+            { value: row.sku, type: "String" },
+            { value: row.price, type: "Number" },
+            { value: row.cost, type: "Number" },
+            {
+              value: row.marginPercent == null ? "" : `${row.marginPercent}%`,
+              type: "String",
+            },
+          ]
+        : [
+            { value: row.productTitle, type: "String" },
+            { value: row.variantTitle, type: "String" },
+            { value: row.sku, type: "String" },
+            { value: row.price, type: "Number" },
+            { value: row.compareAtPrice, type: "Number" },
+            {
+              value: row.discountPercent == null ? "" : `${row.discountPercent}% off`,
+              type: "String",
+            },
+          ],
+    ),
+  ];
+  const workbook = buildExcelXmlWorkbook(sheetName, excelRows);
+
+  return new Response(workbook, {
+    headers: {
+      "Content-Type": "application/vnd.ms-excel; charset=utf-8",
+      "Content-Disposition": `attachment; filename="${filename}"`,
+    },
+  });
+}
+
 async function collectReportRows(admin, { shop, type, includeDraftProducts, reportId }) {
   const rows = [];
   let after = null;
@@ -542,4 +587,55 @@ function decimalToNumber(value) {
 function escapeCsvValue(value) {
   const text = String(value ?? "");
   return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
+function buildExcelXmlWorkbook(sheetName, rows) {
+  return `<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:html="http://www.w3.org/TR/REC-html40">
+ <Styles>
+  <Style ss:ID="Header">
+   <Font ss:Bold="1"/>
+   <Interior ss:Color="#F3F4F6" ss:Pattern="Solid"/>
+  </Style>
+ </Styles>
+ <Worksheet ss:Name="${escapeXmlAttribute(sheetName)}">
+  <Table>
+${rows.map((row, index) => buildExcelXmlRow(row, index === 0)).join("")}
+  </Table>
+ </Worksheet>
+</Workbook>`;
+}
+
+function buildExcelXmlRow(row, isHeader = false) {
+  return `   <Row>
+${row.map((cell) => buildExcelXmlCell(cell, isHeader)).join("")}
+   </Row>
+`;
+}
+
+function buildExcelXmlCell(cell, isHeader = false) {
+  const rawValue = cell?.value ?? "";
+  const number = Number(rawValue);
+  const type = cell?.type === "Number" && Number.isFinite(number) ? "Number" : "String";
+  const value = type === "Number" ? String(number) : escapeXmlText(rawValue);
+  const style = isHeader ? ' ss:StyleID="Header"' : "";
+
+  return `    <Cell${style}><Data ss:Type="${type}">${value}</Data></Cell>
+`;
+}
+
+function escapeXmlText(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+function escapeXmlAttribute(value) {
+  return escapeXmlText(value).replaceAll('"', "&quot;");
 }
