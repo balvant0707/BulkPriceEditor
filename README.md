@@ -73,7 +73,9 @@ Keep the existing Shopify and database environment variables configured as befor
 
 ### Lifecycle emails
 
-The app sends lifecycle emails when a shop installs or uninstalls the app. Configure these environment variables in Vercel:
+The app sends lifecycle emails when a shop installs or uninstalls the app. Configure either Resend or SMTP in Vercel.
+
+Resend:
 
 ```text
 RESEND_API_KEY=<Resend API key>
@@ -81,7 +83,19 @@ MAIL_FROM="Bulk Price Editor <notifications@your-domain.com>"
 APP_OWNER_EMAIL=<owner notification email>
 ```
 
-If `RESEND_API_KEY`, `MAIL_FROM`, or a recipient email is missing, the app logs that the email was skipped and continues processing the install or webhook request.
+SMTP fallback, used when `RESEND_API_KEY` is not set:
+
+```text
+SMTP_HOST=<SMTP host>
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=<SMTP username>
+SMTP_PASS=<SMTP password>
+SMTP_FROM="Bulk Price Editor <notifications@your-domain.com>"
+APP_OWNER_EMAIL=<owner notification email>
+```
+
+If neither Resend nor SMTP is fully configured, or a recipient email is missing, the app logs that the email was skipped and continues processing the install or webhook request.
 
 ### Shopify privacy compliance webhooks
 

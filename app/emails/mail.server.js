@@ -1,14 +1,15 @@
+import nodemailer from "nodemailer";
 import {
   appInstalledOwnerTemplate,
   appInstalledUserTemplate,
   appUninstalledOwnerTemplate,
   appUninstalledUserTemplate,
-} from "./templates/lifecycle";
+} from "./templates/lifecycle.js";
 
 const RESEND_API_URL = "https://api.resend.com/emails";
 
 function getSender() {
-  return process.env.MAIL_FROM || process.env.RESEND_FROM_EMAIL || "";
+  return process.env.MAIL_FROM || process.env.SMTP_FROM || process.env.RESEND_FROM_EMAIL || "";
 }
 
 function getOwnerEmail() {
@@ -33,14 +34,17 @@ async function sendEmail({ to, subject, html, text }) {
   const apiKey = process.env.RESEND_API_KEY;
   const from = getSender();
 
-  if (!apiKey || !from || !to) {
-    console.log("Email skipped because RESEND_API_KEY, MAIL_FROM, or recipient is missing.", {
-      hasApiKey: Boolean(apiKey),
+  if (!from || !to) {
+    console.log("Email skipped because sender or recipient is missing.", {
       hasFrom: Boolean(from),
       hasTo: Boolean(to),
       subject,
     });
     return { skipped: true };
+  }
+
+  if (!apiKey) {
+    return sendSmtpEmail({ from, to, subject, html, text });
   }
 
   const response = await fetch(RESEND_API_URL, {
@@ -64,6 +68,44 @@ async function sendEmail({ to, subject, html, text }) {
   }
 
   return response.json();
+}
+
+async function sendSmtpEmail({ from, to, subject, html, text }) {
+  const host = process.env.SMTP_HOST;
+  const port = Number(process.env.SMTP_PORT || 587);
+  const user = process.env.SMTP_USER;
+  const pass = process.env.SMTP_PASS;
+
+  if (!host || !user || !pass) {
+    console.log("Email skipped because SMTP is not fully configured.", {
+      hasHost: Boolean(host),
+      hasUser: Boolean(user),
+      hasPass: Boolean(pass),
+      hasFrom: Boolean(from),
+      hasTo: Boolean(to),
+      subject,
+    });
+    return { skipped: true };
+  }
+
+  const transport = nodemailer.createTransport({
+    host,
+    port,
+    secure: isTruthy(process.env.SMTP_SECURE),
+    auth: { user, pass },
+  });
+
+  return transport.sendMail({
+    from,
+    to,
+    subject,
+    html,
+    text,
+  });
+}
+
+function isTruthy(value) {
+  return ["1", "true", "yes"].includes(String(value || "").trim().toLowerCase());
 }
 
 async function sendLifecycleEmails(shop, templates) {

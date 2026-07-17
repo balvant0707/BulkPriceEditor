@@ -2,15 +2,17 @@ import db from "../db.server";
 import { sendAppUninstalledEmails } from "../emails/mail.server";
 import { markShopUninstalled } from "../models/shop.server";
 
-export function handleWebhook(webhook) {
-  void processWebhook(webhook).catch((error) => {
+export async function handleWebhook(webhook) {
+  try {
+    await processWebhook(webhook);
+  } catch (error) {
     console.error("Webhook processing failed.", {
       topic: webhook?.topic,
       shop: webhook?.shop || webhook?.payload?.shop_domain,
       webhookId: webhook?.webhookId,
       error,
     });
-  });
+  }
 
   return new Response(null, { status: 200 });
 }
