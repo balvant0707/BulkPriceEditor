@@ -2298,9 +2298,10 @@ function ResourceList({ records, type, shopifyStoreHandle }) {
                   {item.title || item.handle || `Product ${productId || ""}`.trim()}
                 </AdminLink>
               </Text>
+       
               {url ? (
                 <Text as="p" fontWeight="regular">
-                  <AdminLink url={url}></AdminLink>
+                  <AdminLink url={url}>Open in Shopify Admin</AdminLink>
                 </Text>
               ) : null}
             </BlockStack>
