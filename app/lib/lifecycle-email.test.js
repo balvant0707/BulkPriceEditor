@@ -120,7 +120,7 @@ function mockSmtpDelivery() {
   delete process.env.MAIL_FROM;
   process.env.SMTP_HOST = "smtp.example.com";
   process.env.SMTP_PORT = "465";
-  process.env.SMTP_SECURE = "true";
+  process.env.SMTP_SECURE = "SSL";
   process.env.SMTP_USER = "smtp-user";
   process.env.SMTP_PASS = "smtp-pass";
   process.env.SMTP_FROM = "Bulk Price Editor <smtp@example.com>";

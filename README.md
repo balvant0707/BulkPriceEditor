@@ -87,8 +87,8 @@ SMTP fallback, used when `RESEND_API_KEY` is not set:
 
 ```text
 SMTP_HOST=<SMTP host>
-SMTP_PORT=587
-SMTP_SECURE=false
+SMTP_PORT=465
+SMTP_SECURE=SSL
 SMTP_USER=<SMTP username>
 SMTP_PASS=<SMTP password>
 SMTP_FROM="Bulk Price Editor <notifications@your-domain.com>"

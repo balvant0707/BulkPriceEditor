@@ -91,7 +91,7 @@ async function sendSmtpEmail({ from, to, subject, html, text }) {
   const transport = nodemailer.createTransport({
     host,
     port,
-    secure: isTruthy(process.env.SMTP_SECURE),
+    secure: isSmtpSecure({ value: process.env.SMTP_SECURE, port }),
     auth: { user, pass },
   });
 
@@ -104,8 +104,14 @@ async function sendSmtpEmail({ from, to, subject, html, text }) {
   });
 }
 
-function isTruthy(value) {
-  return ["1", "true", "yes"].includes(String(value || "").trim().toLowerCase());
+function isSmtpSecure({ value, port }) {
+  const normalizedValue = String(value || "").trim().toLowerCase();
+
+  if (!normalizedValue) {
+    return port === 465;
+  }
+
+  return ["1", "true", "yes", "ssl", "tls"].includes(normalizedValue);
 }
 
 async function sendLifecycleEmails(shop, templates) {
