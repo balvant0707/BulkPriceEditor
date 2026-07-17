@@ -710,11 +710,11 @@ function SectionCard({ title, children }) {
   );
 }
 
-function DateTextField(props) {
-  const wrapperRef = useRef(null);
+function DateTextField({ label, value, onChange, min }) {
+  const inputRef = useRef(null);
 
   const openPicker = () => {
-    const input = wrapperRef.current?.querySelector('input[type="date"]');
+    const input = inputRef.current;
     if (!input) return;
 
     input.focus();
@@ -728,9 +728,42 @@ function DateTextField(props) {
   };
 
   return (
-    <div ref={wrapperRef} onClick={openPicker} onFocus={openPicker}>
-      <TextField {...props} type="date" autoComplete="off" />
-    </div>
+    <label style={{ display: "block" }}>
+      <span
+        style={{
+          display: "block",
+          marginBottom: 4,
+          color: "#303030",
+          fontSize: 13,
+          fontWeight: 450,
+          lineHeight: "20px",
+        }}
+      >
+        {label}
+      </span>
+      <input
+        ref={inputRef}
+        type="date"
+        value={value}
+        min={min}
+        onClick={openPicker}
+        onFocus={openPicker}
+        onChange={(event) => onChange(event.currentTarget.value)}
+        style={{
+          width: "100%",
+          minHeight: 42,
+          padding: "6px 12px",
+          border: "1px solid #8a8a8a",
+          borderRadius: 8,
+          background: "#fdfdfd",
+          color: "#303030",
+          font: "inherit",
+          fontSize: 14,
+          lineHeight: "20px",
+          boxSizing: "border-box",
+        }}
+      />
+    </label>
   );
 }
 
