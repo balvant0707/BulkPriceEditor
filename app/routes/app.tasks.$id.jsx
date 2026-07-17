@@ -1715,27 +1715,36 @@ function getDefaultVariant(variants) {
   return variants.find((variant) => isDefaultVariantTitle(variant.title)) || variants[0];
 }
 
+function mergeVariantRecord(recordsByVariantId, record) {
+  const variantId = getVariantId(record);
+  if (!variantId) return;
+
+  recordsByVariantId.set(variantId, {
+    ...recordsByVariantId.get(variantId),
+    ...record,
+  });
+}
+
 function createProductGroups(task, shopifyStoreHandle, shopCurrency) {
   const groups = new Map();
   const originalVariants = task.executionSummary?.originalVariants || [];
   const originalInventoryItems =
     task.executionSummary?.originalInventoryItems || [];
+  const originalMarketPrices = task.executionSummary?.originalMarketPrices || [];
 
   const recordsByVariantId = new Map();
 
-  originalVariants.forEach((v) => {
-    const variantId = getVariantId(v);
-    if (variantId) {
-      recordsByVariantId.set(variantId, { ...recordsByVariantId.get(variantId), ...v });
-    }
-  });
+  originalVariants.forEach((v) => mergeVariantRecord(recordsByVariantId, v));
 
-  originalInventoryItems.forEach((i) => {
-    const variantId = getVariantId(i);
-    if (variantId) {
-      recordsByVariantId.set(variantId, { ...recordsByVariantId.get(variantId), ...i });
-    }
-  });
+  originalInventoryItems.forEach((i) => mergeVariantRecord(recordsByVariantId, i));
+
+  originalMarketPrices.forEach((price) =>
+    mergeVariantRecord(recordsByVariantId, {
+      ...price,
+      isMarketPrice: true,
+      title: price.variantTitle,
+    }),
+  );
 
   function addRecord(record, index, type) {
     const productId = getProductId(record);
@@ -1773,7 +1782,8 @@ function createProductGroups(task, shopifyStoreHandle, shopCurrency) {
 
     if (record?.cost !== record?.nextCost) group.costChangeCount += 1;
 
-    const changeItems = buildVariantChangeItems(record, shopCurrency);
+    const currencyCode = record?.currencyCode || shopCurrency;
+    const changeItems = buildVariantChangeItems(record, currencyCode);
 
     group.variants.push({
       rowId: `${groupKey}-${variantId || index}`,
@@ -1972,32 +1982,35 @@ function getProductDetails(task, productId, shopifyStoreHandle, shopCurrency = "
   const originalVariants = task.executionSummary?.originalVariants || [];
   const originalInventoryItems =
     task.executionSummary?.originalInventoryItems || [];
+  const originalMarketPrices = task.executionSummary?.originalMarketPrices || [];
 
   const recordsByVariantId = new Map();
 
   originalVariants
     .filter((v) => getProductId(v) === productId)
-    .forEach((v) => {
-      const variantId = getVariantId(v);
-      if (variantId) {
-        recordsByVariantId.set(variantId, { ...recordsByVariantId.get(variantId), ...v });
-      }
-    });
+    .forEach((v) => mergeVariantRecord(recordsByVariantId, v));
 
   originalInventoryItems
     .filter((i) => getProductId(i) === productId)
-    .forEach((i) => {
-      const variantId = getVariantId(i);
-      if (variantId) {
-        recordsByVariantId.set(variantId, { ...recordsByVariantId.get(variantId), ...i });
-      }
-    });
+    .forEach((i) => mergeVariantRecord(recordsByVariantId, i));
+
+  originalMarketPrices
+    .filter((price) => getProductId(price) === productId)
+    .forEach((price) =>
+      mergeVariantRecord(recordsByVariantId, {
+        ...price,
+        isMarketPrice: true,
+        title: price.variantTitle,
+      }),
+    );
 
   const allRecords = Array.from(recordsByVariantId.values()).map((record, index) => {
     const variantId = getVariantId(record);
+    const currencyCode = record.currencyCode || shopCurrency;
     return {
       rowId: `variant-${variantId || index}`,
       variantId,
+      productTitle: getProductTitle(record),
       title: getVariantTitle(record),
       sku: getVariantSku(record),
       price: record.price,
@@ -2005,7 +2018,7 @@ function getProductDetails(task, productId, shopifyStoreHandle, shopCurrency = "
       newSetPrice: record.nextPrice,
       cost: record.cost,
       newSetCost: record.nextCost,
-      changes: buildVariantChanges(record, shopCurrency),
+      changes: buildVariantChanges(record, currencyCode),
       adminUrl: getVariantAdminUrl(shopifyStoreHandle, productId, variantId),
     };
   });

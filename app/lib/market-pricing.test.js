@@ -102,4 +102,102 @@ describe("market pricing calculations", () => {
       variants: [{ id: "gid://shopify/ProductVariant/1", price: "15.00" }],
     });
   });
+
+  it("updates fixed market prices through the price list update mutation", async () => {
+    const graphqlCalls = [];
+    const admin = {
+      graphql: async (query, { variables } = {}) => {
+        graphqlCalls.push({ query, variables });
+
+        if (query.includes("priceListFixedPricesUpdate")) {
+          return {
+            json: async () => ({
+              data: {
+                priceListFixedPricesUpdate: {
+                  pricesAdded: [
+                    {
+                      price: { amount: "15.00", currencyCode: "USD" },
+                      compareAtPrice: null,
+                    },
+                  ],
+                  userErrors: [],
+                },
+              },
+            }),
+          };
+        }
+
+        return {
+          json: async () => ({
+            data: {
+              priceList: {
+                prices: {
+                  nodes: [
+                    {
+                      originType: "FIXED",
+                      price: { amount: "10.00", currencyCode: "USD" },
+                      compareAtPrice: null,
+                      variant: { id: "gid://shopify/ProductVariant/1" },
+                    },
+                  ],
+                  pageInfo: { hasNextPage: false, endCursor: null },
+                },
+              },
+            },
+          }),
+        };
+      },
+    };
+
+    const result = await updateMarketPrices({
+      admin,
+      ownerType: "task",
+      ownerId: 1,
+      shop: "demo.myshopify.com",
+      markets: [
+        {
+          id: "gid://shopify/Market/1",
+          name: "United States",
+          currencyCode: "USD",
+          priceListIds: ["gid://shopify/PriceList/1"],
+        },
+      ],
+      variants: [
+        {
+          id: "gid://shopify/ProductVariant/1",
+          title: "Default Title",
+          price: "10.00",
+          compareAtPrice: null,
+          product: {
+            id: "gid://shopify/Product/1",
+            title: "Demo product",
+          },
+        },
+      ],
+      priceChange: {
+        action: "increase",
+        type: "by_amount",
+        amount: "5",
+      },
+      compareAtPriceChange: {},
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.updatedCount, 1);
+    assert.equal(result.originalMarketPrices.length, 1);
+    assert.equal(result.originalMarketPrices[0].price, "10.00");
+    assert.equal(result.originalMarketPrices[0].nextPrice, "15.00");
+    assert.equal(graphqlCalls.length, 2);
+    assert.match(graphqlCalls[1].query, /priceListFixedPricesUpdate/);
+    assert.deepEqual(graphqlCalls[1].variables, {
+      priceListId: "gid://shopify/PriceList/1",
+      pricesToAdd: [
+        {
+          variantId: "gid://shopify/ProductVariant/1",
+          price: { amount: "15.00", currencyCode: "USD" },
+        },
+      ],
+      variantIdsToDelete: [],
+    });
+  });
 });

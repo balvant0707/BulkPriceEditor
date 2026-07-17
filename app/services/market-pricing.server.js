@@ -282,6 +282,11 @@ export async function updateMarketPrices({
             variantTitle: variant.title,
             price: fixedPrice?.price ?? null,
             compareAtPrice: fixedPrice?.compareAtPrice ?? null,
+            nextPrice: priceInput.price.amount,
+            nextCompareAtPrice:
+              priceInput.compareAtPrice === undefined
+                ? baseCompareAtPrice
+                : priceInput.compareAtPrice?.amount ?? null,
             currencyCode: market.currencyCode || fixedPrice?.currencyCode || "",
             hadFixedPrice: Boolean(fixedPrice),
           });
@@ -305,7 +310,7 @@ export async function updateMarketPrices({
           );
         }
 
-        const result = await addFixedPrices(admin, priceListId, updates);
+        const result = await updateFixedPrices(admin, priceListId, updates, []);
         updatedCount += result.updatedCount;
         errors.push(...result.errors);
       } catch (error) {
