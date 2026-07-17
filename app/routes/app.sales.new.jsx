@@ -621,6 +621,7 @@ function normalizeMarkets(markets = []) {
       market.currencySettings?.baseCurrency?.currencyCode || "";
     const regions = market.regions?.nodes || [];
     const currencyLabel = currencyCode ? ` (${currencyCode})` : "";
+    const disabledLabel = currencyCode ? "" : " - no currency";
     const primaryLabel = market.primary ? " - primary" : "";
 
     return {
@@ -635,7 +636,8 @@ function normalizeMarkets(markets = []) {
       priceListIds: (market.catalogs?.nodes || [])
         .map((catalog) => catalog.priceList?.id)
         .filter(Boolean),
-      label: `${market.name}${currencyLabel}${primaryLabel}`,
+      label: `${market.name}${currencyLabel}${disabledLabel}${primaryLabel}`,
+      disabled: !currencyCode,
     };
   });
 }
@@ -1614,8 +1616,17 @@ export default function NewSalePage() {
     settings.includeDraftProducts ??
     DEFAULT_REPORT_SETTINGS.includeDraftProducts;
   const minScheduleDate = getLocalDateInputValue(now);
+  const selectableMarketIds = useMemo(
+    () => new Set(markets.filter((market) => !market.disabled).map((market) => market.id)),
+    [markets],
+  );
   const marketOptions = useMemo(
-    () => markets.map((market) => ({ label: market.label, value: market.id })),
+    () =>
+      markets.map((market) => ({
+        label: market.label,
+        value: market.id,
+        disabled: market.disabled,
+      })),
     [markets],
   );
 
@@ -1725,10 +1736,25 @@ export default function NewSalePage() {
       initialAutoReapplyInterval.value,
     ),
   });
+  const handleMarketsChange = (marketIds) => {
+    setField("markets")(marketIds.filter((marketId) => selectableMarketIds.has(marketId)));
+  };
   const selectedMarketDetails = useMemo(
-    () => markets.filter((market) => form.markets.includes(market.id)),
+    () =>
+      markets.filter(
+        (market) => !market.disabled && form.markets.includes(market.id),
+      ),
     [markets, form.markets],
   );
+
+  useEffect(() => {
+    setForm((current) => ({
+      ...current,
+      markets: (current.markets || []).filter((marketId) =>
+        selectableMarketIds.has(marketId),
+      ),
+    }));
+  }, [selectableMarketIds]);
 
   const [applyCollections, setApplyCollections] = useState(
     initialPayload.applyCollections || sale?.applyResources?.collections || [],
@@ -2157,7 +2183,7 @@ export default function NewSalePage() {
                       allowMultiple
                       choices={marketOptions}
                       selected={form.markets}
-                      onChange={setField("markets")}
+                      onChange={handleMarketsChange}
                     />
 
                     {selectedMarketDetails.map((market) => (

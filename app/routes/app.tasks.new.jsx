@@ -2163,6 +2163,7 @@ function normalizeMarkets(markets = []) {
       market.currencySettings?.baseCurrency?.currencyCode || "";
     const regions = market.regions?.nodes || [];
     const currencyLabel = currencyCode ? ` (${currencyCode})` : "";
+    const disabledLabel = currencyCode ? "" : " - no currency";
     const primaryLabel = market.primary ? " - primary" : "";
 
     return {
@@ -2177,8 +2178,8 @@ function normalizeMarkets(markets = []) {
       priceListIds: (market.catalogs?.nodes || [])
         .map((catalog) => catalog.priceList?.id)
         .filter(Boolean),
-      label: `${market.name}${currencyLabel}${primaryLabel}`,
-      disabled: false,
+      label: `${market.name}${currencyLabel}${disabledLabel}${primaryLabel}`,
+      disabled: !currencyCode,
     };
   });
 }
@@ -3542,18 +3543,35 @@ export default function NewTaskPage() {
       ? getConfigArray(configuration, "selected_market_ids[]")
       : task?.selectedMarkets?.map((market) => market.id).filter(Boolean) || [],
   );
+  const selectableMarketIds = useMemo(
+    () => new Set(markets.filter((market) => !market.disabled).map((market) => market.id)),
+    [markets],
+  );
   const marketChoices = useMemo(
     () =>
       markets.map((market) => ({
         label: market.label,
         value: market.id,
+        disabled: market.disabled,
       })),
     [markets],
   );
+  const handleSelectedMarketsChange = (marketIds) => {
+    setSelectedMarkets(marketIds.filter((marketId) => selectableMarketIds.has(marketId)));
+  };
   const selectedMarketDetails = useMemo(
-    () => markets.filter((market) => selectedMarkets.includes(market.id)),
+    () =>
+      markets.filter(
+        (market) => !market.disabled && selectedMarkets.includes(market.id),
+      ),
     [markets, selectedMarkets],
   );
+
+  useEffect(() => {
+    setSelectedMarkets((current) =>
+      current.filter((marketId) => selectableMarketIds.has(marketId)),
+    );
+  }, [selectableMarketIds]);
 
   const [applyTo, setApplyTo] = useState([
     getConfigValue(configuration, "condition", task?.applyScope || "whole_store"),
@@ -3775,7 +3793,7 @@ export default function NewTaskPage() {
                             title="Markets"
                             allowMultiple
                             selected={selectedMarkets}
-                            onChange={setSelectedMarkets}
+                            onChange={handleSelectedMarketsChange}
                             choices={marketChoices}
                           />
 
@@ -3949,7 +3967,7 @@ export default function NewTaskPage() {
                   <DiscountedExclusionInputs selected={excludeDiscounted} />
                 </SectionCard>
 
-                <SectionCard title="Advanced">
+                <SectionCard title="Advanced" paddingBlockEnd="200">
                   <input
                     type="hidden"
                     name="auto_reapply_changes_enabled"
