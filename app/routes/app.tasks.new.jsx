@@ -4008,21 +4008,6 @@ export default function NewTaskPage() {
                     </Banner>
                   ) : null}
                 </SectionCard>
-
-                <InlineStack align="end" gap="200" display="none">
-                  <Button url="/app" disabled={isSubmitting}>
-                    Discard
-                  </Button>
-
-                  <Button
-                    submit
-                    variant="primary"
-                    loading={isSubmitting}
-                    disabled={isSubmitting}
-                  >
-                    {isSubmitting ? "Running..." : task ? "Update" : "Save"}
-                  </Button>
-                </InlineStack>
               </BlockStack>
             </Layout.Section>
           </Layout>
