@@ -1153,6 +1153,22 @@ async function executeTask(
     const originalInventoryItems = [];
 
     if (taskData.applyChangesTo === "markets") {
+      for (const variant of variants) {
+        const inventoryUpdate = buildInventoryUpdate(variant, taskData.costPerItemChange);
+        if (!inventoryUpdate) continue;
+
+        inventoryUpdates.push(inventoryUpdate);
+        originalInventoryItems.push({
+          id: variant.inventoryItem.id,
+          variantId: variant.id,
+          variantTitle: variant.title,
+          productId: variant.product?.id,
+          productTitle: variant.product?.title,
+          cost: variant.inventoryItem.unitCost?.amount,
+          nextCost: inventoryUpdate.input.cost,
+        });
+      }
+
       const marketResult = await updateMarketPrices({
         admin,
         ownerType: "task",
@@ -1174,30 +1190,33 @@ async function executeTask(
         action: log.status,
         skipReason: log.errors?.join("; ") || null,
       }));
+      const inventoryResults = await applyInventoryUpdates(admin, inventoryUpdates);
+      const errors = [...marketResult.errors, ...inventoryResults.errors];
 
       await persistTaskAuditLogs([...auditLogs, ...marketAuditLogs]);
       await onProgress(95, {
         status: "Applying",
         analyzedVariants: variants.length,
         marketUpdates: marketResult.updatedCount,
+        inventoryUpdates: inventoryUpdates.length,
         skippedVariants: marketResult.skippedCount,
       }, { force: true });
 
       return {
-        ok: marketResult.ok,
+        ok: errors.length === 0,
         analyzedVariants: variants.length,
         variantUpdates: marketResult.updatedCount,
-        inventoryUpdates: 0,
+        inventoryUpdates: inventoryUpdates.length,
         updatedVariants: marketResult.updatedCount,
-        updatedInventoryItems: 0,
+        updatedInventoryItems: inventoryResults.updatedCount,
         totalPriceChanges: marketResult.totalPriceChanges,
         skippedVariants: marketResult.skippedCount,
         skippedProducts: countSkippedProducts(skippedLogs),
         logs: [...auditLogs.map(({ taskId, shop, ...log }) => log), ...marketResult.logs],
         originalVariants: [],
         originalMarketPrices: marketResult.originalMarketPrices,
-        originalInventoryItems: [],
-        errors: marketResult.errors,
+        originalInventoryItems,
+        errors,
         cappedAt: MAX_TASK_VARIANTS,
       };
     }

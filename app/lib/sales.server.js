@@ -19,6 +19,12 @@ const SALE_VARIANTS_QUERY = `#graphql
         sku
         price
         compareAtPrice
+        inventoryItem {
+          id
+          unitCost {
+            amount
+          }
+        }
         product {
           id
           title
@@ -44,6 +50,12 @@ const SALE_NODES_QUERY = `#graphql
         sku
         price
         compareAtPrice
+        inventoryItem {
+          id
+          unitCost {
+            amount
+          }
+        }
         product {
           id
           title
@@ -65,6 +77,12 @@ const SALE_NODES_QUERY = `#graphql
             sku
             price
             compareAtPrice
+            inventoryItem {
+              id
+              unitCost {
+                amount
+              }
+            }
             product {
               id
               title
@@ -91,6 +109,12 @@ const SALE_NODES_QUERY = `#graphql
                 sku
                 price
                 compareAtPrice
+                inventoryItem {
+                  id
+                  unitCost {
+                    amount
+                  }
+                }
                 product {
                   id
                   title
@@ -117,6 +141,12 @@ const SALE_PRODUCT_VARIANTS_FOR_PRODUCT_QUERY = `#graphql
           sku
           price
           compareAtPrice
+          inventoryItem {
+            id
+            unitCost {
+              amount
+            }
+          }
           product {
             id
             title
@@ -766,8 +796,15 @@ function buildSaleVariantUpdate(variant, sale) {
   const nextPrice = calculateSaleFieldValue(variant.price, sale.priceChange, variant);
   const nextCompareAtPrice = calculateSaleCompareAtPrice(variant, sale);
 
-  if (nextPrice != null) update.variant.price = nextPrice;
-  if (nextCompareAtPrice !== undefined) update.variant.compareAtPrice = nextCompareAtPrice;
+  if (nextPrice != null && !moneyValuesEqual(nextPrice, variant.price)) {
+    update.variant.price = nextPrice;
+  }
+  if (
+    nextCompareAtPrice !== undefined &&
+    !moneyValuesEqual(nextCompareAtPrice, variant.compareAtPrice)
+  ) {
+    update.variant.compareAtPrice = nextCompareAtPrice;
+  }
 
   return Object.keys(update.variant).length > 1 && update.productId ? update : null;
 }
@@ -782,10 +819,12 @@ function calculateSaleFieldValue(currentValue, change, variant) {
     return variant.compareAtPrice == null ? undefined : formatSalePrice(variant.compareAtPrice);
   }
 
-  if (current == null) return undefined;
   let nextValue = current;
 
   if (action === "increase" || action === "decrease") {
+    const relativeBase = getSaleRelativeBaseValue(variant, change.relativeTo);
+    if (relativeBase != null) nextValue = relativeBase;
+    if (nextValue == null) return undefined;
     const direction = action === "increase" ? 1 : -1;
     if (change.type === "by_amount") {
       const amount = toSaleNumber(change.amount);
@@ -799,6 +838,15 @@ function calculateSaleFieldValue(currentValue, change, variant) {
   }
 
   return formatSalePrice(Math.max(0, applySaleRounding(nextValue, change.rounding)));
+}
+
+function getSaleRelativeBaseValue(variant, relativeTo) {
+  if (relativeTo === "actual_price") return toSaleNumber(variant.price);
+  if (relativeTo === "cost_per_item") {
+    return toSaleNumber(variant.inventoryItem?.unitCost?.amount);
+  }
+
+  return null;
 }
 
 function calculateSaleCompareAtPrice(variant, sale) {
@@ -1039,4 +1087,15 @@ function toSaleNumber(value) {
 function formatSalePrice(value) {
   const number = toSaleNumber(value);
   return number == null ? null : number.toFixed(2);
+}
+
+function moneyValuesEqual(left, right) {
+  const leftNumber = toSaleNumber(left);
+  const rightNumber = toSaleNumber(right);
+
+  if (leftNumber == null || rightNumber == null) {
+    return leftNumber == null && rightNumber == null;
+  }
+
+  return leftNumber.toFixed(2) === rightNumber.toFixed(2);
 }

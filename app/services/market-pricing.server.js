@@ -253,6 +253,11 @@ export async function updateMarketPrices({
               variant,
               oldPrice: basePrice,
               newPrice: priceInput.price.amount,
+              oldCompareAtPrice: baseCompareAtPrice,
+              newCompareAtPrice:
+                priceInput.compareAtPrice === undefined
+                  ? baseCompareAtPrice
+                  : priceInput.compareAtPrice?.amount ?? null,
               status: "Applied",
             }),
           );
@@ -511,9 +516,23 @@ function buildMarketLog({
   variant,
   oldPrice = null,
   newPrice = null,
+  oldCompareAtPrice,
+  newCompareAtPrice,
   status,
   errors = [],
 }) {
+  const changes = [];
+  if (oldPrice !== null || newPrice !== null) {
+    changes.push(`Market price: ${formatDisplayValue(oldPrice)} -> ${formatDisplayValue(newPrice)}`);
+  }
+  if (oldCompareAtPrice !== undefined || newCompareAtPrice !== undefined) {
+    changes.push(
+      `Market compare at price: ${formatDisplayValue(oldCompareAtPrice)} -> ${formatDisplayValue(
+        newCompareAtPrice,
+      )}`,
+    );
+  }
+
   return {
     ownerType,
     saleId: ownerType === "sale" ? ownerId : undefined,
@@ -528,11 +547,10 @@ function buildMarketLog({
     variantTitle: variant.title || "",
     oldPrice,
     newPrice,
+    oldCompareAtPrice,
+    newCompareAtPrice,
     previousPrice: oldPrice,
-    changes:
-      oldPrice !== null || newPrice !== null
-        ? [`Market price: ${formatDisplayValue(oldPrice)} -> ${formatDisplayValue(newPrice)}`]
-        : [],
+    changes,
     action: status,
     status,
     errors,

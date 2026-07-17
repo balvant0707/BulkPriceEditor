@@ -51,7 +51,7 @@ import { formatAutoReapplyInterval } from "../lib/task-auto-reapply";
 
 const CREATE_SALE_URL = "/app/sales/new";
 const SALES_URL = "/app/sales";
-const HELP_URL = "https://help.platmart.io/article/29-how-to-use-sales";
+const HELP_URL = "#";
 const PAGE_SIZE = 10;
 const SALE_TABS = [
   { id: "all", content: "All" },

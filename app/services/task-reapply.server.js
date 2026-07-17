@@ -220,6 +220,13 @@ export async function executeAutoReapplyTask(admin, task) {
   const inventoryUpdates = [];
 
   if (task.applyChangesTo === "markets") {
+    for (const variant of variants) {
+      const inventoryUpdate = buildInventoryUpdate(variant, task.costPerItemChange);
+      if (inventoryUpdate) {
+        inventoryUpdates.push(inventoryUpdate);
+      }
+    }
+
     const marketResult = await updateMarketPrices({
       admin,
       ownerType: "task",
@@ -241,17 +248,19 @@ export async function executeAutoReapplyTask(admin, task) {
       action: log.status,
       skipReason: log.errors?.join("; ") || null,
     }));
+    const inventoryResults = await applyInventoryUpdates(admin, inventoryUpdates);
+    const errors = [...marketResult.errors, ...inventoryResults.errors];
 
     await persistTaskAuditLogs([...auditLogs, ...marketAuditLogs]);
 
     return {
-      ok: marketResult.ok,
+      ok: errors.length === 0,
       analyzedVariants: variants.length,
       totalPriceChanges: marketResult.totalPriceChanges,
       updatedVariants: marketResult.updatedCount,
-      updatedInventoryItems: 0,
+      updatedInventoryItems: inventoryResults.updatedCount,
       skippedVariants: marketResult.skippedCount,
-      errors: marketResult.errors,
+      errors,
     };
   }
 

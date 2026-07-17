@@ -415,14 +415,49 @@ async function rollbackTask(
 
   if (task.applyChangesTo === "markets" || originalMarketPrices.length) {
     const marketRollback = await rollbackMarketPrices(admin, originalMarketPrices);
+    const inventoryUpdates = originalInventoryItems.filter((original) => original?.id);
+
+    for (const batch of chunkArray(inventoryUpdates, ROLLBACK_UPDATE_CONCURRENCY)) {
+      const results = await Promise.all(
+        batch.map(async (original) => {
+          try {
+            const data = await shopifyGraphql(admin, TASK_INVENTORY_ITEM_UPDATE, {
+              id: original.id,
+              input: { cost: normalizeNullableMoneyInput(original.cost) },
+            });
+            return { ok: true, result: data.inventoryItemUpdate };
+          } catch (error) {
+            return {
+              ok: false,
+              error: error instanceof Error ? error.message : "Inventory rollback failed.",
+            };
+          }
+        }),
+      );
+
+      for (const item of results) {
+        if (!item.ok) {
+          errors.push(item.error);
+          continue;
+        }
+
+        const result = item.result;
+        const userErrors = result?.userErrors || [];
+        if (userErrors.length) {
+          errors.push(...userErrors.map((error) => error.message));
+        } else {
+          updatedInventoryItems += 1;
+        }
+      }
+    }
 
     return {
-      ok: marketRollback.ok,
+      ok: marketRollback.ok && errors.length === 0,
       status: "Cancelled",
       progress: 100,
       updatedVariants: marketRollback.updatedCount,
-      updatedInventoryItems: 0,
-      errors: marketRollback.errors,
+      updatedInventoryItems,
+      errors: [...marketRollback.errors, ...errors],
       startedAt,
       completedAt: new Date().toISOString(),
     };

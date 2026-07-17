@@ -405,12 +405,12 @@ function HelpCard() {
             </Text>
 
             <InlineStack gap="300" align="start" wrap>
-              <Button url="https://platmart.io/contact" external>
+              <Button url="#" external>
                 Contact support
               </Button>
 
               <Button
-                url="https://help.platmart.io/collection/170-platmart-price-editor"
+                url="#"
                 variant="plain"
                 external
               >
