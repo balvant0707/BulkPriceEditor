@@ -80,10 +80,18 @@ export const loader = async ({ request }) => {
     orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
     take: 250,
   });
+  const shopCurrency =
+    (
+      await db.shop.findUnique({
+        where: { shop: session.shop },
+        select: { currency: true },
+      })
+    )?.currency || "";
 
   return json(
     {
       sales,
+      shopCurrency,
       toastMessage: flashSession.get("toast") || "",
     },
     {
@@ -250,9 +258,32 @@ function humanize(value) {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-function getSaleChangeText(sale) {
-  const price = formatChange(sale.priceChange, "price");
-  const compareAt = formatChange(sale.compareAtPriceChange, "compare at price");
+function getSingleSaleMarketCurrency(sale) {
+  const currencies = [
+    ...new Set(
+      (Array.isArray(sale.markets) ? sale.markets : [])
+        .map((market) => market.currencyCode)
+        .filter(Boolean),
+    ),
+  ];
+
+  return currencies.length === 1 ? currencies[0] : "";
+}
+
+function getSaleCurrencyCode(sale, shopCurrency = "") {
+  return sale.changeType === "markets"
+    ? getSingleSaleMarketCurrency(sale)
+    : shopCurrency;
+}
+
+function getSaleChangeText(sale, shopCurrency = "") {
+  const currencyCode = getSaleCurrencyCode(sale, shopCurrency);
+  const price = formatChange(sale.priceChange, "price", currencyCode);
+  const compareAt = formatChange(
+    sale.compareAtPriceChange,
+    "compare at price",
+    currencyCode,
+  );
   const changes = [price, compareAt].filter(Boolean);
   if (sale.autoReapplyChanges) {
     changes.push(`Auto re-apply changes - ${formatAutoReapplyInterval(sale)}`);
@@ -295,20 +326,22 @@ function SearchIcon() {
   );
 }
 
-function formatChange(change, label) {
+function formatChange(change, label, currencyCode = "") {
   const action = String(change?.action || "").toLowerCase();
   if (!action) return "";
   if (action === "reset_compare_at_price") return "Reset compare at price";
   if (action === "set_to_price") return "Set compare at price to price";
   if (action === "set_new_value") {
-    return change.amount ? `Set ${label} to ${change.amount}` : `Set ${label}`;
+    return change.amount
+      ? `Set ${label} to ${change.amount}${currencyCode ? ` ${currencyCode}` : ""}`
+      : `Set ${label}`;
   }
 
   const actionLabel =
     action === "increase" ? "Increase" : action === "decrease" ? "Decrease" : humanize(action);
   const value =
     change.type === "by_amount"
-      ? change.amount
+      ? `${change.amount || ""}${currencyCode ? ` ${currencyCode}` : ""}`
       : change.percent
         ? `${change.percent}%`
         : change.amount;
@@ -316,8 +349,8 @@ function formatChange(change, label) {
   return `${actionLabel} ${label}${value ? ` by ${value}` : ""}`;
 }
 
-function getSaleChangesForSearch(sale) {
-  return getSaleChangeText(sale).join(" ");
+function getSaleChangesForSearch(sale, shopCurrency = "") {
+  return getSaleChangeText(sale, shopCurrency).join(" ");
 }
 
 function formatDate(value) {
@@ -362,13 +395,23 @@ function CompactSpinner({ label }) {
   );
 }
 
+function getMarketLabel(market) {
+  const currencyCode =
+    market?.currencyCode ||
+    market?.currencySettings?.baseCurrency?.currencyCode ||
+    "";
+  const name = market?.name || market?.label || "Market";
+
+  return `${name}${currencyCode ? ` (${currencyCode})` : ""}`;
+}
+
 function getMarketNames(sale) {
   return (Array.isArray(sale.markets) ? sale.markets : [])
-    .map((market) => market.name || market.label)
+    .map(getMarketLabel)
     .filter(Boolean);
 }
 
-function saleMatchesSearch(sale, query) {
+function saleMatchesSearch(sale, query, shopCurrency = "") {
   const applyResources = sale.applyResources || {};
   const excludeResources = sale.excludeResources || {};
   const resourceText = [
@@ -388,7 +431,7 @@ function saleMatchesSearch(sale, query) {
     sale.title,
     sale.status,
     sale.changeType,
-    getSaleChangesForSearch(sale),
+    getSaleChangesForSearch(sale, shopCurrency),
     formatApplyScope(sale),
     formatExcludeScope(sale),
     resourceText,
@@ -400,7 +443,7 @@ function saleMatchesSearch(sale, query) {
 }
 
 export default function SalesPage() {
-  const { sales, toastMessage } = useLoaderData();
+  const { sales, shopCurrency = "", toastMessage } = useLoaderData();
   const location = useLocation();
   const navigate = useNavigate();
   const navigation = useNavigation();
@@ -445,9 +488,9 @@ export default function SalesPage() {
       sales.filter(
         (sale) =>
           saleMatchesTab(sale, activeTab) &&
-          (!queryValue || saleMatchesSearch(sale, queryValue)),
+          (!queryValue || saleMatchesSearch(sale, queryValue, shopCurrency)),
       ),
-    [sales, activeTab, queryValue],
+    [sales, activeTab, queryValue, shopCurrency],
   );
   const totalPages = Math.max(1, Math.ceil(filteredSales.length / PAGE_SIZE));
   const currentPage = Math.min(Math.max(pageParam, 1), totalPages);
@@ -588,7 +631,7 @@ export default function SalesPage() {
         </IndexTable.Cell>
         <IndexTable.Cell>
           <BlockStack gap="050">
-            {getSaleChangeText(sale).map((change) => (
+            {getSaleChangeText(sale, shopCurrency).map((change) => (
               change.startsWith("Auto re-apply changes") ? (
                 <InlineStack key={change} gap="150" blockAlign="center" wrap={false}>
                   <ReapplyIcon />

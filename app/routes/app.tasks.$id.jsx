@@ -323,10 +323,14 @@ function formatAutoReapplyRemainingTime(value, nowMs = Date.now()) {
   return `in ${hours} hour${hours === 1 ? "" : "s"} ${remainingMinutes} minute${remainingMinutes === 1 ? "" : "s"}`;
 }
 
-function getTaskChangeItems(task) {
+function getTaskChangeItems(task, shopCurrency = "") {
+  const currencyCode =
+    String(task.applyChangesTo || "").toLowerCase() === "markets"
+      ? getSingleMarketCurrency(task)
+      : shopCurrency;
   const changes = [
-    formatChangePayload(task.priceChange, "price"),
-    formatChangePayload(task.compareAtPriceChange, "compare at price"),
+    formatChangePayload(task.priceChange, "price", currencyCode),
+    formatChangePayload(task.compareAtPriceChange, "compare at price", currencyCode),
     formatChangePayload(task.costPerItemChange, "cost per item"),
   ].filter(Boolean);
 
@@ -362,12 +366,12 @@ function formatDiscountedScope(task) {
   return humanize(scope);
 }
 
-function ChangeDetails({ task }) {
+function ChangeDetails({ task, shopCurrency = "" }) {
   const autoReapplyLastRun = getAutoReapplyLastRun(task);
   const autoReapplyNextRunAt = getAutoReapplyNextRunAt(task);
   const showAutoReapply = isAutoReapplyEnabled(task);
   const autoReapplyIntervalText = formatAutoReapplyInterval(task);
-  const changes = getTaskChangeItems(task);
+  const changes = getTaskChangeItems(task, shopCurrency);
   const [nowMs, setNowMs] = useState(() => Date.now());
 
   useEffect(() => {
@@ -467,7 +471,35 @@ function ChangeDetails({ task }) {
   );
 }
 
-function formatChangePayload(change, label) {
+function getTaskMarkets(task) {
+  const markets = Array.isArray(task.selectedMarkets)
+    ? task.selectedMarkets
+    : Array.isArray(task.markets)
+      ? task.markets
+      : [];
+
+  return markets.filter((market) => market?.id || market?.name || market?.label);
+}
+
+function formatMarketLabel(market) {
+  const name = market?.name || market?.label || "Market";
+  const currencyCode =
+    market?.currencyCode ||
+    market?.currencySettings?.baseCurrency?.currencyCode ||
+    "";
+
+  return `${name}${currencyCode ? ` (${currencyCode})` : ""}`;
+}
+
+function getSingleMarketCurrency(task) {
+  const currencies = [
+    ...new Set(getTaskMarkets(task).map((market) => market.currencyCode).filter(Boolean)),
+  ];
+
+  return currencies.length === 1 ? currencies[0] : "";
+}
+
+function formatChangePayload(change, label, currencyCode = "") {
   const action = String(change?.action || "").toLowerCase();
   if (!action) return "";
 
@@ -500,7 +532,8 @@ function formatChangePayload(change, label) {
         : change.amount;
 
   if (action === "set_new_value") {
-    return value ? `Set ${label} to ${value}` : `Set ${label}`;
+    const suffix = value && currencyCode ? ` ${currencyCode}` : "";
+    return value ? `Set ${label} to ${value}${suffix}` : `Set ${label}`;
   }
 
   const valueText = value ? ` by ${value}` : "";
@@ -2506,6 +2539,8 @@ export default function TaskDetailsPage() {
     toastMessage,
   } = useLoaderData();
   const selectedCollections = selectedApplyCollections || [];
+  const taskMarkets = getTaskMarkets(task);
+  const isMarketTask = String(task.applyChangesTo || "").toLowerCase() === "markets";
 
   const shopify = useAppBridge();
   const navigate = useNavigate();
@@ -2797,13 +2832,24 @@ export default function TaskDetailsPage() {
             <BlockStack gap="400">
               <Card>
                 <DetailRow label="Changes">
-                  <ChangeDetails task={task} />
+                  <ChangeDetails task={task} shopCurrency={shopCurrency} />
                 </DetailRow>
 
                 <DetailRow
                   label="Change type"
-                  value={humanize(task.applyChangesTo || "products")}
-                />
+                >
+                  <BlockStack gap="050">
+                    <Text as="p" fontWeight="semibold">
+                      {humanize(task.applyChangesTo || "products")}
+                    </Text>
+
+                    {isMarketTask && taskMarkets.map((market) => (
+                      <Text as="p" tone="subdued" key={market.id || market.name || market.label}>
+                        - {formatMarketLabel(market)}
+                      </Text>
+                    ))}
+                  </BlockStack>
+                </DetailRow>
 
                 <DetailRow label="Apply to">
                   <SelectionDetails
@@ -2837,6 +2883,18 @@ export default function TaskDetailsPage() {
                     <StatusBadge display={visibleStatusDisplay} />
                   </InlineStack>
                 </DetailRow>
+
+                {isMarketTask && taskMarkets.length ? (
+                  <DetailRow label="Markets">
+                    <InlineStack gap="100" blockAlign="center">
+                      {taskMarkets.map((market) => (
+                        <Badge key={market.id || market.name || market.label}>
+                          {formatMarketLabel(market)}
+                        </Badge>
+                      ))}
+                    </InlineStack>
+                  </DetailRow>
+                ) : null}
 
                 <DetailRow label="Created at" value={formatDate(task.createdAt)} />
               </Card>

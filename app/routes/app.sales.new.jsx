@@ -473,9 +473,6 @@ function validateSaleData(saleData) {
 
   const markets = saleData.markets || [];
   if (!markets.length) return "Choose at least one Shopify Market.";
-  if (!markets.some((market) => market.priceListIds?.length)) {
-    return "Selected Shopify Markets do not have price lists available.";
-  }
 
   return "";
 }

@@ -902,9 +902,6 @@ function validateTaskData(taskData) {
   if (taskData.applyChangesTo === "markets") {
     const markets = taskData.selectedMarkets || [];
     if (!markets.length) return "Choose at least one Shopify Market.";
-    if (!markets.some((market) => market.priceListIds?.length)) {
-      return "Selected Shopify Markets do not have price lists available.";
-    }
     if (taskData.costPerItemChange?.action) {
       return "Cost per item changes are available only for Product prices.";
     }

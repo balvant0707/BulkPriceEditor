@@ -376,6 +376,20 @@ function getSaleMarkets(sale) {
   return Array.isArray(sale.markets) ? sale.markets : [];
 }
 
+function getSingleSaleMarketCurrency(sale) {
+  const currencies = [
+    ...new Set(getSaleMarkets(sale).map((market) => market.currencyCode).filter(Boolean)),
+  ];
+
+  return currencies.length === 1 ? currencies[0] : "";
+}
+
+function getSaleCurrencyCode(sale, shopCurrency = "") {
+  return sale.changeType === "markets"
+    ? getSingleSaleMarketCurrency(sale)
+    : shopCurrency;
+}
+
 function getTagRuleTitles(sale, key) {
   return getResourceTitles(sale.tagRules?.[key] || []);
 }
@@ -915,6 +929,7 @@ function SaleDetailsContent() {
   ].includes(normalizedStatus);
   const processFetcher = useFetcher();
   const saleMarkets = getSaleMarkets(sale);
+  const saleCurrencyCode = getSaleCurrencyCode(sale, shopCurrency);
   const useVariantLogLinks = saleUsesVariantLogLinks(sale);
   const tagsToAdd = getTagRuleTitles(sale, "add");
   const tagsToRemove = getTagRuleTitles(sale, "remove");
@@ -1025,7 +1040,7 @@ function SaleDetailsContent() {
               <Card>
                 <DetailRow label="Changes">
                   <BlockStack gap="300">
-                    {getSaleChanges(sale, shopCurrency).map((change) => (
+                    {getSaleChanges(sale, saleCurrencyCode).map((change) => (
                       <Text as="p" key={change}>
                         {change}
                       </Text>
@@ -1052,7 +1067,7 @@ function SaleDetailsContent() {
                       <BlockStack gap="050">
                         {saleMarkets.map((market) => (
                           <Text as="p" key={market.id || market.name}>
-                            - {market.name || market.label}
+                            - {getMarketLabel(market)}
                           </Text>
                         ))}
                       </BlockStack>

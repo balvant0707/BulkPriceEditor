@@ -80,11 +80,19 @@ export const loader = async ({ request }) => {
     ],
     take: 250,
   });
+  const shopCurrency =
+    (
+      await db.shop.findUnique({
+        where: { shop: session.shop },
+        select: { currency: true },
+      })
+    )?.currency || "";
 
   return json(
     {
       taskCount: tasks.length,
       tasks,
+      shopCurrency,
       toastMessage,
     },
     {
@@ -170,7 +178,35 @@ function formatRelativeTime(value) {
   return years <= 1 ? "about 1 year ago" : `about ${years} years ago`;
 }
 
-function formatChangePayload(change, label) {
+function getTaskMarkets(task) {
+  const markets = Array.isArray(task.selectedMarkets)
+    ? task.selectedMarkets
+    : Array.isArray(task.markets)
+      ? task.markets
+      : [];
+
+  return markets.filter((market) => market?.id || market?.name || market?.label);
+}
+
+function formatMarketLabel(market) {
+  const name = market?.name || market?.label || "Market";
+  const currencyCode =
+    market?.currencyCode ||
+    market?.currencySettings?.baseCurrency?.currencyCode ||
+    "";
+
+  return `${name}${currencyCode ? ` (${currencyCode})` : ""}`;
+}
+
+function getSingleMarketCurrency(task) {
+  const currencies = [
+    ...new Set(getTaskMarkets(task).map((market) => market.currencyCode).filter(Boolean)),
+  ];
+
+  return currencies.length === 1 ? currencies[0] : "";
+}
+
+function formatChangePayload(change, label, currencyCode = "") {
   const action = String(change?.action || "").toLowerCase();
   if (!action) return "";
 
@@ -203,7 +239,8 @@ function formatChangePayload(change, label) {
         : change.amount;
 
   if (action === "set_new_value") {
-    return value ? `Set ${label} to ${value}` : `Set ${label}`;
+    const suffix = value && currencyCode ? ` ${currencyCode}` : "";
+    return value ? `Set ${label} to ${value}${suffix}` : `Set ${label}`;
   }
 
   const valueText = value ? ` by ${value}` : "";
@@ -211,7 +248,7 @@ function formatChangePayload(change, label) {
   return `${actionLabel} ${label}${valueText}`;
 }
 
-function formatTaskChange(task) {
+function formatTaskChange(task, shopCurrency = "") {
   const customTitle = getFirstValue([
     task.title,
     task.name,
@@ -223,7 +260,7 @@ function formatTaskChange(task) {
     return customTitle;
   }
 
-  const changes = getTaskChangeItems(task);
+  const changes = getTaskChangeItems(task, shopCurrency);
 
   if (changes.length) {
     return changes.join(" ");
@@ -284,10 +321,15 @@ function formatTaskChange(task) {
   return `Task #${task.id}`;
 }
 
-function getTaskChangeItems(task) {
+function getTaskChangeItems(task, shopCurrency = "") {
+  const currencyCode =
+    String(task.applyChangesTo || "").toLowerCase() === "markets"
+      ? getSingleMarketCurrency(task)
+      : shopCurrency;
+
   return [
-    formatChangePayload(task.priceChange, "price"),
-    formatChangePayload(task.compareAtPriceChange, "compare at price"),
+    formatChangePayload(task.priceChange, "price", currencyCode),
+    formatChangePayload(task.compareAtPriceChange, "compare at price", currencyCode),
     formatChangePayload(task.costPerItemChange, "cost per item"),
   ].filter(Boolean);
 }
@@ -326,6 +368,10 @@ function AutoReapplyMessage({ task }) {
 }
 
 function formatTaskType(task) {
+  if (String(task.applyChangesTo || "").toLowerCase() === "markets") {
+    return "Markets";
+  }
+
   const type = getFirstValue([
     task.type,
     task.applyChangesTo,
@@ -773,7 +819,7 @@ function EmptyTasksPage() {
 }
 
 function TasksListPage({ tasks }) {
-  const { toastMessage } = useLoaderData();
+  const { shopCurrency = "", toastMessage } = useLoaderData();
   const shopify = useAppBridge();
   const navigation = useNavigation();
   const location = useLocation();
@@ -855,7 +901,7 @@ function TasksListPage({ tasks }) {
       }
 
       const searchableText = [
-        formatTaskChange(task),
+        formatTaskChange(task, shopCurrency),
         formatTaskType(task),
         formatApplyTo(task),
         getStatusLabel(task.status),
@@ -867,7 +913,7 @@ function TasksListPage({ tasks }) {
 
       return searchableText.includes(query);
     });
-  }, [tasks, activeTab, queryValue]);
+  }, [tasks, activeTab, queryValue, shopCurrency]);
 
   const hasActiveTask = useMemo(
     () =>
@@ -924,8 +970,11 @@ function TasksListPage({ tasks }) {
 
   const rowMarkup = paginatedTasks.map((task, index) => {
     const taskStatus = getTaskListStatus(task);
-    const changeItems = getTaskChangeItems(task);
-    const visibleChanges = changeItems.length ? changeItems : [formatTaskChange(task)];
+    const changeItems = getTaskChangeItems(task, shopCurrency);
+    const visibleChanges = changeItems.length
+      ? changeItems
+      : [formatTaskChange(task, shopCurrency)];
+    const taskMarkets = getTaskMarkets(task);
     const detailsPath = `/app/tasks/${task.id}`;
     const rollbackPath = `/app/tasks/${task.id}/rollback`;
     const deletePath = `/app/tasks/${task.id}/delete`;
@@ -960,9 +1009,23 @@ function TasksListPage({ tasks }) {
         </IndexTable.Cell>
 
         <IndexTable.Cell>
-          <Text as="span" variant="bodyMd">
-            {formatTaskType(task)}
-          </Text>
+          <BlockStack gap="050">
+            <Text as="span" variant="bodyMd" fontWeight="semibold">
+              {formatTaskType(task)}
+            </Text>
+
+            {String(task.applyChangesTo || "").toLowerCase() === "markets" &&
+              taskMarkets.map((market) => (
+                <Text
+                  as="span"
+                  variant="bodyMd"
+                  tone="subdued"
+                  key={market.id || market.name || market.label}
+                >
+                  - {formatMarketLabel(market)}
+                </Text>
+              ))}
+          </BlockStack>
         </IndexTable.Cell>
 
         <IndexTable.Cell>
