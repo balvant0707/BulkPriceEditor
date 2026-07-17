@@ -22,7 +22,6 @@ import {
   InlineStack,
   BlockStack,
   FormLayout,
-  Divider,
   Box,
   Modal,
   Tag,
@@ -431,8 +430,8 @@ function buildSaleData(shop, title, payload) {
     },
     startAt,
     endAt,
-    addTagsEnabled: Boolean(form.addTagsEnabled),
-    removeTagsEnabled: Boolean(form.removeTagsEnabled),
+    addTagsEnabled: false,
+    removeTagsEnabled: false,
     trackConditionChanges: Boolean(form.trackConditionChanges),
     autoReapplyChanges: Boolean(form.autoReapplyChanges),
     autoReapplyIntervalUnit,
@@ -708,6 +707,30 @@ function SectionCard({ title, children }) {
         {children}
       </BlockStack>
     </Card>
+  );
+}
+
+function DateTextField(props) {
+  const wrapperRef = useRef(null);
+
+  const openPicker = () => {
+    const input = wrapperRef.current?.querySelector('input[type="date"]');
+    if (!input) return;
+
+    input.focus();
+    if (typeof input.showPicker === "function") {
+      try {
+        input.showPicker();
+      } catch {
+        // Some browsers allow showPicker only from direct pointer/keyboard activation.
+      }
+    }
+  };
+
+  return (
+    <div ref={wrapperRef} onClick={openPicker} onFocus={openPicker}>
+      <TextField {...props} type="date" autoComplete="off" />
+    </div>
   );
 }
 
@@ -2092,12 +2115,6 @@ export default function NewSalePage() {
                       Run sale on specific Shopify Markets.
                     </Text>
 
-                    <Checkbox
-                      label="Apply changes only to fixed prices"
-                      checked={form.applyToFixedPrices}
-                      onChange={setField("applyToFixedPrices")}
-                    />
-
                     {marketsError ? (
                       <Banner tone="critical">{marketsError}</Banner>
                     ) : null}
@@ -2346,13 +2363,11 @@ export default function NewSalePage() {
                     }}
                     gap="400"
                   >
-                    <TextField
+                    <DateTextField
                       label="Start date"
-                      type="date"
                       value={form.startDate}
                       onChange={setField("startDate")}
                       min={minScheduleDate}
-                      autoComplete="off"
                     />
 
                     <TextField
@@ -2386,13 +2401,11 @@ export default function NewSalePage() {
                       }}
                       gap="400"
                     >
-                      <TextField
+                      <DateTextField
                         label="End date"
-                        type="date"
                         value={form.endDate}
                         onChange={setField("endDate")}
                         min={minEndDate}
-                        autoComplete="off"
                       />
 
                       <TextField
@@ -2410,80 +2423,6 @@ export default function NewSalePage() {
 
               <SectionCard title="Advanced" style={{ marginBottom: "1rem" }}>
                 <BlockStack gap="100">
-                  <Checkbox
-                    label="Add tags while sale is active"
-                    helpText="When the sale starts, these tags are added to matching products. When the sale ends or is disabled, the app removes the same tags."
-                    checked={form.addTagsEnabled}
-                    onChange={setField("addTagsEnabled")}
-                  />
-
-                  {form.addTagsEnabled ? (
-                    <BlockStack gap="100">
-                      <InlineStack gap="300" blockAlign="center">
-                        <Text as="p" fontWeight="semibold">
-                          Tags to add
-                        </Text>
-                        <Button onClick={() => openPicker("add-tags", "tag")}>
-                          Browse tags
-                        </Button>
-                      </InlineStack>
-
-                      <InlineStack gap="200" wrap>
-                        {tagsToAdd.map((tag) => (
-                          <Tag
-                            key={tag.id}
-                            onRemove={() =>
-                              setTagsToAdd((items) =>
-                                items.filter((item) => item.id !== tag.id)
-                              )
-                            }
-                          >
-                            {tag.title}
-                          </Tag>
-                        ))}
-                      </InlineStack>
-
-                      <Text as="p" tone="subdued" variant="bodySm">
-                        Tags will be added when the sale is activated and removed
-                        upon completion.
-                      </Text>
-                    </BlockStack>
-                  ) : null}
-
-                  <Divider />
-
-                  <Checkbox
-                    label="Remove tags while sale is active"
-                    helpText="When the sale starts, these tags are removed from matching products. When the sale ends or is disabled, the app adds them back."
-                    checked={form.removeTagsEnabled}
-                    onChange={setField("removeTagsEnabled")}
-                  />
-
-                  {form.removeTagsEnabled ? (
-                    <BlockStack gap="200">
-                      <InlineTagSearch
-                        label="Tags to remove"
-                        selectedTags={tagsToRemove}
-                        suggestions={removeTagItems}
-                        query={removeTagQuery}
-                        active={removeTagSuggestionsOpen}
-                        loading={isRemoveTagLoading}
-                        error={removeTagError}
-                        onQueryChange={changeRemoveTagQuery}
-                        onFocus={openRemoveTagSuggestions}
-                        onClose={() => setRemoveTagSuggestionsOpen(false)}
-                        onToggleTag={toggleRemoveTag}
-                      />
-
-                      <Text as="p" tone="subdued" variant="bodySm">
-                        Tags will be removed when the sale is activated and restored
-                        upon completion.
-                      </Text>
-                    </BlockStack>
-                  ) : null}
-
-                  <Divider />
-
                   <Checkbox
                     label="Track changes in condition automatically (every hour)"
                     helpText="Every hour while the sale is active, the app checks the selected condition again. New matching products are added to the sale, and products that no longer match are removed from the active sale."

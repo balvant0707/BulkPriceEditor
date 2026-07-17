@@ -3759,22 +3759,10 @@ export default function NewTaskPage() {
 
                   {applyChangesTo === "markets" && (
                     <BlockStack>
-                      <Text as="p">
-                        Bulk edit Shopify Markets price lists.{" "}
-                        <a
-                          href="#"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          Learn more
-                        </a>
-                      </Text>
-
-                      <Checkbox
-                        label="Apply changes only to fixed prices"
+                      <input
+                        type="hidden"
                         name="apply_to_fixed_prices"
-                        checked={applyToFixedPrices}
-                        onChange={setApplyToFixedPrices}
+                        value={applyToFixedPrices ? "on" : ""}
                       />
 
                       {marketsError ? (
