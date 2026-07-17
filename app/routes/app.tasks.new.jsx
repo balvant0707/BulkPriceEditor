@@ -1213,7 +1213,7 @@ async function executeTask(
         skippedVariants: marketResult.skippedCount,
         skippedProducts: countSkippedProducts(skippedLogs),
         logs: [...auditLogs.map(({ taskId, shop, ...log }) => log), ...marketResult.logs],
-        originalVariants: [],
+        originalVariants: marketResult.originalVariants,
         originalMarketPrices: marketResult.originalMarketPrices,
         originalInventoryItems,
         errors,

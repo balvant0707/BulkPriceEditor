@@ -87,8 +87,28 @@ const PRICE_LIST_FIXED_PRICES_UPDATE = `#graphql
   }
 `;
 
+const MARKET_PRODUCT_VARIANTS_BULK_UPDATE = `#graphql
+  mutation MarketProductVariantsBulkUpdate(
+    $productId: ID!
+    $variants: [ProductVariantsBulkInput!]!
+  ) {
+    productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+      productVariants {
+        id
+        price
+        compareAtPrice
+      }
+      userErrors {
+        field
+        message
+      }
+    }
+  }
+`;
+
 const PRICE_LIST_PAGE_SIZE = 250;
 const PRICE_LIST_UPDATE_BATCH_SIZE = 100;
+const PRODUCT_UPDATE_BATCH_SIZE = 4;
 const GRAPHQL_MAX_RETRIES = 4;
 const GRAPHQL_RETRY_BASE_MS = 500;
 
@@ -144,12 +164,34 @@ export async function updateMarketPrices({
   const errors = [];
   const logs = [];
   const originalMarketPrices = [];
+  const originalVariants = [];
   let updatedCount = 0;
   let skippedCount = 0;
+  let updatedBaseProductPrices = false;
 
   for (const market of selectedMarkets) {
     if (!market.priceListIds.length) {
-      errors.push(`Skipped ${market.name || market.id}: market has no price list.`);
+      if (updatedBaseProductPrices) {
+        continue;
+      }
+
+      const baseResult = await updateBaseProductPrices({
+        admin,
+        ownerType,
+        ownerId,
+        shop,
+        market,
+        variants,
+        priceChange,
+        compareAtPriceChange,
+      });
+
+      updatedBaseProductPrices = true;
+      updatedCount += baseResult.updatedCount;
+      skippedCount += baseResult.skippedCount;
+      logs.push(...baseResult.logs);
+      originalVariants.push(...baseResult.originalVariants);
+      errors.push(...baseResult.errors);
       continue;
     }
 
@@ -282,9 +324,165 @@ export async function updateMarketPrices({
     skippedCount,
     totalPriceChanges: updatedCount,
     originalMarketPrices,
+    originalVariants,
     logs,
     errors,
   };
+}
+
+async function updateBaseProductPrices({
+  admin,
+  ownerType,
+  ownerId,
+  shop,
+  market,
+  variants,
+  priceChange,
+  compareAtPriceChange,
+}) {
+  const updates = [];
+  const logs = [];
+  const originalVariants = [];
+  let skippedCount = 0;
+
+  for (const variant of variants) {
+    const basePrice = variant.price;
+    const baseCompareAtPrice = variant.compareAtPrice;
+    const nextPrice = calculateMarketPrice(basePrice, variant, priceChange, {
+      fallbackBase: variant.price,
+    });
+    const nextCompareAtPrice = calculateMarketPrice(
+      baseCompareAtPrice,
+      { ...variant, price: nextPrice ?? basePrice },
+      compareAtPriceChange,
+      { resetValue: null, fallbackBase: nextPrice ?? basePrice },
+    );
+
+    if (
+      (nextPrice === undefined || moneyValuesEqual(nextPrice, basePrice)) &&
+      (nextCompareAtPrice === undefined ||
+        moneyValuesEqual(nextCompareAtPrice, baseCompareAtPrice))
+    ) {
+      skippedCount += 1;
+      continue;
+    }
+
+    const update = {
+      productId: variant.product?.id,
+      variant: { id: variant.id },
+    };
+
+    if (nextPrice !== undefined && !moneyValuesEqual(nextPrice, basePrice)) {
+      update.variant.price = nextPrice;
+    }
+
+    if (
+      nextCompareAtPrice !== undefined &&
+      !moneyValuesEqual(nextCompareAtPrice, baseCompareAtPrice)
+    ) {
+      update.variant.compareAtPrice = nextCompareAtPrice;
+    }
+
+    if (!update.productId || Object.keys(update.variant).length <= 1) {
+      skippedCount += 1;
+      continue;
+    }
+
+    updates.push(update);
+    originalVariants.push({
+      id: variant.id,
+      title: variant.title,
+      productId: variant.product?.id,
+      productTitle: variant.product?.title,
+      price: variant.price,
+      compareAtPrice: variant.compareAtPrice,
+      nextPrice: update.variant.price ?? variant.price,
+      nextCompareAtPrice:
+        update.variant.compareAtPrice ?? variant.compareAtPrice,
+    });
+    logs.push(
+      buildMarketLog({
+        ownerType,
+        ownerId,
+        shop,
+        market,
+        priceListId: null,
+        variant,
+        oldPrice: basePrice,
+        newPrice: update.variant.price ?? basePrice,
+        oldCompareAtPrice: baseCompareAtPrice,
+        newCompareAtPrice:
+          update.variant.compareAtPrice === undefined
+            ? baseCompareAtPrice
+            : update.variant.compareAtPrice,
+        status: "Applied",
+      }),
+    );
+  }
+
+  const result = await applyBaseProductUpdates(admin, updates);
+
+  return {
+    updatedCount: result.updatedCount,
+    skippedCount,
+    originalVariants,
+    logs,
+    errors: result.errors,
+  };
+}
+
+async function applyBaseProductUpdates(admin, updates) {
+  const errors = [];
+  let updatedCount = 0;
+  const byProduct = new Map();
+
+  for (const update of updates) {
+    if (!byProduct.has(update.productId)) byProduct.set(update.productId, []);
+    byProduct.get(update.productId).push(update.variant);
+  }
+
+  const productUpdates = Array.from(byProduct, ([productId, variants]) => ({
+    productId,
+    variants,
+  }));
+
+  for (const batch of chunkArray(productUpdates, PRODUCT_UPDATE_BATCH_SIZE)) {
+    const results = await Promise.all(
+      batch.map(async ({ productId, variants }) => {
+        try {
+          const data = await marketGraphql(admin, MARKET_PRODUCT_VARIANTS_BULK_UPDATE, {
+            productId,
+            variants,
+          });
+          return { ok: true, result: data.productVariantsBulkUpdate };
+        } catch (error) {
+          return {
+            ok: false,
+            error:
+              error instanceof Error
+                ? error.message
+                : "Product variant update failed.",
+          };
+        }
+      }),
+    );
+
+    for (const item of results) {
+      if (!item.ok) {
+        errors.push(item.error);
+        continue;
+      }
+
+      const userErrors = item.result?.userErrors || [];
+      if (userErrors.length) {
+        errors.push(...userErrors.map(formatUserError));
+      } else {
+        updatedCount += item.result?.productVariants?.length || 0;
+      }
+    }
+  }
+
+  return { errors, updatedCount };
 }
 
 export async function rollbackMarketPrices(admin, originalMarketPrices = []) {

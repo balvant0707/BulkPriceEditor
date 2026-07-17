@@ -270,7 +270,7 @@ export async function executeSaleRecord(admin, sale, onProgress = async () => {}
       updatedVariants: marketResult.updatedCount,
       taggedProducts: 0,
       skippedVariants: marketResult.skippedCount,
-      originalVariants: [],
+      originalVariants: marketResult.originalVariants,
       originalMarketPrices: marketResult.originalMarketPrices,
       logs: marketResult.logs,
       errors: marketResult.errors,
@@ -407,6 +407,14 @@ export async function executeSaleConditionChangeRecord(admin, sale, options = {}
         return true;
       }),
     ];
+    const nextOriginalVariants = [
+      ...existingOriginalVariants,
+      ...marketResult.originalVariants.filter((variant) => {
+        if (!variant?.id || existingOriginalsById.has(variant.id)) return false;
+        existingOriginalsById.set(variant.id, variant);
+        return true;
+      }),
+    ];
 
     return {
       ok: marketResult.ok,
@@ -416,7 +424,7 @@ export async function executeSaleConditionChangeRecord(admin, sale, options = {}
       addedVariants: marketResult.updatedCount,
       removedVariants: 0,
       taggedProducts: 0,
-      originalVariants: [],
+      originalVariants: nextOriginalVariants,
       originalMarketPrices: nextOriginalMarketPrices,
       logs: marketResult.logs,
       errors: marketResult.errors,
@@ -508,12 +516,17 @@ export async function endSaleRecord(admin, sale) {
       admin,
       sale.executionSummary?.originalMarketPrices || [],
     );
+    const variantRollback = await restoreOriginalSaleVariants(
+      admin,
+      sale.executionSummary?.originalVariants || [],
+    );
+    const errors = [...marketRollback.errors, ...variantRollback.errors];
 
     return {
-      ok: marketRollback.ok,
-      restoredVariants: marketRollback.updatedCount,
+      ok: marketRollback.ok && errors.length === 0,
+      restoredVariants: marketRollback.updatedCount + variantRollback.restoredCount,
       restoredTags: 0,
-      errors: marketRollback.errors,
+      errors,
       endedAt: new Date().toISOString(),
     };
   }

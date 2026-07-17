@@ -415,6 +415,72 @@ async function rollbackTask(
 
   if (task.applyChangesTo === "markets" || originalMarketPrices.length) {
     const marketRollback = await rollbackMarketPrices(admin, originalMarketPrices);
+    const variantsByProduct = new Map();
+
+    for (const original of originalVariants) {
+      if (!original.productId || !original.id) continue;
+
+      const originalPrice = normalizeMoneyInput(original.price);
+      if (originalPrice == null) {
+        errors.push(
+          `Rollback skipped ${original.title || original.id} because its original price was not recorded.`,
+        );
+        continue;
+      }
+
+      const rollbackVariant = {
+        id: original.id,
+        price: originalPrice,
+      };
+
+      if (Object.hasOwn(original, "compareAtPrice")) {
+        rollbackVariant.compareAtPrice = normalizeNullableMoneyInput(
+          original.compareAtPrice,
+        );
+      }
+
+      if (!variantsByProduct.has(original.productId)) {
+        variantsByProduct.set(original.productId, []);
+      }
+      variantsByProduct.get(original.productId).push(rollbackVariant);
+    }
+
+    const productUpdates = createProductRollbackBatches(variantsByProduct);
+
+    for (const batch of chunkArray(productUpdates, ROLLBACK_UPDATE_CONCURRENCY)) {
+      const results = await Promise.all(
+        batch.map(async ({ productId, variants }) => {
+          try {
+            const data = await shopifyGraphql(admin, TASK_PRODUCT_VARIANTS_BULK_UPDATE, {
+              productId,
+              variants,
+            });
+            return { ok: true, result: data.productVariantsBulkUpdate };
+          } catch (error) {
+            return {
+              ok: false,
+              error: error instanceof Error ? error.message : "Variant rollback failed.",
+            };
+          }
+        }),
+      );
+
+      for (const item of results) {
+        if (!item.ok) {
+          errors.push(item.error);
+          continue;
+        }
+
+        const result = item.result;
+        const userErrors = result?.userErrors || [];
+        if (userErrors.length) {
+          errors.push(...userErrors.map((error) => error.message));
+        } else {
+          updatedVariants += result?.productVariants?.length || 0;
+        }
+      }
+    }
+
     const inventoryUpdates = originalInventoryItems.filter((original) => original?.id);
 
     for (const batch of chunkArray(inventoryUpdates, ROLLBACK_UPDATE_CONCURRENCY)) {
@@ -455,7 +521,7 @@ async function rollbackTask(
       ok: marketRollback.ok && errors.length === 0,
       status: "Cancelled",
       progress: 100,
-      updatedVariants: marketRollback.updatedCount,
+      updatedVariants: marketRollback.updatedCount + updatedVariants,
       updatedInventoryItems,
       errors: [...marketRollback.errors, ...errors],
       startedAt,

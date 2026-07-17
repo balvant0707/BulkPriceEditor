@@ -338,7 +338,7 @@ async function executeTask(
           targetVariants.length - variants.length + marketResult.skippedCount,
         skippedProducts: countSkippedProducts(skippedLogs),
         logs: [...auditLogs, ...marketAuditLogs].map(({ taskId, shop, ...log }) => log),
-        originalVariants: [],
+        originalVariants: marketResult.originalVariants,
         originalInventoryItems: [],
         originalMarketPrices: marketResult.originalMarketPrices,
         errors: marketResult.errors,

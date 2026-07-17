@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { calculateMarketPrice } from "../services/market-pricing.server.js";
+import {
+  calculateMarketPrice,
+  updateMarketPrices,
+} from "../services/market-pricing.server.js";
 
 describe("market pricing calculations", () => {
   it("uses cost per item as a relative base for market prices", () => {
@@ -40,5 +43,63 @@ describe("market pricing calculations", () => {
     );
 
     assert.equal(compareAtPrice, "100.00");
+  });
+
+  it("updates product variant prices when a selected market has no price list", async () => {
+    const graphqlCalls = [];
+    const admin = {
+      graphql: async (query, { variables } = {}) => {
+        graphqlCalls.push({ query, variables });
+
+        return {
+          json: async () => ({
+            data: {
+              productVariantsBulkUpdate: {
+                productVariants: [{ id: "gid://shopify/ProductVariant/1" }],
+                userErrors: [],
+              },
+            },
+          }),
+        };
+      },
+    };
+
+    const result = await updateMarketPrices({
+      admin,
+      ownerType: "task",
+      ownerId: 1,
+      shop: "demo.myshopify.com",
+      markets: [{ id: "gid://shopify/Market/1", name: "Primary", currencyCode: "USD" }],
+      variants: [
+        {
+          id: "gid://shopify/ProductVariant/1",
+          title: "Default Title",
+          price: "10.00",
+          compareAtPrice: null,
+          product: {
+            id: "gid://shopify/Product/1",
+            title: "Demo product",
+          },
+        },
+      ],
+      priceChange: {
+        action: "increase",
+        type: "by_amount",
+        amount: "5",
+      },
+      compareAtPriceChange: {},
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.updatedCount, 1);
+    assert.equal(result.originalVariants.length, 1);
+    assert.equal(result.originalVariants[0].price, "10.00");
+    assert.equal(result.originalVariants[0].nextPrice, "15.00");
+    assert.equal(graphqlCalls.length, 1);
+    assert.match(graphqlCalls[0].query, /productVariantsBulkUpdate/);
+    assert.deepEqual(graphqlCalls[0].variables, {
+      productId: "gid://shopify/Product/1",
+      variants: [{ id: "gid://shopify/ProductVariant/1", price: "15.00" }],
+    });
   });
 });
