@@ -66,6 +66,12 @@ const confirmationModalContentStyle = {
   lineHeight: 1.45,
 };
 
+const fullWidthTableStyle = {
+  marginLeft: "50%",
+  transform: "translateX(-50%)",
+  width: "min(100%, calc(100vw - 32px))",
+};
+
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
   const flashSession = await getFlashSession(request);
@@ -695,71 +701,72 @@ export default function SalesPage() {
           loading: isOpeningNewSale,
           disabled: isOpeningNewSale,
         }}
-        fullWidth
       >
         <Layout>
           <Layout.Section>
             {sales.length ? (
-              <Card padding="0">
-                <Tabs
-                  tabs={tabs}
-                  selected={selectedTabIndex}
-                  onSelect={handleTabChange}
-                />
-                <Box padding="400" borderBlockStartWidth="025" borderColor="border">
-                  <TextField
-                    label="Search sales"
-                    labelHidden
-                    value={queryValue}
-                    onChange={setQueryValue}
-                    placeholder="Search sales by name, selected products, collections, or tags"
-                    prefix={<SearchIcon />}
-                    autoComplete="off"
+              <div style={fullWidthTableStyle}>
+                <Card padding="0">
+                  <Tabs
+                    tabs={tabs}
+                    selected={selectedTabIndex}
+                    onSelect={handleTabChange}
                   />
-                </Box>
-                <IndexTable
-                  resourceName={{ singular: "sale", plural: "sales" }}
-                  itemCount={paginatedSales.length}
-                  selectable={false}
-                  headings={[
-                    { title: "Title" },
-                    { title: "Changes" },
-                    { title: "Type" },
-                    { title: "Apply to" },
-                    { title: "Exclude" },
-                    { title: "Schedule" },
-                    { title: "Status" },
-                    { title: "Actions" },
-                  ]}
-                >
-                  {rowMarkup}
-                </IndexTable>
-                {!paginatedSales.length ? (
-                  <Box padding="500">
-                    <Text as="p" tone="subdued">
-                      No sales found.
-                    </Text>
-                  </Box>
-                ) : null}
-                <Box padding="400">
-                  <InlineStack align="space-between" blockAlign="center">
-                    <Text as="span" tone="subdued">
-                      {filteredSales.length
-                        ? `${startIndex + 1}-${Math.min(
-                            startIndex + PAGE_SIZE,
-                            filteredSales.length,
-                          )} of ${filteredSales.length}`
-                        : "0 sales"}
-                    </Text>
-                    <Pagination
-                      hasPrevious={currentPage > 1}
-                      onPrevious={() => updatePage(currentPage - 1)}
-                      hasNext={currentPage < totalPages}
-                      onNext={() => updatePage(currentPage + 1)}
+                  <Box padding="400" borderBlockStartWidth="025" borderColor="border">
+                    <TextField
+                      label="Search sales"
+                      labelHidden
+                      value={queryValue}
+                      onChange={setQueryValue}
+                      placeholder="Search sales by name, selected products, collections, or tags"
+                      prefix={<SearchIcon />}
+                      autoComplete="off"
                     />
-                  </InlineStack>
-                </Box>
-              </Card>
+                  </Box>
+                  <IndexTable
+                    resourceName={{ singular: "sale", plural: "sales" }}
+                    itemCount={paginatedSales.length}
+                    selectable={false}
+                    headings={[
+                      { title: "Title" },
+                      { title: "Changes" },
+                      { title: "Type" },
+                      { title: "Apply to" },
+                      { title: "Exclude" },
+                      { title: "Schedule" },
+                      { title: "Status" },
+                      { title: "Actions" },
+                    ]}
+                  >
+                    {rowMarkup}
+                  </IndexTable>
+                  {!paginatedSales.length ? (
+                    <Box padding="500">
+                      <Text as="p" tone="subdued">
+                        No sales found.
+                      </Text>
+                    </Box>
+                  ) : null}
+                  <Box padding="400">
+                    <InlineStack align="space-between" blockAlign="center">
+                      <Text as="span" tone="subdued">
+                        {filteredSales.length
+                          ? `${startIndex + 1}-${Math.min(
+                              startIndex + PAGE_SIZE,
+                              filteredSales.length,
+                            )} of ${filteredSales.length}`
+                          : "0 sales"}
+                      </Text>
+                      <Pagination
+                        hasPrevious={currentPage > 1}
+                        onPrevious={() => updatePage(currentPage - 1)}
+                        hasNext={currentPage < totalPages}
+                        onNext={() => updatePage(currentPage + 1)}
+                      />
+                    </InlineStack>
+                  </Box>
+                </Card>
+              </div>
             ) : (
               <Card>
                 <EmptyState
