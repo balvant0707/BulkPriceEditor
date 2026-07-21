@@ -54,8 +54,8 @@ const dashboardMetricIconStyle = {
 };
 
 const dashboardMetricCardStyle = {
-  minHeight: 170,
-  height: 170,
+  minHeight: 200,
+  height: 200,
   display: "flex",
   flexDirection: "column",
 };
@@ -681,44 +681,46 @@ export default function AppIndex() {
       <Page title="Dashboard">
         <Layout>
           <Layout.Section>
-            <InlineGrid columns={{ xs: 1, sm: 2, md: 4 }} gap="400">
-              <MetricCard
-                title="Tasks"
-                value={formatInteger(overviewStats.tasks || 0)}
-                subtitle="items"
-                icon={ProductIcon}
-                color={{ background: "#dff7ee", foreground: "#008060" }}
-                trend={overviewStats.tasksTrend}
-                chart={overviewStats.tasksChart}
-              />
-              <MetricCard
-                title="Sales"
-                value={formatInteger(overviewStats.sales || 0)}
-                subtitle="items"
-                icon={DiscountIcon}
-                color={{ background: "#ede9fe", foreground: "#5b21b6" }}
-                trend={overviewStats.salesTrend}
-                chart={overviewStats.salesChart}
-              />
-              <MetricCard
-                title="Changes"
-                value={overviewStats.totalChanges}
-                subtitle="items"
-                icon={ChartHistogramGrowthIcon}
-                color={{ background: "#fff7ed", foreground: "#c2410c" }}
-                trend={overviewStats.changesTrend}
-                chart={overviewStats.changesChart}
-              />
-              <MetricCard
-                title="Saved time"
-                value={overviewStats.savedTime}
-                subtitle="saved"
-                icon={ClockIcon}
-                color={{ background: "#dbeafe", foreground: "#1d4ed8" }}
-                trend={overviewStats.savedTimeTrend}
-                chart={overviewStats.savedTimeChart}
-              />
-            </InlineGrid>
+            <Box paddingBlockEnd="600">
+              <InlineGrid columns={{ xs: 1, sm: 2, md: 4 }} gap="400">
+                <MetricCard
+                  title="Tasks"
+                  value={formatInteger(overviewStats.tasks || 0)}
+                  subtitle="items"
+                  icon={ProductIcon}
+                  color={{ background: "#dff7ee", foreground: "#008060" }}
+                  trend={overviewStats.tasksTrend}
+                  chart={overviewStats.tasksChart}
+                />
+                <MetricCard
+                  title="Sales"
+                  value={formatInteger(overviewStats.sales || 0)}
+                  subtitle="items"
+                  icon={DiscountIcon}
+                  color={{ background: "#ede9fe", foreground: "#5b21b6" }}
+                  trend={overviewStats.salesTrend}
+                  chart={overviewStats.salesChart}
+                />
+                <MetricCard
+                  title="Changes"
+                  value={overviewStats.totalChanges}
+                  subtitle="items"
+                  icon={ChartHistogramGrowthIcon}
+                  color={{ background: "#fff7ed", foreground: "#c2410c" }}
+                  trend={overviewStats.changesTrend}
+                  chart={overviewStats.changesChart}
+                />
+                <MetricCard
+                  title="Saved time"
+                  value={overviewStats.savedTime}
+                  subtitle="saved"
+                  icon={ClockIcon}
+                  color={{ background: "#dbeafe", foreground: "#1d4ed8" }}
+                  trend={overviewStats.savedTimeTrend}
+                  chart={overviewStats.savedTimeChart}
+                />
+              </InlineGrid>
+            </Box>
           </Layout.Section>
 
           <Layout.Section variant="oneHalf">
