@@ -106,9 +106,28 @@ const MARKET_PRODUCT_VARIANTS_BULK_UPDATE = `#graphql
   }
 `;
 
+const MARKET_PRODUCT_VARIANT_CONTEXTUAL_PRICING = `#graphql
+  query MarketProductVariantContextualPricing($id: ID!, $country: CountryCode!) {
+    productVariant(id: $id) {
+      id
+      contextualPricing(context: { country: $country }) {
+        price {
+          amount
+          currencyCode
+        }
+        compareAtPrice {
+          amount
+          currencyCode
+        }
+      }
+    }
+  }
+`;
+
 const PRICE_LIST_PAGE_SIZE = 250;
 const PRICE_LIST_UPDATE_BATCH_SIZE = 100;
 const PRODUCT_UPDATE_BATCH_SIZE = 4;
+const MARKET_CONTEXTUAL_VERIFY_LIMIT = 25;
 const GRAPHQL_MAX_RETRIES = 4;
 const GRAPHQL_RETRY_BASE_MS = 500;
 
@@ -199,6 +218,7 @@ export async function updateMarketPrices({
       try {
         const fixedPrices = await getFixedPrices(admin, priceListId, variantIds);
         const updates = [];
+        const priceListLogs = [];
 
         for (const variant of variants) {
           const fixedPrice = fixedPrices.get(variant.id);
@@ -307,7 +327,7 @@ export async function updateMarketPrices({
             currencyCode: market.currencyCode || fixedPrice?.currencyCode || "",
             hadFixedPrice: hasFixedPrice,
           });
-          logs.push(
+          priceListLogs.push(
             buildMarketLog({
               ownerType,
               ownerId,
@@ -328,15 +348,25 @@ export async function updateMarketPrices({
           );
         }
 
-        const result = await updateFixedPrices(admin, priceListId, updates, []);
+        const result = await addFixedPrices(admin, priceListId, updates);
+        if (result.errors.length) {
+          const failedLogs = markMarketLogsFailed(priceListLogs, result.errors);
+          logs.push(...failedLogs);
+          errors.push(...result.errors);
+          continue;
+        }
+
+        const verification = await verifyMarketContextualPrices(admin, market, updates);
+        const verifiedLogs = applyMarketVerificationToLogs(priceListLogs, verification);
+        logs.push(...verifiedLogs);
         updatedCount += result.updatedCount;
-        errors.push(...result.errors);
+        errors.push(...verification.errors);
       } catch (error) {
-        errors.push(
+        const message =
           error instanceof Error
             ? `${market.name || priceListId}: ${error.message}`
-            : `${market.name || priceListId}: Market price update failed.`,
-        );
+            : `${market.name || priceListId}: Market price update failed.`;
+        errors.push(message);
       }
     }
   }
@@ -659,6 +689,46 @@ async function addFixedPrices(admin, priceListId, prices) {
   return { errors, updatedCount };
 }
 
+async function verifyMarketContextualPrices(admin, market, prices = []) {
+  const countryCode = getMarketVerificationCountryCode(market);
+  const errors = [];
+  const byVariantId = new Map();
+
+  if (!countryCode) return { errors, byVariantId };
+
+  for (const priceInput of prices.slice(0, MARKET_CONTEXTUAL_VERIFY_LIMIT)) {
+    try {
+      const data = await marketGraphql(admin, MARKET_PRODUCT_VARIANT_CONTEXTUAL_PRICING, {
+        id: priceInput.variantId,
+        country: countryCode,
+      });
+      const pricing = data.productVariant?.contextualPricing;
+      const actualPrice = pricing?.price?.amount;
+      const actualCurrency = pricing?.price?.currencyCode;
+      const expectedPrice = priceInput.price?.amount;
+      const expectedCurrency = priceInput.price?.currencyCode;
+
+      if (
+        !moneyValuesEqual(actualPrice, expectedPrice) ||
+        (expectedCurrency && actualCurrency !== expectedCurrency)
+      ) {
+        const message = `Market storefront verification failed for ${priceInput.variantId}: expected ${expectedPrice} ${expectedCurrency}, got ${actualPrice || "blank"} ${actualCurrency || ""}.`;
+        errors.push(message);
+        byVariantId.set(priceInput.variantId, [message]);
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? `Market storefront verification failed for ${priceInput.variantId}: ${error.message}`
+          : `Market storefront verification failed for ${priceInput.variantId}.`;
+      errors.push(message);
+      byVariantId.set(priceInput.variantId, [message]);
+    }
+  }
+
+  return { errors, byVariantId };
+}
+
 async function updateFixedPrices(admin, priceListId, pricesToAdd, variantIdsToDelete) {
   const errors = [];
   let updatedCount = 0;
@@ -796,6 +866,40 @@ function buildMarketLog({
     shopifyErrors: errors,
     createdAt: new Date().toISOString(),
   };
+}
+
+function markMarketLogsFailed(logs, errors = []) {
+  const messages = errors.length ? errors : ["Market price update failed."];
+
+  return logs.map((log) => ({
+    ...log,
+    status: "Failed",
+    action: "Failed",
+    errors: [...(log.errors || []), ...messages],
+    shopifyErrors: [...(log.shopifyErrors || []), ...messages],
+  }));
+}
+
+function applyMarketVerificationToLogs(logs, verification) {
+  if (!verification?.byVariantId?.size) return logs;
+
+  return logs.map((log) => {
+    const errors = verification.byVariantId.get(log.variantId);
+    if (!errors?.length) return log;
+
+    return {
+      ...log,
+      status: "Failed",
+      action: "Failed",
+      errors: [...(log.errors || []), ...errors],
+      shopifyErrors: [...(log.shopifyErrors || []), ...errors],
+    };
+  });
+}
+
+function getMarketVerificationCountryCode(market) {
+  const region = (market?.regions || []).find((item) => item?.code);
+  return region?.code || "";
 }
 
 function formatUserError(error) {
