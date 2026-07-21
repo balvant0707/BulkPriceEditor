@@ -53,9 +53,20 @@ const dashboardMetricIconStyle = {
   flex: "0 0 52px",
 };
 
+const dashboardMetricCardStyle = {
+  minHeight: 148,
+  height: "100%",
+};
+
+const dashboardMetricContentStyle = {
+  minHeight: 116,
+  height: "100%",
+};
+
 const dashboardSparklineStyle = {
   width: 120,
   height: 56,
+  flex: "0 0 120px",
 };
 
 const taskStatDefinitions = [
@@ -267,9 +278,11 @@ export const loader = async ({ request }) => {
 
 function MetricCard({ title, value, subtitle, icon, color, trend = "12%" }) {
   return (
-    <Card>
-      <BlockStack gap="400">
-        <InlineStack align="space-between" blockAlign="center" gap="400">
+    <div style={dashboardMetricCardStyle}>
+      <Card>
+      <div style={dashboardMetricContentStyle}>
+      <BlockStack gap="400" align="space-between">
+        <InlineStack align="space-between" blockAlign="start" gap="400" wrap={false}>
           <InlineStack gap="400" blockAlign="center">
             <div style={{ ...dashboardMetricIconStyle, background: color.background, color: color.foreground }}>
               <Icon source={icon} />
@@ -292,7 +305,9 @@ function MetricCard({ title, value, subtitle, icon, color, trend = "12%" }) {
           {trend === "No changes" ? trend : `up ${trend} from last sync`}
         </Text>
       </BlockStack>
+      </div>
     </Card>
+    </div>
   );
 }
 

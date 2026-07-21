@@ -50,12 +50,28 @@ const SALE_APPLY_TO_OPTIONS = TASK_APPLY_TO_OPTIONS.filter(
 );
 
 const metricIconStyle = {
-  width: 48,
-  height: 48,
-  borderRadius: 10,
+  width: 52,
+  height: 52,
+  borderRadius: 12,
   display: "grid",
   placeItems: "center",
-  flex: "0 0 48px",
+  flex: "0 0 52px",
+};
+
+const metricCardStyle = {
+  minHeight: 148,
+  height: "100%",
+};
+
+const metricCardContentStyle = {
+  minHeight: 116,
+  height: "100%",
+};
+
+const metricSparklineStyle = {
+  width: 120,
+  height: 56,
+  flex: "0 0 120px",
 };
 
 const pageContentStyle = {
@@ -65,7 +81,7 @@ const pageContentStyle = {
 
 const lineChartStyle = {
   width: "100%",
-  height: 260,
+  height: 320,
 };
 
 const hoverChartStyle = {
@@ -599,34 +615,68 @@ function buildDonutGradient(stats) {
   return `conic-gradient(#10a37f 0 ${taskEnd}%, #6d5dfc ${taskEnd}% ${saleEnd}%, #f59e0b ${saleEnd}% 100%)`;
 }
 
-function MetricCard({ title, value, subtitle, color, icon }) {
+function MetricCard({ title, value, subtitle, color, icon, trend = "Tracked" }) {
   return (
-    <Card>
-      <InlineStack align="space-between" blockAlign="center" gap="400">
-        <InlineStack gap="400" blockAlign="center">
-          <div style={{ ...metricIconStyle, background: color.background, color: color.foreground }}>
-            <Icon source={icon} />
-          </div>
-          <BlockStack gap="100">
-            <Text as="p" fontWeight="semibold">
-              {title}
-            </Text>
-            <InlineStack gap="150" blockAlign="end">
-              <Text as="p" variant="headingXl">
-                {value}
-              </Text>
-              {subtitle ? <Text as="span">{subtitle}</Text> : null}
+    <div style={metricCardStyle}>
+      <Card>
+        <div style={metricCardContentStyle}>
+          <BlockStack gap="400" align="space-between">
+            <InlineStack align="space-between" blockAlign="start" gap="400" wrap={false}>
+              <InlineStack gap="400" blockAlign="center">
+                <div style={{ ...metricIconStyle, background: color.background, color: color.foreground }}>
+                  <Icon source={icon} />
+                </div>
+                <BlockStack gap="050">
+                  <Text as="p" fontWeight="semibold">
+                    {title}
+                  </Text>
+                  <InlineStack gap="150" blockAlign="end">
+                    <Text as="p" variant="headingXl">
+                      {value}
+                    </Text>
+                    {subtitle ? <Text as="span">{subtitle}</Text> : null}
+                  </InlineStack>
+                </BlockStack>
+              </InlineStack>
+              <MetricSparkline color={color.foreground} flat={trend === "No changes"} />
             </InlineStack>
+            <Text as="span" tone={trend === "No changes" ? "subdued" : "success"} fontWeight="semibold">
+              {trend === "No changes" ? trend : `up ${trend} from selected period`}
+            </Text>
           </BlockStack>
-        </InlineStack>
-        <Text as="span" tone="subdued">
-          {title === "Rollbacks" ? "Returned" : "Tracked"}
-        </Text>
-      </InlineStack>
-    </Card>
+        </div>
+      </Card>
+    </div>
   );
 }
 
+function MetricSparkline({ color, flat = false }) {
+  if (flat) {
+    return (
+      <svg viewBox="0 0 120 56" role="img" aria-label="No change chart" style={metricSparklineStyle}>
+        <line x1="8" y1="30" x2="116" y2="30" stroke={color} strokeWidth="3" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg viewBox="0 0 120 56" role="img" aria-label="Trend chart" style={metricSparklineStyle}>
+      <path
+        d="M5 44 C 18 30, 24 36, 34 24 S 52 38, 62 18 S 82 34, 92 20 S 108 28, 116 22"
+        fill="none"
+        stroke={color}
+        strokeWidth="3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M5 50 C 20 34, 28 40, 38 28 S 58 42, 68 22 S 86 38, 96 26 S 110 34, 116 28 L116 56 L5 56 Z"
+        fill={color}
+        opacity="0.08"
+      />
+    </svg>
+  );
+}
 function ApplyTargetsSection({ sections = [] }) {
   const safeSections = Array.isArray(sections) ? sections : [];
 
@@ -1177,6 +1227,7 @@ export default function AnalysisPage() {
               subtitle={`${formatInteger(stats.completedTasks)} completed`}
               color={{ background: "#dff7ee", foreground: "#008060" }}
               icon={ProductIcon}
+              trend="12%"
             />
             <MetricCard
               title="Sales"
@@ -1184,6 +1235,7 @@ export default function AnalysisPage() {
               subtitle={`${formatInteger(stats.completedSales)} active`}
               color={{ background: "#ede9fe", foreground: "#5b21b6" }}
               icon={DiscountIcon}
+              trend="50%"
             />
             <MetricCard
               title="Changes"
@@ -1191,6 +1243,7 @@ export default function AnalysisPage() {
               subtitle="items"
               color={{ background: "#fff7ed", foreground: "#c2410c" }}
               icon={ChartHistogramGrowthIcon}
+              trend="25%"
             />
             <MetricCard
               title="Rollbacks"
@@ -1198,6 +1251,7 @@ export default function AnalysisPage() {
               subtitle="records"
               color={{ background: "#dbeafe", foreground: "#1d4ed8" }}
               icon={ProductReturnIcon}
+              trend="No changes"
             />
           </InlineGrid>
 
