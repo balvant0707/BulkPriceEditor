@@ -90,6 +90,8 @@ const tableToolbarStyle = {
   gap: 16,
   flexWrap: "wrap",
   paddingRight: 16,
+  paddingTop:10,
+  paddingBottom:10,
 };
 
 const tableTabsStyle = {
@@ -477,7 +479,7 @@ export default function SalesPage() {
   const actionFetcher = useFetcher();
   const processFetcher = useFetcher();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [queryValue, setQueryValue] = useState(searchParams.get("q") || "");
+  const [queryValue, setQueryValue] = useState("");
   const [deleteSale, setDeleteSale] = useState(null);
   const [rollbackSale, setRollbackSale] = useState(null);
   const [cancelSale, setCancelSale] = useState(null);
@@ -530,14 +532,12 @@ export default function SalesPage() {
   }, [toastMessage]);
 
   useEffect(() => {
-    const params = new URLSearchParams(searchParams);
-    if (queryValue) params.set("q", queryValue);
-    else params.delete("q");
-    params.delete("page");
-    if (params.toString() !== searchParams.toString()) {
+    if (searchParams.has("q")) {
+      const params = new URLSearchParams(searchParams);
+      params.delete("q");
       setSearchParams(params, { replace: true });
     }
-  }, [queryValue, searchParams, setSearchParams]);
+  }, [searchParams, setSearchParams]);
 
   useEffect(() => {
     const completedSubmit =
@@ -593,6 +593,7 @@ export default function SalesPage() {
 
     if (selectedTab.id === "all") nextParams.delete("status");
     else nextParams.set("status", selectedTab.id);
+    nextParams.delete("q");
     nextParams.delete("page");
 
     setSearchParams(nextParams);
@@ -600,6 +601,7 @@ export default function SalesPage() {
 
   const updatePage = (page) => {
     const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete("q");
     if (page <= 1) nextParams.delete("page");
     else nextParams.set("page", String(page));
     setSearchParams(nextParams);

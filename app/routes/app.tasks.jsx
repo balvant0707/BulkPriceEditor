@@ -53,6 +53,8 @@ const tableToolbarStyle = {
   gap: 16,
   flexWrap: "wrap",
   paddingRight: 16,
+  paddingTop : 10,
+  paddingBottom: 10,
 };
 
 const tableTabsStyle = {
@@ -845,6 +847,7 @@ function TasksListPage({ tasks }) {
   const revalidator = useRevalidator();
   const submit = useSubmit();
   const [searchParams, setSearchParams] = useSearchParams();
+  const [queryValue, setQueryValue] = useState("");
   const [rollbackTask, setRollbackTask] = useState(null);
   const [deleteTask, setDeleteTask] = useState(null);
 
@@ -856,7 +859,6 @@ function TasksListPage({ tasks }) {
   const activeTab = TASK_TABS.some((tab) => tab.id === requestedTab)
     ? requestedTab
     : "all";
-  const queryValue = searchParams.get("q") || "";
   const pageParam = Number(searchParams.get("page") || 1);
 
   const selectedTabIndex = Math.max(
@@ -876,6 +878,7 @@ function TasksListPage({ tasks }) {
 
   const updateSearchParams = (updates) => {
     const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete("q");
 
     Object.entries(updates).forEach(([key, value]) => {
       if (value === undefined || value === null || value === "") {
@@ -899,10 +902,7 @@ function TasksListPage({ tasks }) {
   };
 
   const handleQueryChange = (value) => {
-    updateSearchParams({
-      q: value,
-      page: "",
-    });
+    setQueryValue(value);
   };
 
   const filteredTasks = useMemo(() => {
@@ -948,6 +948,14 @@ function TasksListPage({ tasks }) {
       shopify.toast.show(toastMessage);
     }
   }, [shopify, toastMessage]);
+
+  useEffect(() => {
+    if (searchParams.has("q")) {
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.delete("q");
+      setSearchParams(nextParams, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   useEffect(() => {
     if (!hasActiveTask) return undefined;
@@ -1153,12 +1161,7 @@ function TasksListPage({ tasks }) {
                     placeholder="Search tasks by selected products, collections, or tags"
                     autoComplete="off"
                     clearButton
-                    onClearButtonClick={() =>
-                      updateSearchParams({
-                        q: "",
-                        page: "",
-                      })
-                    }
+                    onClearButtonClick={() => setQueryValue("")}
                   />
                 </div>
               </div>
