@@ -46,6 +46,25 @@ const TASKS_URL = "/app/tasks";
 const PAGE_SIZE = 10;
 const POLL_INTERVAL_MS = 1000;
 
+const tableToolbarStyle = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 16,
+  flexWrap: "wrap",
+  paddingRight: 16,
+};
+
+const tableTabsStyle = {
+  flex: "1 1 360px",
+  minWidth: 0,
+};
+
+const tableSearchStyle = {
+  flex: "0 1 440px",
+  minWidth: 280,
+};
+
 const TASK_TABS = [
   {
     id: "all",
@@ -1116,28 +1135,33 @@ function TasksListPage({ tasks }) {
       <TitleBar title="Pryxo Bulk Price Editor" />
 
       <Card padding="0">
-            <Tabs
-              tabs={tabsWithCounts}
-              selected={selectedTabIndex}
-              onSelect={handleTabChange}
-            />
-
-            <Box padding="400" borderBlockStartWidth="025" borderColor="border">
-              <TextField
-                label="Search tasks"
-                labelHidden
-                value={queryValue}
-                onChange={handleQueryChange}
-                placeholder="Search tasks by selected products, collections, or tags"
-                autoComplete="off"
-                clearButton
-                onClearButtonClick={() =>
-                  updateSearchParams({
-                    q: "",
-                    page: "",
-                  })
-                }
-              />
+            <Box borderBlockEndWidth="025" borderColor="border">
+              <div style={tableToolbarStyle}>
+                <div style={tableTabsStyle}>
+                  <Tabs
+                    tabs={tabsWithCounts}
+                    selected={selectedTabIndex}
+                    onSelect={handleTabChange}
+                  />
+                </div>
+                <div style={tableSearchStyle}>
+                  <TextField
+                    label="Search tasks"
+                    labelHidden
+                    value={queryValue}
+                    onChange={handleQueryChange}
+                    placeholder="Search tasks by selected products, collections, or tags"
+                    autoComplete="off"
+                    clearButton
+                    onClearButtonClick={() =>
+                      updateSearchParams({
+                        q: "",
+                        page: "",
+                      })
+                    }
+                  />
+                </div>
+              </div>
             </Box>
 
             <IndexTable

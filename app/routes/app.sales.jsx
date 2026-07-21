@@ -78,6 +78,30 @@ const fullWidthHeaderStyle = {
   marginBottom: 24,
 };
 
+const centeredHeaderStyle = {
+  maxWidth: 1200,
+  margin: "0 auto 24px",
+};
+
+const tableToolbarStyle = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 16,
+  flexWrap: "wrap",
+  paddingRight: 16,
+};
+
+const tableTabsStyle = {
+  flex: "1 1 360px",
+  minWidth: 0,
+};
+
+const tableSearchStyle = {
+  flex: "0 1 440px",
+  minWidth: 280,
+};
+
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
   const flashSession = await getFlashSession(request);
@@ -734,7 +758,7 @@ export default function SalesPage() {
       </TitleBar>
 
       <Page>
-        <div style={fullWidthHeaderStyle}>
+        <div style={sales.length ? fullWidthHeaderStyle : centeredHeaderStyle}>
           <InlineStack align="space-between" blockAlign="center">
             <Text as="h1" variant="headingLg">
               Sales
@@ -755,21 +779,27 @@ export default function SalesPage() {
             {sales.length ? (
               <div style={fullWidthTableStyle}>
                 <Card padding="0">
-                  <Tabs
-                    tabs={tabs}
-                    selected={selectedTabIndex}
-                    onSelect={handleTabChange}
-                  />
-                  <Box padding="400" borderBlockStartWidth="025" borderColor="border">
-                    <TextField
-                      label="Search sales"
-                      labelHidden
-                      value={queryValue}
-                      onChange={setQueryValue}
-                      placeholder="Search sales by name, selected products, collections, or tags"
-                      prefix={<SearchIcon />}
-                      autoComplete="off"
-                    />
+                  <Box borderBlockEndWidth="025" borderColor="border">
+                    <div style={tableToolbarStyle}>
+                      <div style={tableTabsStyle}>
+                        <Tabs
+                          tabs={tabs}
+                          selected={selectedTabIndex}
+                          onSelect={handleTabChange}
+                        />
+                      </div>
+                      <div style={tableSearchStyle}>
+                        <TextField
+                          label="Search sales"
+                          labelHidden
+                          value={queryValue}
+                          onChange={setQueryValue}
+                          placeholder="Search sales by name, selected products, collections, or tags"
+                          prefix={<SearchIcon />}
+                          autoComplete="off"
+                        />
+                      </div>
+                    </div>
                   </Box>
                   <IndexTable
                     resourceName={{ singular: "sale", plural: "sales" }}
