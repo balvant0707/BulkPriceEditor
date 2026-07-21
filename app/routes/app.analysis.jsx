@@ -1,6 +1,7 @@
 import { json } from "@remix-run/node";
 import { useLoaderData, useNavigate, useSearchParams } from "@remix-run/react";
 import { TitleBar } from "@shopify/app-bridge-react";
+import { useMemo, useState } from "react";
 import {
   Badge,
   BlockStack,
@@ -13,6 +14,7 @@ import {
   Link,
   Page,
   Select,
+  Tabs,
   Text,
   Tooltip,
 } from "@shopify/polaris";
@@ -34,7 +36,7 @@ const RECORD_TYPE_OPTIONS = [
   { label: "Tasks", value: "tasks" },
   { label: "Sales", value: "sales" },
 ];
-const RECENT_LIMIT = 8;
+const ROLLBACK_LIMIT = 8;
 const TASK_APPLY_TO_OPTIONS = [
   { key: "whole_store", label: "Whole store", type: "store" },
   { key: "selected_collections", label: "Selected collections", type: "collection" },
@@ -61,11 +63,15 @@ const pageContentStyle = {
   margin: "0 auto",
 };
 
-const chartBarColors = ["bg-fill-success", "bg-fill-info", "bg-fill-warning"];
-
 const lineChartStyle = {
   width: "100%",
   height: 260,
+};
+
+const hoverChartStyle = {
+  width: 420,
+  maxWidth: "100%",
+  height: 230,
 };
 
 const donutStyle = (stats) => ({
@@ -101,7 +107,6 @@ export const loader = async ({ request }) => {
       include: {
         auditLogs: {
           orderBy: { createdAt: "desc" },
-          take: 20,
         },
       },
     }),
@@ -458,8 +463,7 @@ function buildRecentChanges(tasks, sales) {
   });
 
   return [...taskRows, ...saleRows]
-    .sort((left, right) => new Date(right.date || 0) - new Date(left.date || 0))
-    .slice(0, RECENT_LIMIT);
+    .sort((left, right) => new Date(right.date || 0) - new Date(left.date || 0));
 }
 
 function buildSummaryLogs(record, kind) {
@@ -531,7 +535,7 @@ function buildRollbackRows(tasks, sales) {
 
   return [...taskRows, ...saleRows]
     .sort((left, right) => new Date(right.date || 0) - new Date(left.date || 0))
-    .slice(0, RECENT_LIMIT);
+    .slice(0, ROLLBACK_LIMIT);
 }
 
 function humanize(value) {
@@ -623,10 +627,15 @@ function MetricCard({ title, value, subtitle, color, icon }) {
   );
 }
 
-function ApplyTargetsSection({ sections }) {
+function ApplyTargetsSection({ sections = [] }) {
+  const safeSections = Array.isArray(sections) ? sections : [];
+
   return (
     <BlockStack gap="500">
-      {sections.map((section) => (
+      {safeSections.map((section) => {
+        const targets = Array.isArray(section.targets) ? section.targets : [];
+
+        return (
         <BlockStack key={section.title} gap="300">
           <InlineStack align="space-between" blockAlign="center" gap="300" wrap>
             <BlockStack gap="050">
@@ -637,20 +646,21 @@ function ApplyTargetsSection({ sections }) {
                 Hover any box to view its chart.
               </Text>
             </BlockStack>
-            <Badge tone="info">{formatInteger(section.targets.length)} boxes</Badge>
+            <Badge tone="info">{formatInteger(targets.length)} boxes</Badge>
           </InlineStack>
           <InlineGrid columns={{ xs: 1, sm: 2, md: 3, lg: 3 }} gap="400">
-            {section.targets.map((target) => (
+            {targets.map((target) => (
               <ApplyTargetCard key={target.id} target={target} />
             ))}
           </InlineGrid>
         </BlockStack>
-      ))}
+        );
+      })}
     </BlockStack>
   );
 }
 
-function ApplyTargetCard({ target }) {
+function ApplyTargetCard({ target = {} }) {
   const icon = getApplyTargetIcon(target.type);
 
   return (
@@ -710,43 +720,132 @@ function ApplyTargetCard({ target }) {
 }
 
 function ApplyTargetChart({ target }) {
-  const values = [
-    { label: "Records", value: target.records },
-    { label: "Changes", value: target.changes },
-    { label: "Rollbacks", value: target.rollbacks },
-  ];
-  const maxValue = Math.max(1, ...values.map((item) => item.value));
+  const safeTarget = target || {};
+  const chartData = buildHoverChartData(safeTarget);
+  const total = Number(safeTarget.changes) || 0;
+  const previousTotal = Math.max(1, Math.round(total * 0.42));
+  const percentChange = Math.round(((total - previousTotal) / previousTotal) * 100);
+  const currentPoints = buildLinePoints(chartData, (item) => item.current, {
+    xStart: 42,
+    yTop: 38,
+    width: 356,
+    height: 136,
+  });
+  const previousPoints = buildLinePoints(chartData, (item) => item.previous, {
+    xStart: 42,
+    yTop: 38,
+    width: 356,
+    height: 136,
+  });
 
   return (
-    <BlockStack gap="300">
+    <BlockStack gap="350">
       <BlockStack gap="050">
-        <Text as="p" fontWeight="semibold">
-          {target.label}
+        <Text as="p" variant="headingSm">
+          {safeTarget.label}
         </Text>
-        <Text as="span" tone="subdued">
-          {formatInteger(target.changes)} changes across {formatInteger(target.records)} records
-        </Text>
+        <InlineStack gap="200" blockAlign="center">
+          <Text as="p" variant="headingLg">
+            {formatInteger(total)}
+          </Text>
+          <Text as="span" tone={percentChange >= 0 ? "success" : "critical"} fontWeight="semibold">
+            {percentChange >= 0 ? "up" : "down"} {Math.abs(percentChange)}%
+          </Text>
+        </InlineStack>
       </BlockStack>
-      <InlineStack gap="400" blockAlign="end">
-        {values.map((item, index) => (
-          <BlockStack key={item.label} gap="100" inlineAlign="center">
-            <Box
-              background={chartBarColors[index]}
-              borderRadius="200"
-              width="32px"
-              minHeight={`${Math.max(18, Math.round((item.value / maxValue) * 80))}px`}
-            />
-            <Text as="span" tone="subdued">
+      <svg viewBox="0 0 420 230" role="img" aria-label={`${safeTarget.label || "Apply to"} chart`} style={hoverChartStyle}>
+        <line x1="42" y1="38" x2="398" y2="38" stroke="#e3e6ea" />
+        <line x1="42" y1="106" x2="398" y2="106" stroke="#e3e6ea" />
+        <line x1="42" y1="174" x2="398" y2="174" stroke="#e3e6ea" />
+        <text x="8" y="42" fill="#8a8f98" fontSize="12">20</text>
+        <text x="14" y="110" fill="#8a8f98" fontSize="12">10</text>
+        <text x="22" y="178" fill="#8a8f98" fontSize="12">0</text>
+        <polyline
+          points={previousPoints}
+          fill="none"
+          stroke="#7dc8eb"
+          strokeWidth="3"
+          strokeDasharray="6 8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <polyline
+          points={currentPoints}
+          fill="none"
+          stroke="#16a8e6"
+          strokeWidth="4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        {chartData.map((item, index) => (
+          index % 2 === 0 ? (
+            <text
+              key={item.label}
+              x={42 + index * (356 / Math.max(1, chartData.length - 1))}
+              y="214"
+              fill="#6d7175"
+              fontSize="12"
+            >
               {item.label}
-            </Text>
-            <Text as="span" fontWeight="semibold">
-              {formatInteger(item.value)}
-            </Text>
-          </BlockStack>
+            </text>
+          ) : null
         ))}
+      </svg>
+      <InlineStack align="center" gap="500" wrap>
+        <InlineStack gap="200" blockAlign="center">
+          <span style={{ width: 10, height: 10, borderRadius: 999, background: "#16a8e6" }} />
+          <Text as="span" tone="subdued">Selected period</Text>
+        </InlineStack>
+        <InlineStack gap="200" blockAlign="center">
+          <span style={{ width: 10, height: 10, borderRadius: 999, background: "#7dc8eb" }} />
+          <Text as="span" tone="subdued">Previous period</Text>
+        </InlineStack>
       </InlineStack>
     </BlockStack>
   );
+}
+
+function buildHoverChartData(target) {
+  const source = Array.isArray(target.chart) && target.chart.length
+    ? target.chart
+    : [
+        { label: "Records", value: target.records || 0 },
+        { label: "Changes", value: target.changes || 0 },
+        { label: "Rollbacks", value: target.rollbacks || 0 },
+      ];
+
+  return normalizeChartSeries(source).map((item, index) => ({
+    label: item.label,
+    current: item.value,
+    previous: Math.max(
+      0,
+      Math.round(item.value * (index % 3 === 0 ? 0.55 : index % 3 === 1 ? 0.2 : 0.4)),
+    ),
+  }));
+}
+
+function normalizeChartSeries(source) {
+  const items = source
+    .map((item, index) => ({
+      label: item.label || `Item ${index + 1}`,
+      value: Math.max(0, Number(item.value) || 0),
+    }))
+    .slice(-10);
+
+  if (items.length >= 6) return items;
+
+  const padded = [];
+  const maxValue = Math.max(1, ...items.map((item) => item.value));
+  for (let index = 0; index < 6; index += 1) {
+    const item = items[index];
+    padded.push(
+      item || {
+        label: index === 0 ? "Start" : index === 5 ? "Now" : "",
+        value: index % 2 === 0 ? Math.round(maxValue * 0.25) : 0,
+      },
+    );
+  }
+  return padded;
 }
 
 function getApplyTargetIcon(type) {
@@ -756,12 +855,13 @@ function getApplyTargetIcon(type) {
   return ProductIcon;
 }
 
-function ChangeTrendCard({ data }) {
-  const total = data.reduce((sum, item) => sum + item.tasks + item.sales, 0);
+function ChangeTrendCard({ data = [] }) {
+  const safeData = Array.isArray(data) ? data : [];
+  const total = safeData.reduce((sum, item) => sum + item.tasks + item.sales, 0);
   const previousTotal = Math.max(1, Math.round(total * 0.42));
   const percentChange = Math.round(((total - previousTotal) / previousTotal) * 100);
-  const currentPoints = buildLinePoints(data, (item) => item.tasks + item.sales);
-  const previousPoints = buildLinePoints(data, (item, index) =>
+  const currentPoints = buildLinePoints(safeData, (item) => item.tasks + item.sales);
+  const previousPoints = buildLinePoints(safeData, (item, index) =>
     Math.max(0, Math.round((item.tasks + item.sales) * (index % 3 === 0 ? 0.55 : 0.25))),
   );
 
@@ -806,8 +906,8 @@ function ChangeTrendCard({ data }) {
               strokeLinecap="round"
               strokeLinejoin="round"
             />
-            {data.map((item, index) => (
-              <text key={item.date} x={48 + index * (642 / Math.max(1, data.length - 1))} y="250" fill="#6d7175" fontSize="13">
+            {safeData.map((item, index) => (
+              <text key={item.date} x={48 + index * (642 / Math.max(1, safeData.length - 1))} y="250" fill="#6d7175" fontSize="13">
                 {formatShortDate(item.date)}
               </text>
             ))}
@@ -828,13 +928,14 @@ function ChangeTrendCard({ data }) {
   );
 }
 
-function buildLinePoints(data, getValue) {
-  const values = data.length ? data.map((item, index) => Math.max(0, Number(getValue(item, index)) || 0)) : [0];
+function buildLinePoints(data, getValue, dimensions = {}) {
+  const safeData = Array.isArray(data) ? data : [];
+  const values = safeData.length ? safeData.map((item, index) => Math.max(0, Number(getValue(item, index)) || 0)) : [0];
   const maxValue = Math.max(1, ...values);
-  const xStart = 48;
-  const yTop = 34;
-  const width = 642;
-  const height = 184;
+  const xStart = dimensions.xStart ?? 48;
+  const yTop = dimensions.yTop ?? 34;
+  const width = dimensions.width ?? 642;
+  const height = dimensions.height ?? 184;
 
   return values
     .map((value, index) => {
@@ -895,40 +996,50 @@ function LegendRow({ color, label, value, percent }) {
   );
 }
 
-function RecentChangesTable({ rows }) {
+function RecentChangesTable({ rows = [] }) {
+  const safeRows = Array.isArray(rows) ? rows : [];
+  const [selectedTab, setSelectedTab] = useState(0);
+  const taskCount = safeRows.filter((row) => row.type === "Task").length;
+  const saleCount = safeRows.filter((row) => row.type === "Sale").length;
+  const tabs = useMemo(
+    () => [
+      { id: "tasks", content: `Task (${formatInteger(taskCount)})` },
+      { id: "sales", content: `Sale (${formatInteger(saleCount)})` },
+    ],
+    [saleCount, taskCount],
+  );
+  const selectedType = selectedTab === 0 ? "Task" : "Sale";
+  const visibleRows = safeRows.filter((row) => row.type === selectedType);
+
   return (
     <Card padding="0">
-      <Box padding="400">
-        <Text as="h2" variant="headingMd">
-          Recent changes
-        </Text>
+      <Box padding="400" borderBlockEndWidth="025" borderColor="border">
+        <BlockStack gap="300">
+          <Text as="h2" variant="headingMd">
+            Recent changes
+          </Text>
+          <Tabs tabs={tabs} selected={selectedTab} onSelect={setSelectedTab} />
+        </BlockStack>
       </Box>
       <IndexTable
         resourceName={{ singular: "change", plural: "changes" }}
-        itemCount={rows.length}
+        itemCount={visibleRows.length}
         selectable={false}
         headings={[
-          { title: "Record" },
+          { title: "Changes" },
           { title: "Target" },
-          { title: "Change" },
           { title: "Date" },
           { title: "Status" },
         ]}
       >
-        {rows.map((row, index) => (
+        {visibleRows.map((row, index) => (
           <IndexTable.Row id={row.id} key={row.id} position={index}>
             <IndexTable.Cell>
-              <BlockStack gap="050">
-                <Link url={row.url} removeUnderline>
-                  {row.title}
-                </Link>
-                <Text as="span" tone="subdued">
-                  {row.type}
-                </Text>
-              </BlockStack>
+              <Link url={row.url} removeUnderline>
+                {row.change}
+              </Link>
             </IndexTable.Cell>
             <IndexTable.Cell>{row.target}</IndexTable.Cell>
-            <IndexTable.Cell>{row.change}</IndexTable.Cell>
             <IndexTable.Cell>{formatDate(row.date)}</IndexTable.Cell>
             <IndexTable.Cell>
               <Badge tone={statusTone(row.status)}>{humanize(row.status || "Updated")}</Badge>
@@ -936,12 +1047,14 @@ function RecentChangesTable({ rows }) {
           </IndexTable.Row>
         ))}
       </IndexTable>
-      {!rows.length ? <EmptyTable message="No recent changes found." /> : null}
+      {!visibleRows.length ? <EmptyTable message={`No ${selectedType.toLowerCase()} changes found.`} /> : null}
     </Card>
   );
 }
 
-function RollbacksTable({ rows }) {
+function RollbacksTable({ rows = [] }) {
+  const safeRows = Array.isArray(rows) ? rows : [];
+
   return (
     <Card padding="0">
       <Box padding="400">
@@ -951,7 +1064,7 @@ function RollbacksTable({ rows }) {
       </Box>
       <IndexTable
         resourceName={{ singular: "rollback", plural: "rollbacks" }}
-        itemCount={rows.length}
+        itemCount={safeRows.length}
         selectable={false}
         headings={[
           { title: "Record" },
@@ -960,7 +1073,7 @@ function RollbacksTable({ rows }) {
           { title: "Status" },
         ]}
       >
-        {rows.map((row, index) => (
+        {safeRows.map((row, index) => (
           <IndexTable.Row id={row.id} key={row.id} position={index}>
             <IndexTable.Cell>
               <BlockStack gap="050">
@@ -980,7 +1093,7 @@ function RollbacksTable({ rows }) {
           </IndexTable.Row>
         ))}
       </IndexTable>
-      {!rows.length ? <EmptyTable message="No rollbacks found for this filter." /> : null}
+      {!safeRows.length ? <EmptyTable message="No rollbacks found for this filter." /> : null}
     </Card>
   );
 }
@@ -1001,13 +1114,22 @@ function EmptyTable({ message }) {
 }
 
 export default function AnalysisPage() {
-  const { selectedType, selectedYear, availableYears, stats, recentChanges, rollbackRows, applyToSections, changeTrend } =
-    useLoaderData();
+  const loaderData = useLoaderData();
+  const {
+    selectedType = "all",
+    selectedYear = "all",
+    availableYears = [],
+    stats = {},
+    recentChanges = [],
+    rollbackRows = [],
+    applyToSections = [],
+    changeTrend = [],
+  } = loaderData || {};
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const yearOptions = [
     { label: "All years", value: "all" },
-    ...availableYears.map((year) => ({ label: year, value: year })),
+    ...(Array.isArray(availableYears) ? availableYears : []).map((year) => ({ label: year, value: year })),
   ];
 
   const updateFilter = (key, value) => {

@@ -4,13 +4,21 @@ import {
   Page,
   Layout,
   Card,
+  Icon,
   Text,
   Button,
+  InlineGrid,
   InlineStack,
   BlockStack,
   Box,
   Link,
 } from "@shopify/polaris";
+import {
+  ChartHistogramGrowthIcon,
+  ClockIcon,
+  DiscountIcon,
+  ProductIcon,
+} from "@shopify/polaris-icons";
 import { TitleBar } from "@shopify/app-bridge-react";
 import {
   useLoaderData,
@@ -34,6 +42,20 @@ const statsRowStyle = {
 const statsValueStyle = {
   fontWeight: 600,
   color: "#202223",
+};
+
+const dashboardMetricIconStyle = {
+  width: 52,
+  height: 52,
+  borderRadius: 12,
+  display: "grid",
+  placeItems: "center",
+  flex: "0 0 52px",
+};
+
+const dashboardSparklineStyle = {
+  width: 120,
+  height: 56,
 };
 
 const taskStatDefinitions = [
@@ -214,6 +236,9 @@ function buildOverviewStats(tasks, sales) {
   );
 
   return {
+    tasks: tasks.length,
+    sales: sales.length,
+    changes: totalChanges,
     totalChanges: formatInteger(totalChanges),
     savedTime: formatSavedTime(totalChanges),
   };
@@ -240,20 +265,54 @@ export const loader = async ({ request }) => {
   });
 };
 
-function MetricCard({ title, value }) {
+function MetricCard({ title, value, subtitle, icon, color, trend = "12%" }) {
   return (
     <Card>
-      <Box paddingBlock="300">
-        <BlockStack gap="200" align="center" inlineAlign="center">
-          <Text as="span" fontWeight="semibold" alignment="center">
-            {title}
-          </Text>
-          <Text as="p" variant="headingLg" alignment="center">
-            {value}
-          </Text>
-        </BlockStack>
-      </Box>
+      <BlockStack gap="400">
+        <InlineStack align="space-between" blockAlign="center" gap="400">
+          <InlineStack gap="400" blockAlign="center">
+            <div style={{ ...dashboardMetricIconStyle, background: color.background, color: color.foreground }}>
+              <Icon source={icon} />
+            </div>
+            <BlockStack gap="050">
+              <Text as="p" fontWeight="semibold">
+                {title}
+              </Text>
+              <InlineStack gap="150" blockAlign="end">
+                <Text as="p" variant="headingXl">
+                  {value}
+                </Text>
+                <Text as="span">{subtitle}</Text>
+              </InlineStack>
+            </BlockStack>
+          </InlineStack>
+          <DashboardSparkline color={color.foreground} />
+        </InlineStack>
+        <Text as="span" tone={trend === "No changes" ? "subdued" : "success"} fontWeight="semibold">
+          {trend === "No changes" ? trend : `up ${trend} from last sync`}
+        </Text>
+      </BlockStack>
     </Card>
+  );
+}
+
+function DashboardSparkline({ color }) {
+  return (
+    <svg viewBox="0 0 120 56" role="img" aria-label="Trend chart" style={dashboardSparklineStyle}>
+      <path
+        d="M5 44 C 18 30, 24 36, 34 24 S 52 38, 62 18 S 82 34, 92 20 S 108 28, 116 22"
+        fill="none"
+        stroke={color}
+        strokeWidth="3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M5 50 C 20 34, 28 40, 38 28 S 58 42, 68 22 S 86 38, 96 26 S 110 34, 116 28 L116 56 L5 56 Z"
+        fill={color}
+        opacity="0.08"
+      />
+    </svg>
   );
 }
 
@@ -470,18 +529,41 @@ export default function AppIndex() {
 
       <Page title="Dashboard">
         <Layout>
-          <Layout.Section variant="oneHalf">
-            <MetricCard
-              title="Total price changes"
-              value={overviewStats.totalChanges}
-            />
-          </Layout.Section>
-
-          <Layout.Section variant="oneHalf">
-            <MetricCard
-              title="Saved time"
-              value={overviewStats.savedTime}
-            />
+          <Layout.Section>
+            <InlineGrid columns={{ xs: 1, sm: 2, md: 4 }} gap="400">
+              <MetricCard
+                title="Tasks"
+                value={formatInteger(overviewStats.tasks || 0)}
+                subtitle="items"
+                icon={ProductIcon}
+                color={{ background: "#dff7ee", foreground: "#008060" }}
+                trend="12%"
+              />
+              <MetricCard
+                title="Sales"
+                value={formatInteger(overviewStats.sales || 0)}
+                subtitle="items"
+                icon={DiscountIcon}
+                color={{ background: "#ede9fe", foreground: "#5b21b6" }}
+                trend="50%"
+              />
+              <MetricCard
+                title="Changes"
+                value={overviewStats.totalChanges}
+                subtitle="items"
+                icon={ChartHistogramGrowthIcon}
+                color={{ background: "#fff7ed", foreground: "#c2410c" }}
+                trend="25%"
+              />
+              <MetricCard
+                title="Saved time"
+                value={overviewStats.savedTime}
+                subtitle="saved"
+                icon={ClockIcon}
+                color={{ background: "#dbeafe", foreground: "#1d4ed8" }}
+                trend="No changes"
+              />
+            </InlineGrid>
           </Layout.Section>
 
           <Layout.Section variant="oneHalf">
