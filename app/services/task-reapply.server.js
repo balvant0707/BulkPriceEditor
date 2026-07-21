@@ -190,6 +190,7 @@ const VARIANT_PAGE_SIZE = 100;
 const TASK_UPDATE_CONCURRENCY = 4;
 const GRAPHQL_MAX_RETRIES = 4;
 const GRAPHQL_RETRY_BASE_MS = 500;
+const TASK_AUDIT_SKIP_REASON_MAX_LENGTH = 500;
 
 export async function executeAutoReapplyTask(admin, task) {
   const shop = resolveShop(task);
@@ -876,12 +877,19 @@ async function persistTaskAuditLogs(logs) {
       previousPrice: log.previousPrice == null ? null : String(log.previousPrice),
       newPrice: log.newPrice == null ? null : String(log.newPrice),
       action: log.action,
-      skipReason: log.skipReason || null,
+      skipReason: truncateTaskAuditValue(log.skipReason),
     }));
 
   if (rows.length) {
     await db.taskAuditLog.createMany({ data: rows });
   }
+}
+
+function truncateTaskAuditValue(value, maxLength = TASK_AUDIT_SKIP_REASON_MAX_LENGTH) {
+  if (value == null || value === "") return null;
+
+  const text = String(value);
+  return text.length > maxLength ? text.slice(0, maxLength) : text;
 }
 
 function resolveShop(...sources) {

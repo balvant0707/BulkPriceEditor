@@ -72,6 +72,7 @@ const MARKETS_QUERY = `#graphql
             title
             priceList {
               id
+              currency
             }
           }
         }
@@ -650,11 +651,18 @@ function prepareSaleExecution(saleData) {
 
 function normalizeMarkets(markets = []) {
   return markets.map((market) => {
+    const priceLists = (market.catalogs?.nodes || [])
+      .map((catalog) => catalog.priceList)
+      .filter((priceList) => priceList?.id)
+      .map((priceList) => ({
+        id: priceList.id,
+        currencyCode: priceList.currency || "",
+      }));
+    const priceListIds = priceLists.map((priceList) => priceList.id);
     const currencyCode =
-      market.currencySettings?.baseCurrency?.currencyCode || "";
-    const priceListIds = (market.catalogs?.nodes || [])
-      .map((catalog) => catalog.priceList?.id)
-      .filter(Boolean);
+      priceLists.find((priceList) => priceList.currencyCode)?.currencyCode ||
+      market.currencySettings?.baseCurrency?.currencyCode ||
+      "";
     const regions = market.regions?.nodes || [];
     const currencyLabel = currencyCode ? ` (${currencyCode})` : "";
     const disabledLabel = currencyCode ? "" : " - no currency";
@@ -671,6 +679,12 @@ function normalizeMarkets(markets = []) {
       regions,
       catalogs: market.catalogs?.nodes || [],
       priceListIds,
+      priceLists,
+      priceListCurrencies: Object.fromEntries(
+        priceLists
+          .filter((priceList) => priceList.currencyCode)
+          .map((priceList) => [priceList.id, priceList.currencyCode]),
+      ),
       label: `${market.name}${currencyLabel}${disabledLabel}${priceListLabel}${primaryLabel}`,
       disabled: !currencyCode || !priceListIds.length,
     };

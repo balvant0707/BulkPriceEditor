@@ -135,7 +135,14 @@ describe("market pricing calculations", () => {
                   nodes: [
                     {
                       originType: "FIXED",
-                      price: { amount: "10.00", currencyCode: "USD" },
+                      price: {
+                        amount: graphqlCalls.some((call) =>
+                          call.query.includes("priceListFixedPricesAdd"),
+                        )
+                          ? "15.00"
+                          : "10.00",
+                        currencyCode: "USD",
+                      },
                       compareAtPrice: null,
                       variant: { id: "gid://shopify/ProductVariant/1" },
                     },
@@ -160,6 +167,7 @@ describe("market pricing calculations", () => {
           name: "United States",
           currencyCode: "USD",
           priceListIds: ["gid://shopify/PriceList/1"],
+          priceListCurrencies: { "gid://shopify/PriceList/1": "USD" },
         },
       ],
       variants: [
@@ -187,7 +195,7 @@ describe("market pricing calculations", () => {
     assert.equal(result.originalMarketPrices.length, 1);
     assert.equal(result.originalMarketPrices[0].price, "10.00");
     assert.equal(result.originalMarketPrices[0].nextPrice, "15.00");
-    assert.equal(graphqlCalls.length, 2);
+    assert.equal(graphqlCalls.length, 3);
     assert.match(graphqlCalls[1].query, /priceListFixedPricesAdd/);
     assert.deepEqual(graphqlCalls[1].variables, {
       priceListId: "gid://shopify/PriceList/1",
@@ -232,8 +240,19 @@ describe("market pricing calculations", () => {
                   nodes: [
                     {
                       originType: "FIXED",
-                      price: { amount: "316.35", currencyCode: "USD" },
-                      compareAtPrice: { amount: "427.50", currencyCode: "USD" },
+                      price: {
+                        amount: graphqlCalls.some((call) =>
+                          call.query.includes("priceListFixedPricesAdd"),
+                        )
+                          ? "200.00"
+                          : "316.35",
+                        currencyCode: "USD",
+                      },
+                      compareAtPrice: graphqlCalls.some((call) =>
+                        call.query.includes("priceListFixedPricesAdd"),
+                      )
+                        ? { amount: "316.35", currencyCode: "USD" }
+                        : { amount: "427.50", currencyCode: "USD" },
                       variant: { id: "gid://shopify/ProductVariant/1" },
                     },
                   ],
@@ -257,6 +276,7 @@ describe("market pricing calculations", () => {
           name: "Canada",
           currencyCode: "USD",
           priceListIds: ["gid://shopify/PriceList/1"],
+          priceListCurrencies: { "gid://shopify/PriceList/1": "USD" },
         },
       ],
       variants: [
@@ -324,8 +344,19 @@ describe("market pricing calculations", () => {
                   nodes: [
                     {
                       originType: "FIXED",
-                      price: { amount: "285.00", currencyCode: "USD" },
-                      compareAtPrice: { amount: "427.50", currencyCode: "USD" },
+                      price: {
+                        amount: graphqlCalls.some((call) =>
+                          call.query.includes("priceListFixedPricesAdd"),
+                        )
+                          ? "300.00"
+                          : "285.00",
+                        currencyCode: "USD",
+                      },
+                      compareAtPrice: graphqlCalls.some((call) =>
+                        call.query.includes("priceListFixedPricesAdd"),
+                      )
+                        ? null
+                        : { amount: "427.50", currencyCode: "USD" },
                       variant: { id: "gid://shopify/ProductVariant/1" },
                     },
                   ],
@@ -349,6 +380,7 @@ describe("market pricing calculations", () => {
           name: "Canada",
           currencyCode: "USD",
           priceListIds: ["gid://shopify/PriceList/1"],
+          priceListCurrencies: { "gid://shopify/PriceList/1": "USD" },
         },
       ],
       variants: [
@@ -417,8 +449,19 @@ describe("market pricing calculations", () => {
                 prices: {
                   nodes: [
                     {
-                      originType: "GENERATED",
-                      price: { amount: "100.00", currencyCode: "USD" },
+                      originType: graphqlCalls.some((call) =>
+                        call.query.includes("priceListFixedPricesAdd"),
+                      )
+                        ? "FIXED"
+                        : "GENERATED",
+                      price: {
+                        amount: graphqlCalls.some((call) =>
+                          call.query.includes("priceListFixedPricesAdd"),
+                        )
+                          ? "90.00"
+                          : "100.00",
+                        currencyCode: "USD",
+                      },
                       compareAtPrice: null,
                       variant: { id: "gid://shopify/ProductVariant/1" },
                     },
@@ -443,6 +486,7 @@ describe("market pricing calculations", () => {
           name: "Canada",
           currencyCode: "USD",
           priceListIds: ["gid://shopify/PriceList/1"],
+          priceListCurrencies: { "gid://shopify/PriceList/1": "USD" },
         },
       ],
       variants: [
@@ -513,6 +557,7 @@ describe("market pricing calculations", () => {
           name: "Canada",
           currencyCode: "USD",
           priceListIds: ["gid://shopify/PriceList/1"],
+          priceListCurrencies: { "gid://shopify/PriceList/1": "USD" },
         },
       ],
       variants: [
@@ -601,6 +646,7 @@ describe("market pricing calculations", () => {
           name: "Canada",
           currencyCode: "USD",
           priceListIds: ["gid://shopify/PriceList/1"],
+          priceListCurrencies: { "gid://shopify/PriceList/1": "USD" },
         },
       ],
       variants: [
@@ -628,27 +674,11 @@ describe("market pricing calculations", () => {
     assert.match(result.logs[0].errors[0], /Price list price is invalid/);
   });
 
-  it("verifies selected market storefront pricing with product contextual pricing", async () => {
+  it("verifies selected fixed market prices from the price list", async () => {
     const graphqlCalls = [];
     const admin = {
       graphql: async (query, { variables } = {}) => {
         graphqlCalls.push({ query, variables });
-
-        if (query.includes("contextualPricing")) {
-          return {
-            json: async () => ({
-              data: {
-                productVariant: {
-                  id: variables.id,
-                  contextualPricing: {
-                    price: { amount: "333.00", currencyCode: "USD" },
-                    compareAtPrice: null,
-                  },
-                },
-              },
-            }),
-          };
-        }
 
         if (query.includes("priceListFixedPricesAdd")) {
           return {
@@ -676,7 +706,14 @@ describe("market pricing calculations", () => {
                   nodes: [
                     {
                       originType: "FIXED",
-                      price: { amount: "285.00", currencyCode: "USD" },
+                      price: {
+                        amount: graphqlCalls.some((call) =>
+                          call.query.includes("priceListFixedPricesAdd"),
+                        )
+                          ? "333.00"
+                          : "285.00",
+                        currencyCode: "USD",
+                      },
                       compareAtPrice: null,
                       variant: { id: "gid://shopify/ProductVariant/1" },
                     },
@@ -702,6 +739,7 @@ describe("market pricing calculations", () => {
           currencyCode: "USD",
           regions: [{ name: "Canada", code: "CA" }],
           priceListIds: ["gid://shopify/PriceList/1"],
+          priceListCurrencies: { "gid://shopify/PriceList/1": "USD" },
         },
       ],
       variants: [
@@ -725,10 +763,11 @@ describe("market pricing calculations", () => {
 
     assert.equal(result.ok, true);
     assert.equal(result.logs[0].status, "Applied");
-    assert.match(graphqlCalls[2].query, /contextualPricing/);
+    assert.match(graphqlCalls[2].query, /priceList/);
     assert.deepEqual(graphqlCalls[2].variables, {
-      id: "gid://shopify/ProductVariant/1",
-      country: "CA",
+      id: "gid://shopify/PriceList/1",
+      first: 250,
+      after: null,
     });
   });
 });

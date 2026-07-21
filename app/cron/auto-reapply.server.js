@@ -19,6 +19,7 @@ const AUTO_REAPPLY_POLL_INTERVAL_MS = 60 * 1000;
 const AUTO_REAPPLY_RUNNING_LOCK_MS = 55 * 60 * 1000;
 const AUTO_REAPPLY_BATCH_SIZE = 25;
 const DEFAULT_SHOPIFY_API_VERSION = "2025-04";
+const TASK_AUDIT_SKIP_REASON_MAX_LENGTH = 500;
 
 const TASK_VARIANTS_QUERY = `#graphql
   query TaskProductVariants($first: Int!, $after: String, $query: String) {
@@ -586,12 +587,19 @@ async function persistTaskAuditLogs(logs) {
       previousPrice: log.previousPrice == null ? null : String(log.previousPrice),
       newPrice: log.newPrice == null ? null : String(log.newPrice),
       action: log.action,
-      skipReason: log.skipReason || null,
+      skipReason: truncateTaskAuditValue(log.skipReason),
     }));
 
   if (!rows.length) return;
 
   await db.taskAuditLog.createMany({ data: rows });
+}
+
+function truncateTaskAuditValue(value, maxLength = TASK_AUDIT_SKIP_REASON_MAX_LENGTH) {
+  if (value == null || value === "") return null;
+
+  const text = String(value);
+  return text.length > maxLength ? text.slice(0, maxLength) : text;
 }
 
 async function shopifyGraphql(admin, query, variables = {}) {

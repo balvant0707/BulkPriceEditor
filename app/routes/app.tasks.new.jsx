@@ -68,6 +68,7 @@ const MARKETS_QUERY = `#graphql
             title
             priceList {
               id
+              currency
             }
           }
         }
@@ -315,6 +316,7 @@ const PROGRESS_UPDATE_MIN_INTERVAL_MS = 500;
 const PROGRESS_UPDATE_MIN_DELTA = 2;
 const GRAPHQL_MAX_RETRIES = 4;
 const GRAPHQL_RETRY_BASE_MS = 500;
+const TASK_AUDIT_SKIP_REASON_MAX_LENGTH = 500;
 const AUTO_REAPPLY_CONFLICT_MESSAGE =
   "You have completed a task with auto-reapply enabled for similar products. Disable auto-reapply on that task first.";
 
@@ -759,6 +761,10 @@ function buildTaskData(shop, formData) {
     formData,
     "selected_market_price_list_ids[]",
   );
+  const selectedMarketPriceListCurrencies = getFormValues(
+    formData,
+    "selected_market_price_list_currencies[]",
+  );
   const applyCollections = buildSelectedCollectionRecords(formData, "apply");
   const excludeCollections = buildSelectedCollectionRecords(formData, "exclude");
   const applyProducts = buildSelectedProductRecords(formData, "apply");
@@ -817,16 +823,35 @@ function buildTaskData(shop, formData) {
     applyToActiveProducts,
     applyToDraftProducts,
     applyToSoldoutProducts,
-    selectedMarkets: selectedMarketIds.map((id, index) => ({
-      id,
-      name: selectedMarketNames[index] || "",
-      handle: selectedMarketHandles[index] || "",
-      currencyCode: selectedMarketCurrencyCodes[index] || "",
-      priceListIds: String(selectedMarketPriceListIds[index] || "")
+    selectedMarkets: selectedMarketIds.map((id, index) => {
+      const priceListIds = String(selectedMarketPriceListIds[index] || "")
         .split(",")
         .map((value) => value.trim())
-        .filter(Boolean),
-    })),
+        .filter(Boolean);
+      const priceListCurrencies = String(
+        selectedMarketPriceListCurrencies[index] || "",
+      )
+        .split(",")
+        .map((value) => value.trim());
+      const priceLists = priceListIds.map((priceListId, priceListIndex) => ({
+        id: priceListId,
+        currencyCode: priceListCurrencies[priceListIndex] || "",
+      }));
+
+      return {
+        id,
+        name: selectedMarketNames[index] || "",
+        handle: selectedMarketHandles[index] || "",
+        currencyCode: selectedMarketCurrencyCodes[index] || "",
+        priceListIds,
+        priceLists,
+        priceListCurrencies: Object.fromEntries(
+          priceLists
+            .filter((priceList) => priceList.currencyCode)
+            .map((priceList) => [priceList.id, priceList.currencyCode]),
+        ),
+      };
+    }),
     priceChange: buildChangeData(formData, "price"),
     compareAtPriceChange: buildChangeData(formData, "compare_at_price"),
     costPerItemChange: buildChangeData(formData, "cost_per_item"),
@@ -1484,12 +1509,19 @@ async function persistTaskAuditLogs(logs) {
       previousPrice: log.previousPrice == null ? null : String(log.previousPrice),
       newPrice: log.newPrice == null ? null : String(log.newPrice),
       action: log.action,
-      skipReason: log.skipReason || null,
+      skipReason: truncateTaskAuditValue(log.skipReason),
     }));
 
   if (!rows.length) return;
 
   await db.taskAuditLog.createMany({ data: rows });
+}
+
+function truncateTaskAuditValue(value, maxLength = TASK_AUDIT_SKIP_REASON_MAX_LENGTH) {
+  if (value == null || value === "") return null;
+
+  const text = String(value);
+  return text.length > maxLength ? text.slice(0, maxLength) : text;
 }
 
 function resolveShop(...sources) {
@@ -2173,11 +2205,18 @@ const excludeDiscountedChoices = [
 
 function normalizeMarkets(markets = []) {
   return markets.map((market) => {
+    const priceLists = (market.catalogs?.nodes || [])
+      .map((catalog) => catalog.priceList)
+      .filter((priceList) => priceList?.id)
+      .map((priceList) => ({
+        id: priceList.id,
+        currencyCode: priceList.currency || "",
+      }));
+    const priceListIds = priceLists.map((priceList) => priceList.id);
     const currencyCode =
-      market.currencySettings?.baseCurrency?.currencyCode || "";
-    const priceListIds = (market.catalogs?.nodes || [])
-      .map((catalog) => catalog.priceList?.id)
-      .filter(Boolean);
+      priceLists.find((priceList) => priceList.currencyCode)?.currencyCode ||
+      market.currencySettings?.baseCurrency?.currencyCode ||
+      "";
     const regions = market.regions?.nodes || [];
     const currencyLabel = currencyCode ? ` (${currencyCode})` : "";
     const disabledLabel = currencyCode ? "" : " - no currency";
@@ -2194,6 +2233,12 @@ function normalizeMarkets(markets = []) {
       regions,
       catalogs: market.catalogs?.nodes || [],
       priceListIds,
+      priceLists,
+      priceListCurrencies: Object.fromEntries(
+        priceLists
+          .filter((priceList) => priceList.currencyCode)
+          .map((priceList) => [priceList.id, priceList.currencyCode]),
+      ),
       label: `${market.name}${currencyLabel}${disabledLabel}${priceListLabel}${primaryLabel}`,
       disabled: !currencyCode || !priceListIds.length,
     };
@@ -3853,6 +3898,13 @@ export default function NewTaskPage() {
                                 type="hidden"
                                 name="selected_market_price_list_ids[]"
                                 value={(market.priceListIds || []).join(",")}
+                              />
+                              <input
+                                type="hidden"
+                                name="selected_market_price_list_currencies[]"
+                                value={(market.priceLists || [])
+                                  .map((priceList) => priceList.currencyCode || "")
+                                  .join(",")}
                               />
                             </div>
                           ))}

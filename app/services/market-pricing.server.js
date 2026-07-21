@@ -2,6 +2,7 @@ const PRICE_LIST_PRICES_QUERY = `#graphql
   query MarketPriceListPrices($id: ID!, $first: Int!, $after: String) {
     priceList(id: $id) {
       id
+      currency
       prices(first: $first, after: $after) {
         nodes {
           originType
@@ -22,6 +23,15 @@ const PRICE_LIST_PRICES_QUERY = `#graphql
           endCursor
         }
       }
+    }
+  }
+`;
+
+const PRICE_LIST_CURRENCY_QUERY = `#graphql
+  query MarketPriceListCurrency($id: ID!) {
+    priceList(id: $id) {
+      id
+      currency
     }
   }
 `;
@@ -127,7 +137,7 @@ const MARKET_PRODUCT_VARIANT_CONTEXTUAL_PRICING = `#graphql
 const PRICE_LIST_PAGE_SIZE = 250;
 const PRICE_LIST_UPDATE_BATCH_SIZE = 100;
 const PRODUCT_UPDATE_BATCH_SIZE = 4;
-const MARKET_CONTEXTUAL_VERIFY_LIMIT = 25;
+const MARKET_FIXED_PRICE_VERIFY_LIMIT = 25;
 const GRAPHQL_MAX_RETRIES = 4;
 const GRAPHQL_RETRY_BASE_MS = 500;
 
@@ -187,6 +197,7 @@ export async function updateMarketPrices({
   let updatedCount = 0;
   let skippedCount = 0;
   let updatedBaseProductPrices = false;
+  const priceListCurrencyCache = new Map();
 
   for (const market of selectedMarkets) {
     if (!market.priceListIds.length) {
@@ -216,6 +227,12 @@ export async function updateMarketPrices({
 
     for (const priceListId of market.priceListIds) {
       try {
+        const priceListCurrency = await resolvePriceListCurrency(
+          admin,
+          market,
+          priceListId,
+          priceListCurrencyCache,
+        );
         const fixedPrices = await getFixedPrices(admin, priceListId, variantIds);
         const updates = [];
         const priceListLogs = [];
@@ -281,7 +298,7 @@ export async function updateMarketPrices({
             variantId: variant.id,
             price: {
               amount: nextPrice ?? formatPrice(basePrice),
-              currencyCode: market.currencyCode || fixedPrice?.currencyCode,
+              currencyCode: priceListCurrency,
             },
           };
 
@@ -291,12 +308,12 @@ export async function updateMarketPrices({
                 ? null
                 : {
                     amount: adjustedNextCompareAtPrice,
-                    currencyCode: market.currencyCode || fixedPrice?.currencyCode,
+                    currencyCode: priceListCurrency,
                   };
           } else if (baseCompareAtPrice != null) {
             priceInput.compareAtPrice = {
               amount: formatPrice(baseCompareAtPrice),
-              currencyCode: market.currencyCode || fixedPrice?.currencyCode,
+              currencyCode: priceListCurrency,
             };
           }
 
@@ -324,7 +341,7 @@ export async function updateMarketPrices({
               priceInput.compareAtPrice === undefined
                 ? baseCompareAtPrice
                 : priceInput.compareAtPrice?.amount ?? null,
-            currencyCode: market.currencyCode || fixedPrice?.currencyCode || "",
+            currencyCode: priceListCurrency,
             hadFixedPrice: hasFixedPrice,
           });
           priceListLogs.push(
@@ -356,7 +373,7 @@ export async function updateMarketPrices({
           continue;
         }
 
-        const verification = await verifyMarketContextualPrices(admin, market, updates);
+        const verification = await verifyFixedPriceListPrices(admin, priceListId, updates);
         const verifiedLogs = applyMarketVerificationToLogs(priceListLogs, verification);
         logs.push(...verifiedLogs);
         updatedCount += result.updatedCount;
@@ -689,41 +706,43 @@ async function addFixedPrices(admin, priceListId, prices) {
   return { errors, updatedCount };
 }
 
-async function verifyMarketContextualPrices(admin, market, prices = []) {
-  const countryCode = getMarketVerificationCountryCode(market);
+async function verifyFixedPriceListPrices(admin, priceListId, prices = []) {
   const errors = [];
   const byVariantId = new Map();
+  const expectedPrices = prices.slice(0, MARKET_FIXED_PRICE_VERIFY_LIMIT);
 
-  if (!countryCode) return { errors, byVariantId };
+  if (!priceListId || !expectedPrices.length) return { errors, byVariantId };
 
-  for (const priceInput of prices.slice(0, MARKET_CONTEXTUAL_VERIFY_LIMIT)) {
-    try {
-      const data = await marketGraphql(admin, MARKET_PRODUCT_VARIANT_CONTEXTUAL_PRICING, {
-        id: priceInput.variantId,
-        country: countryCode,
-      });
-      const pricing = data.productVariant?.contextualPricing;
-      const actualPrice = pricing?.price?.amount;
-      const actualCurrency = pricing?.price?.currencyCode;
+  try {
+    const actualPrices = await getFixedPrices(
+      admin,
+      priceListId,
+      expectedPrices.map((price) => price.variantId),
+    );
+
+    for (const priceInput of expectedPrices) {
+      const actual = actualPrices.get(priceInput.variantId);
+      const actualPrice = actual?.price;
+      const actualCurrency = actual?.currencyCode;
       const expectedPrice = priceInput.price?.amount;
       const expectedCurrency = priceInput.price?.currencyCode;
 
       if (
+        actual?.originType !== "FIXED" ||
         !moneyValuesEqual(actualPrice, expectedPrice) ||
         (expectedCurrency && actualCurrency !== expectedCurrency)
       ) {
-        const message = `Market storefront verification failed for ${priceInput.variantId}: expected ${expectedPrice} ${expectedCurrency}, got ${actualPrice || "blank"} ${actualCurrency || ""}.`;
+        const message = `Market price verification failed for ${priceInput.variantId}: expected fixed ${expectedPrice} ${expectedCurrency}, got ${actualPrice || "blank"} ${actualCurrency || ""}.`;
         errors.push(message);
         byVariantId.set(priceInput.variantId, [message]);
       }
-    } catch (error) {
-      const message =
-        error instanceof Error
-          ? `Market storefront verification failed for ${priceInput.variantId}: ${error.message}`
-          : `Market storefront verification failed for ${priceInput.variantId}.`;
-      errors.push(message);
-      byVariantId.set(priceInput.variantId, [message]);
     }
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? `Market price verification failed: ${error.message}`
+        : "Market price verification failed.";
+    errors.push(message);
   }
 
   return { errors, byVariantId };
@@ -803,17 +822,60 @@ async function marketGraphql(admin, query, variables = {}) {
 
 function normalizeMarkets(markets = []) {
   return (Array.isArray(markets) ? markets : [])
-    .map((market) => ({
-      ...market,
-      priceListIds: [
+    .map((market) => {
+      const priceLists = [
+        ...(market.priceLists || []),
+        ...(market.catalogs || []).map((catalog) => catalog.priceList),
+      ]
+        .filter((priceList) => priceList?.id)
+        .map((priceList) => ({
+          id: priceList.id,
+          currencyCode: priceList.currencyCode || priceList.currency || "",
+        }));
+      const priceListIds = [
         ...new Set([
           ...(market.priceListIds || []),
           market.priceListId,
-          ...(market.catalogs || []).map((catalog) => catalog.priceList?.id),
+          ...priceLists.map((priceList) => priceList.id),
         ].flat().filter(Boolean)),
-      ],
-    }))
+      ];
+
+      return {
+        ...market,
+        priceLists,
+        priceListIds,
+        priceListCurrencies: {
+          ...(market.priceListCurrencies || {}),
+          ...Object.fromEntries(
+            priceLists
+              .filter((priceList) => priceList.currencyCode)
+              .map((priceList) => [priceList.id, priceList.currencyCode]),
+          ),
+        },
+      };
+    })
     .filter((market) => market.id || market.name || market.priceListIds.length);
+}
+
+async function resolvePriceListCurrency(admin, market, priceListId, cache) {
+  const savedCurrency =
+    market.priceListCurrencies?.[priceListId] ||
+    (market.priceLists || []).find((priceList) => priceList?.id === priceListId)
+      ?.currencyCode ||
+    (market.priceLists || []).find((priceList) => priceList?.id === priceListId)
+      ?.currency ||
+    "";
+
+  if (savedCurrency) return savedCurrency;
+  if (cache.has(priceListId)) return cache.get(priceListId);
+
+  const data = await marketGraphql(admin, PRICE_LIST_CURRENCY_QUERY, {
+    id: priceListId,
+  });
+  const currency = data.priceList?.currency || market.currencyCode || "";
+
+  cache.set(priceListId, currency);
+  return currency;
 }
 
 function buildMarketLog({
