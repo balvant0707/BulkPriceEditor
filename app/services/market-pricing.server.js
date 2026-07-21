@@ -202,7 +202,8 @@ export async function updateMarketPrices({
 
         for (const variant of variants) {
           const fixedPrice = fixedPrices.get(variant.id);
-          if (applyToFixedPrices && !fixedPrice) {
+          const hasFixedPrice = fixedPrice?.originType === "FIXED";
+          if (applyToFixedPrices && !hasFixedPrice) {
             skippedCount += 1;
             logs.push(
               buildMarketLog({
@@ -230,11 +231,27 @@ export async function updateMarketPrices({
             compareAtPriceChange,
             { resetValue: null, fallbackBase: basePrice },
           );
+          const effectiveNextPrice = nextPrice ?? formatPrice(basePrice);
+          let adjustedNextCompareAtPrice = nextCompareAtPrice;
+          const compareAtMessages = [];
+          if (
+            isInvalidCompareAtPrice(
+              adjustedNextCompareAtPrice === undefined
+                ? baseCompareAtPrice
+                : adjustedNextCompareAtPrice,
+              effectiveNextPrice,
+            )
+          ) {
+            adjustedNextCompareAtPrice = null;
+            compareAtMessages.push(
+              "Compare at price was cleared because it must be greater than the sale price.",
+            );
+          }
 
           if (
             (nextPrice === undefined || moneyValuesEqual(nextPrice, basePrice)) &&
-            (nextCompareAtPrice === undefined ||
-              moneyValuesEqual(nextCompareAtPrice, baseCompareAtPrice))
+            (adjustedNextCompareAtPrice === undefined ||
+              moneyValuesEqual(adjustedNextCompareAtPrice, baseCompareAtPrice))
           ) {
             skippedCount += 1;
             continue;
@@ -248,12 +265,12 @@ export async function updateMarketPrices({
             },
           };
 
-          if (nextCompareAtPrice !== undefined) {
+          if (adjustedNextCompareAtPrice !== undefined) {
             priceInput.compareAtPrice =
-              nextCompareAtPrice == null
+              adjustedNextCompareAtPrice == null
                 ? null
                 : {
-                    amount: nextCompareAtPrice,
+                    amount: adjustedNextCompareAtPrice,
                     currencyCode: market.currencyCode || fixedPrice?.currencyCode,
                   };
           } else if (baseCompareAtPrice != null) {
@@ -288,7 +305,7 @@ export async function updateMarketPrices({
                 ? baseCompareAtPrice
                 : priceInput.compareAtPrice?.amount ?? null,
             currencyCode: market.currencyCode || fixedPrice?.currencyCode || "",
-            hadFixedPrice: Boolean(fixedPrice),
+            hadFixedPrice: hasFixedPrice,
           });
           logs.push(
             buildMarketLog({
@@ -306,6 +323,7 @@ export async function updateMarketPrices({
                   ? baseCompareAtPrice
                   : priceInput.compareAtPrice?.amount ?? null,
               status: "Applied",
+              errors: compareAtMessages,
             }),
           );
         }
@@ -362,11 +380,28 @@ async function updateBaseProductPrices({
       compareAtPriceChange,
       { resetValue: null, fallbackBase: basePrice },
     );
+    const effectiveNextPrice = nextPrice ?? formatPrice(basePrice);
+    let adjustedNextCompareAtPrice = nextCompareAtPrice;
+    const compareAtMessages = [];
+
+    if (
+      isInvalidCompareAtPrice(
+        adjustedNextCompareAtPrice === undefined
+          ? baseCompareAtPrice
+          : adjustedNextCompareAtPrice,
+        effectiveNextPrice,
+      )
+    ) {
+      adjustedNextCompareAtPrice = null;
+      compareAtMessages.push(
+        "Compare at price was cleared because it must be greater than the sale price.",
+      );
+    }
 
     if (
       (nextPrice === undefined || moneyValuesEqual(nextPrice, basePrice)) &&
-      (nextCompareAtPrice === undefined ||
-        moneyValuesEqual(nextCompareAtPrice, baseCompareAtPrice))
+      (adjustedNextCompareAtPrice === undefined ||
+        moneyValuesEqual(adjustedNextCompareAtPrice, baseCompareAtPrice))
     ) {
       skippedCount += 1;
       continue;
@@ -382,10 +417,10 @@ async function updateBaseProductPrices({
     }
 
     if (
-      nextCompareAtPrice !== undefined &&
-      !moneyValuesEqual(nextCompareAtPrice, baseCompareAtPrice)
+      adjustedNextCompareAtPrice !== undefined &&
+      !moneyValuesEqual(adjustedNextCompareAtPrice, baseCompareAtPrice)
     ) {
-      update.variant.compareAtPrice = nextCompareAtPrice;
+      update.variant.compareAtPrice = adjustedNextCompareAtPrice;
     }
 
     if (!update.productId || Object.keys(update.variant).length <= 1) {
@@ -421,6 +456,7 @@ async function updateBaseProductPrices({
             ? baseCompareAtPrice
             : update.variant.compareAtPrice,
         status: "Applied",
+        errors: compareAtMessages,
       }),
     );
   }
@@ -770,6 +806,12 @@ function formatUserError(error) {
 function formatDisplayValue(value) {
   if (value === null || value === undefined || value === "") return "blank";
   return formatPrice(value);
+}
+
+function isInvalidCompareAtPrice(compareAtPrice, price) {
+  const compareAt = toNumber(compareAtPrice);
+  const currentPrice = toNumber(price);
+  return compareAt != null && currentPrice != null && compareAt <= currentPrice;
 }
 
 function getRelativeBaseValue(variant, relativeTo) {

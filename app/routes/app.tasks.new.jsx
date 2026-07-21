@@ -799,7 +799,11 @@ function buildTaskData(shop, formData) {
     shop: resolvedShop,
     status: "draft",
     applyChangesTo: getFormValue(formData, "apply_changes_to", "products"),
-    applyToFixedPrices: hasFormValue(formData, "apply_to_fixed_prices"),
+    applyToFixedPrices: getBooleanFormValue(
+      formData,
+      "apply_to_fixed_prices",
+      false,
+    ),
     applyToActiveProducts,
     applyToDraftProducts,
     applyToSoldoutProducts,
@@ -902,6 +906,9 @@ function validateTaskData(taskData) {
   if (taskData.applyChangesTo === "markets") {
     const markets = taskData.selectedMarkets || [];
     if (!markets.length) return "Choose at least one Shopify Market.";
+    if (markets.some((market) => !market.priceListIds?.length)) {
+      return "Choose a Shopify Market with a price list.";
+    }
     if (taskData.costPerItemChange?.action) {
       return "Cost per item changes are available only for Product prices.";
     }
@@ -2158,9 +2165,13 @@ function normalizeMarkets(markets = []) {
   return markets.map((market) => {
     const currencyCode =
       market.currencySettings?.baseCurrency?.currencyCode || "";
+    const priceListIds = (market.catalogs?.nodes || [])
+      .map((catalog) => catalog.priceList?.id)
+      .filter(Boolean);
     const regions = market.regions?.nodes || [];
     const currencyLabel = currencyCode ? ` (${currencyCode})` : "";
     const disabledLabel = currencyCode ? "" : " - no currency";
+    const priceListLabel = priceListIds.length ? "" : " - no price list";
     const primaryLabel = market.primary ? " - primary" : "";
 
     return {
@@ -2172,11 +2183,9 @@ function normalizeMarkets(markets = []) {
       primary: Boolean(market.primary),
       regions,
       catalogs: market.catalogs?.nodes || [],
-      priceListIds: (market.catalogs?.nodes || [])
-        .map((catalog) => catalog.priceList?.id)
-        .filter(Boolean),
-      label: `${market.name}${currencyLabel}${disabledLabel}${primaryLabel}`,
-      disabled: !currencyCode,
+      priceListIds,
+      label: `${market.name}${currencyLabel}${disabledLabel}${priceListLabel}${primaryLabel}`,
+      disabled: !currencyCode || !priceListIds.length,
     };
   });
 }
@@ -3455,6 +3464,13 @@ function getConfigValue(configuration, name, fallback = "") {
   return value || fallback;
 }
 
+function getConfigBoolean(configuration, name, fallback = false) {
+  const value = getConfigValue(configuration, name, fallback ? "true" : "false");
+  return !["false", "0", "off", "no", "disabled", ""].includes(
+    String(value).toLowerCase(),
+  );
+}
+
 function idsToSelectedItems(ids) {
   return ids.map((id) => ({ id, title: id }));
 }
@@ -3524,7 +3540,8 @@ export default function NewTaskPage() {
     getConfigValue(configuration, "apply_changes_to", task?.applyChangesTo || "products"),
   );
   const [applyToFixedPrices, setApplyToFixedPrices] = useState(
-    Boolean(task?.applyToFixedPrices || configuration.apply_to_fixed_prices),
+    task?.applyToFixedPrices ??
+      getConfigBoolean(configuration, "apply_to_fixed_prices", false),
   );
   const [applyToActiveProducts, setApplyToActiveProducts] = useState(
     initialApplyToActiveProducts !== "false",
@@ -3792,6 +3809,12 @@ export default function NewTaskPage() {
                             selected={selectedMarkets}
                             onChange={handleSelectedMarketsChange}
                             choices={marketChoices}
+                          />
+
+                          <Checkbox
+                            label="Only update variants that already have fixed market prices"
+                            checked={applyToFixedPrices}
+                            onChange={setApplyToFixedPrices}
                           />
 
                           {selectedMarketDetails.map((market) => (

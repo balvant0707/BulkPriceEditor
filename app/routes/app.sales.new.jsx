@@ -473,8 +473,35 @@ function validateSaleData(saleData) {
 
   const markets = saleData.markets || [];
   if (!markets.length) return "Choose at least one Shopify Market.";
+  if (markets.some((market) => !market.priceListIds?.length)) {
+    return "Choose a Shopify Market with a price list.";
+  }
+
+  const priceChange = saleData.priceChange || {};
+  const compareAtPriceChange = saleData.compareAtPriceChange || {};
+  if (
+    priceChange.action === "set_new_value" &&
+    compareAtPriceChange.action === "set_new_value"
+  ) {
+    const priceAmount = toValidationNumber(priceChange.amount);
+    const compareAtPriceAmount = toValidationNumber(compareAtPriceChange.amount);
+
+    if (
+      priceAmount != null &&
+      compareAtPriceAmount != null &&
+      compareAtPriceAmount <= priceAmount
+    ) {
+      return "Compare at price must be greater than the sale price.";
+    }
+  }
 
   return "";
+}
+
+function toValidationNumber(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
 }
 
 async function findActiveWholeStoreSale(shop, saleId, saleData) {
@@ -616,9 +643,13 @@ function normalizeMarkets(markets = []) {
   return markets.map((market) => {
     const currencyCode =
       market.currencySettings?.baseCurrency?.currencyCode || "";
+    const priceListIds = (market.catalogs?.nodes || [])
+      .map((catalog) => catalog.priceList?.id)
+      .filter(Boolean);
     const regions = market.regions?.nodes || [];
     const currencyLabel = currencyCode ? ` (${currencyCode})` : "";
     const disabledLabel = currencyCode ? "" : " - no currency";
+    const priceListLabel = priceListIds.length ? "" : " - no price list";
     const primaryLabel = market.primary ? " - primary" : "";
 
     return {
@@ -630,11 +661,9 @@ function normalizeMarkets(markets = []) {
       primary: Boolean(market.primary),
       regions,
       catalogs: market.catalogs?.nodes || [],
-      priceListIds: (market.catalogs?.nodes || [])
-        .map((catalog) => catalog.priceList?.id)
-        .filter(Boolean),
-      label: `${market.name}${currencyLabel}${disabledLabel}${primaryLabel}`,
-      disabled: !currencyCode,
+      priceListIds,
+      label: `${market.name}${currencyLabel}${disabledLabel}${priceListLabel}${primaryLabel}`,
+      disabled: !currencyCode || !priceListIds.length,
     };
   });
 }
@@ -1630,8 +1659,9 @@ export default function NewSalePage() {
   const [form, setForm] = useState({
     title: initialForm.title || sale?.title || "",
     changeType: initialForm.changeType || sale?.changeType || "products",
-    applyToFixedPrices: Boolean(
+    applyToFixedPrices: getBooleanFormValue(
       initialForm.applyToFixedPrices ?? sale?.applyToFixedPrices,
+      false,
     ),
     markets:
       initialForm.markets ||
@@ -2181,6 +2211,12 @@ export default function NewSalePage() {
                       choices={marketOptions}
                       selected={form.markets}
                       onChange={handleMarketsChange}
+                    />
+
+                    <Checkbox
+                      label="Only update variants that already have fixed market prices"
+                      checked={form.applyToFixedPrices}
+                      onChange={setField("applyToFixedPrices")}
                     />
 
                     {selectedMarketDetails.map((market) => (
