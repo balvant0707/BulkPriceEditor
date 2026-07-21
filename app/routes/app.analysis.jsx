@@ -13,6 +13,7 @@ import {
   InlineStack,
   Link,
   Page,
+  Pagination,
   Select,
   Tabs,
   Text,
@@ -37,6 +38,7 @@ const RECORD_TYPE_OPTIONS = [
   { label: "Sales", value: "sales" },
 ];
 const ROLLBACK_LIMIT = 8;
+const RECENT_CHANGES_PAGE_SIZE = 8;
 const TASK_APPLY_TO_OPTIONS = [
   { key: "whole_store", label: "Whole store", type: "store" },
   { key: "selected_collections", label: "Selected collections", type: "collection" },
@@ -262,6 +264,7 @@ function buildAnalysisStats(tasks, sales) {
   const taskChanges = tasks.reduce((sum, task) => sum + getChangeCount(task), 0);
   const saleChanges = sales.reduce((sum, sale) => sum + getChangeCount(sale), 0);
   const rollbacks = [...tasks, ...sales].filter(hasRollback).length;
+  const rollbackRecords = [...tasks, ...sales].filter(hasRollback);
 
   return {
     tasks: tasks.length,
@@ -272,7 +275,121 @@ function buildAnalysisStats(tasks, sales) {
     rollbacks,
     taskChanges,
     saleChanges,
+    tasksTrend: getTrendLabel(
+      countRecordsInSelectedPeriod(tasks),
+      countRecordsInPreviousPeriod(tasks),
+    ),
+    salesTrend: getTrendLabel(
+      countRecordsInSelectedPeriod(sales),
+      countRecordsInPreviousPeriod(sales),
+    ),
+    changesTrend: getTrendLabel(
+      sumChangesInSelectedPeriod([...tasks, ...sales]),
+      sumChangesInPreviousPeriod([...tasks, ...sales]),
+    ),
+    rollbacksTrend: getTrendLabel(
+      countRecordsInSelectedPeriod(rollbackRecords),
+      countRecordsInPreviousPeriod(rollbackRecords),
+    ),
+    tasksChart: buildDailySeries(tasks, (task) => getRecordDate(task)),
+    salesChart: buildDailySeries(sales, (sale) => getRecordDate(sale)),
+    changesChart: buildDailySeries(
+      [...tasks, ...sales],
+      (record) => getRecordDate(record),
+      (record) => getChangeCount(record) || 1,
+    ),
+    rollbacksChart: buildDailySeries(rollbackRecords, (record) => getRecordDate(record)),
   };
+}
+
+function getPeriodBoundsForRecords(records, days = 30) {
+  const dates = records
+    .map((record) => getRecordDate(record))
+    .filter(Boolean)
+    .map((date) => new Date(date))
+    .filter((date) => !Number.isNaN(date.getTime()));
+  const end = dates.length ? new Date(Math.max(...dates.map((date) => date.getTime()))) : new Date();
+  const currentStart = new Date(end);
+  currentStart.setDate(currentStart.getDate() - days);
+  const previousStart = new Date(currentStart);
+  previousStart.setDate(previousStart.getDate() - days);
+
+  return { end, currentStart, previousStart };
+}
+
+function isDateInRange(value, start, end) {
+  if (!value) return false;
+  const date = new Date(value);
+  return !Number.isNaN(date.getTime()) && date >= start && date <= end;
+}
+
+function countRecordsInSelectedPeriod(records) {
+  const { end, currentStart } = getPeriodBoundsForRecords(records);
+  return records.filter((record) => isDateInRange(getRecordDate(record), currentStart, end)).length;
+}
+
+function countRecordsInPreviousPeriod(records) {
+  const { currentStart, previousStart } = getPeriodBoundsForRecords(records);
+  return records.filter((record) => isDateInRange(getRecordDate(record), previousStart, currentStart)).length;
+}
+
+function sumChangesInSelectedPeriod(records) {
+  const { end, currentStart } = getPeriodBoundsForRecords(records);
+  return records.reduce((sum, record) => (
+    isDateInRange(getRecordDate(record), currentStart, end)
+      ? sum + (getChangeCount(record) || 1)
+      : sum
+  ), 0);
+}
+
+function sumChangesInPreviousPeriod(records) {
+  const { currentStart, previousStart } = getPeriodBoundsForRecords(records);
+  return records.reduce((sum, record) => (
+    isDateInRange(getRecordDate(record), previousStart, currentStart)
+      ? sum + (getChangeCount(record) || 1)
+      : sum
+  ), 0);
+}
+
+function getTrendLabel(currentValue, previousValue) {
+  if (!currentValue && !previousValue) return "No changes";
+  if (!previousValue) return "New";
+
+  const percent = Math.round(((currentValue - previousValue) / previousValue) * 100);
+  return `${percent >= 0 ? "up " : "down "}${Math.abs(percent)}%`;
+}
+
+function buildDailySeries(records, getDate, getValue = () => 1, days = 12) {
+  const dates = records
+    .map(getDate)
+    .filter(Boolean)
+    .map((date) => new Date(date))
+    .filter((date) => !Number.isNaN(date.getTime()));
+  const end = dates.length ? new Date(Math.max(...dates.map((date) => date.getTime()))) : new Date();
+  end.setHours(23, 59, 59, 999);
+  const start = new Date(end);
+  start.setDate(start.getDate() - (days - 1));
+  start.setHours(0, 0, 0, 0);
+  const buckets = new Map();
+
+  for (let index = 0; index < days; index += 1) {
+    const date = new Date(start);
+    date.setDate(start.getDate() + index);
+    buckets.set(date.toISOString().slice(0, 10), 0);
+  }
+
+  for (const record of records) {
+    const rawDate = getDate(record);
+    if (!rawDate) continue;
+
+    const date = new Date(rawDate);
+    if (Number.isNaN(date.getTime()) || date < start || date > end) continue;
+
+    const key = date.toISOString().slice(0, 10);
+    buckets.set(key, (buckets.get(key) || 0) + Math.max(0, Number(getValue(record)) || 0));
+  }
+
+  return [...buckets.entries()].map(([date, value]) => ({ date, value }));
 }
 
 function buildApplyToSections(tasks, sales) {
@@ -615,7 +732,9 @@ function buildDonutGradient(stats) {
   return `conic-gradient(#10a37f 0 ${taskEnd}%, #6d5dfc ${taskEnd}% ${saleEnd}%, #f59e0b ${saleEnd}% 100%)`;
 }
 
-function MetricCard({ title, value, subtitle, color, icon, trend = "Tracked" }) {
+function MetricCard({ title, value, subtitle, color, icon, trend = "No changes", chart = [] }) {
+  const isQuietTrend = trend === "No changes";
+
   return (
     <div style={metricCardStyle}>
       <Card>
@@ -638,10 +757,10 @@ function MetricCard({ title, value, subtitle, color, icon, trend = "Tracked" }) 
                   </InlineStack>
                 </BlockStack>
               </InlineStack>
-              <MetricSparkline color={color.foreground} flat={trend === "No changes"} />
+              <MetricSparkline color={color.foreground} data={chart} flat={isQuietTrend} />
             </InlineStack>
-            <Text as="span" tone={trend === "No changes" ? "subdued" : "success"} fontWeight="semibold">
-              {trend === "No changes" ? trend : `up ${trend} from selected period`}
+            <Text as="span" tone={isQuietTrend ? "subdued" : trend.startsWith("down") ? "critical" : "success"} fontWeight="semibold">
+              {isQuietTrend ? trend : `${trend} from selected period`}
             </Text>
           </BlockStack>
         </div>
@@ -650,30 +769,40 @@ function MetricCard({ title, value, subtitle, color, icon, trend = "Tracked" }) 
   );
 }
 
-function MetricSparkline({ color, flat = false }) {
-  if (flat) {
+function MetricSparkline({ color, data = [], flat = false }) {
+  const safeData = Array.isArray(data) ? data : [];
+  const values = safeData.length ? safeData.map((point) => Math.max(0, Number(point.value) || 0)) : [0];
+  const maxValue = Math.max(1, ...values);
+  const points = values.map((value, index) => {
+    const x = 8 + index * (104 / Math.max(1, values.length - 1));
+    const y = 8 + 38 - (value / maxValue) * 38;
+    return { x, y };
+  });
+  const linePoints = points.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ");
+  const areaPoints = `${linePoints} 112,54 8,54`;
+
+  if (flat || !values.some(Boolean)) {
     return (
       <svg viewBox="0 0 120 56" role="img" aria-label="No change chart" style={metricSparklineStyle}>
-        <line x1="8" y1="30" x2="116" y2="30" stroke={color} strokeWidth="3" strokeLinecap="round" />
+        <line x1="8" y1="30" x2="112" y2="30" stroke={color} strokeWidth="1" strokeLinecap="round" />
       </svg>
     );
   }
 
   return (
     <svg viewBox="0 0 120 56" role="img" aria-label="Trend chart" style={metricSparklineStyle}>
-      <path
-        d="M5 44 C 18 30, 24 36, 34 24 S 52 38, 62 18 S 82 34, 92 20 S 108 28, 116 22"
+      <polygon points={areaPoints} fill={color} opacity="0.08" />
+      <polyline
+        points={linePoints}
         fill="none"
         stroke={color}
-        strokeWidth="3"
+        strokeWidth="1"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-      <path
-        d="M5 50 C 20 34, 28 40, 38 28 S 58 42, 68 22 S 86 38, 96 26 S 110 34, 116 28 L116 56 L5 56 Z"
-        fill={color}
-        opacity="0.08"
-      />
+      {points.map((point, index) => (
+        <circle key={index} cx={point.x} cy={point.y} r="1.7" fill={color} />
+      ))}
     </svg>
   );
 }
@@ -1049,6 +1178,7 @@ function LegendRow({ color, label, value, percent }) {
 function RecentChangesTable({ rows = [] }) {
   const safeRows = Array.isArray(rows) ? rows : [];
   const [selectedTab, setSelectedTab] = useState(0);
+  const [page, setPage] = useState(1);
   const taskCount = safeRows.filter((row) => row.type === "Task").length;
   const saleCount = safeRows.filter((row) => row.type === "Sale").length;
   const tabs = useMemo(
@@ -1060,6 +1190,16 @@ function RecentChangesTable({ rows = [] }) {
   );
   const selectedType = selectedTab === 0 ? "Task" : "Sale";
   const visibleRows = safeRows.filter((row) => row.type === selectedType);
+  const totalPages = Math.max(1, Math.ceil(visibleRows.length / RECENT_CHANGES_PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const paginatedRows = visibleRows.slice(
+    (currentPage - 1) * RECENT_CHANGES_PAGE_SIZE,
+    currentPage * RECENT_CHANGES_PAGE_SIZE,
+  );
+  const handleTabSelect = (index) => {
+    setSelectedTab(index);
+    setPage(1);
+  };
 
   return (
     <Card padding="0">
@@ -1068,12 +1208,12 @@ function RecentChangesTable({ rows = [] }) {
           <Text as="h2" variant="headingMd">
             Recent changes
           </Text>
-          <Tabs tabs={tabs} selected={selectedTab} onSelect={setSelectedTab} />
+          <Tabs tabs={tabs} selected={selectedTab} onSelect={handleTabSelect} />
         </BlockStack>
       </Box>
       <IndexTable
         resourceName={{ singular: "change", plural: "changes" }}
-        itemCount={visibleRows.length}
+        itemCount={paginatedRows.length}
         selectable={false}
         headings={[
           { title: "Changes" },
@@ -1082,7 +1222,7 @@ function RecentChangesTable({ rows = [] }) {
           { title: "Status" },
         ]}
       >
-        {visibleRows.map((row, index) => (
+        {paginatedRows.map((row, index) => (
           <IndexTable.Row id={row.id} key={row.id} position={index}>
             <IndexTable.Cell>
               <Link url={row.url} removeUnderline>
@@ -1098,6 +1238,23 @@ function RecentChangesTable({ rows = [] }) {
         ))}
       </IndexTable>
       {!visibleRows.length ? <EmptyTable message={`No ${selectedType.toLowerCase()} changes found.`} /> : null}
+      {visibleRows.length > RECENT_CHANGES_PAGE_SIZE ? (
+        <Box padding="400" borderBlockStartWidth="025" borderColor="border">
+          <InlineStack align="space-between" blockAlign="center" gap="400" wrap>
+            <Text as="span" tone="subdued">
+              {formatInteger((currentPage - 1) * RECENT_CHANGES_PAGE_SIZE + 1)}-
+              {formatInteger(Math.min(currentPage * RECENT_CHANGES_PAGE_SIZE, visibleRows.length))} of{" "}
+              {formatInteger(visibleRows.length)}
+            </Text>
+            <Pagination
+              hasPrevious={currentPage > 1}
+              onPrevious={() => setPage((value) => Math.max(1, value - 1))}
+              hasNext={currentPage < totalPages}
+              onNext={() => setPage((value) => Math.min(totalPages, value + 1))}
+            />
+          </InlineStack>
+        </Box>
+      ) : null}
     </Card>
   );
 }
@@ -1227,7 +1384,8 @@ export default function AnalysisPage() {
               subtitle={`${formatInteger(stats.completedTasks)} completed`}
               color={{ background: "#dff7ee", foreground: "#008060" }}
               icon={ProductIcon}
-              trend="12%"
+              trend={stats.tasksTrend}
+              chart={stats.tasksChart}
             />
             <MetricCard
               title="Sales"
@@ -1235,7 +1393,8 @@ export default function AnalysisPage() {
               subtitle={`${formatInteger(stats.completedSales)} active`}
               color={{ background: "#ede9fe", foreground: "#5b21b6" }}
               icon={DiscountIcon}
-              trend="50%"
+              trend={stats.salesTrend}
+              chart={stats.salesChart}
             />
             <MetricCard
               title="Changes"
@@ -1243,7 +1402,8 @@ export default function AnalysisPage() {
               subtitle="items"
               color={{ background: "#fff7ed", foreground: "#c2410c" }}
               icon={ChartHistogramGrowthIcon}
-              trend="25%"
+              trend={stats.changesTrend}
+              chart={stats.changesChart}
             />
             <MetricCard
               title="Rollbacks"
@@ -1251,7 +1411,8 @@ export default function AnalysisPage() {
               subtitle="records"
               color={{ background: "#dbeafe", foreground: "#1d4ed8" }}
               icon={ProductReturnIcon}
-              trend="No changes"
+              trend={stats.rollbacksTrend}
+              chart={stats.rollbacksChart}
             />
           </InlineGrid>
 

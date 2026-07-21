@@ -240,10 +240,104 @@ function formatSavedTime(totalChanges) {
   return minutes ? `${hours}h ${minutes}m` : `${hours}h`;
 }
 
-function buildOverviewStats(tasks, sales) {
-  const totalChanges = [...tasks, ...sales].reduce(
-    (sum, record) => sum + getRecordChangeCount(record),
+function getPeriodBounds() {
+  const now = new Date();
+  const currentStart = new Date(now);
+  currentStart.setDate(currentStart.getDate() - 30);
+  const previousStart = new Date(now);
+  previousStart.setDate(previousStart.getDate() - 60);
+
+  return { now, currentStart, previousStart };
+}
+
+function isInRange(date, start, end) {
+  if (!date) {
+    return false;
+  }
+
+  const value = new Date(date).getTime();
+  return value >= start.getTime() && value < end.getTime();
+}
+
+function countRecordsInRange(records, start, end) {
+  return records.filter((record) => isInRange(record.createdAt, start, end)).length;
+}
+
+function sumChangesInRange(records, start, end) {
+  return records.reduce((sum, record) => {
+    if (!isInRange(record.createdAt, start, end)) {
+      return sum;
+    }
+
+    return sum + getRecordChangeCount(record);
+  }, 0);
+}
+
+function getTrendLabel(currentValue, previousValue) {
+  if (!currentValue && !previousValue) {
+    return "No changes";
+  }
+
+  if (!previousValue) {
+    return currentValue ? "New" : "No changes";
+  }
+
+  const percent = Math.round(((currentValue - previousValue) / previousValue) * 100);
+  return `${percent >= 0 ? "up " : "down "}${Math.abs(percent)}%`;
+}
+
+function buildDailySeries(records, getDate, getValue = () => 1, days = 12) {
+  const now = new Date();
+  const start = new Date(now);
+  start.setDate(start.getDate() - (days - 1));
+  start.setHours(0, 0, 0, 0);
+  const buckets = new Map();
+
+  for (let index = 0; index < days; index += 1) {
+    const date = new Date(start);
+    date.setDate(start.getDate() + index);
+    buckets.set(date.toISOString().slice(0, 10), 0);
+  }
+
+  for (const record of records) {
+    const rawDate = getDate(record);
+    if (!rawDate) continue;
+
+    const date = new Date(rawDate);
+    if (Number.isNaN(date.getTime()) || date < start || date > now) continue;
+
+    const key = date.toISOString().slice(0, 10);
+    buckets.set(key, (buckets.get(key) || 0) + Math.max(0, Number(getValue(record)) || 0));
+  }
+
+  return [...buckets.entries()].map(([date, value]) => ({ date, value }));
+}
+
+function buildOverviewStats(tasks, sales, taskAuditLogs) {
+  const { now, currentStart, previousStart } = getPeriodBounds();
+  const totalTaskChanges = taskAuditLogs.length;
+  const totalSaleChanges = sales.reduce(
+    (sum, sale) => sum + getRecordChangeCount(sale),
     0,
+  );
+  const totalChanges = totalTaskChanges + totalSaleChanges;
+  const currentTaskChanges = countRecordsInRange(taskAuditLogs, currentStart, now);
+  const previousTaskChanges = countRecordsInRange(taskAuditLogs, previousStart, currentStart);
+  const currentSaleChanges = sumChangesInRange(sales, currentStart, now);
+  const previousSaleChanges = sumChangesInRange(sales, previousStart, currentStart);
+  const currentChanges = currentTaskChanges + currentSaleChanges;
+  const previousChanges = previousTaskChanges + previousSaleChanges;
+  const changeRecords = [
+    ...taskAuditLogs.map((log) => ({ createdAt: log.createdAt, value: 1 })),
+    ...sales.map((sale) => ({
+      createdAt: sale.createdAt,
+      value: getRecordChangeCount(sale),
+    })),
+  ];
+  const changesChart = buildDailySeries(
+    changeRecords,
+    (record) => record.createdAt,
+    (record) => record.value,
   );
 
   return {
@@ -252,31 +346,57 @@ function buildOverviewStats(tasks, sales) {
     changes: totalChanges,
     totalChanges: formatInteger(totalChanges),
     savedTime: formatSavedTime(totalChanges),
+    tasksTrend: getTrendLabel(
+      countRecordsInRange(tasks, currentStart, now),
+      countRecordsInRange(tasks, previousStart, currentStart),
+    ),
+    salesTrend: getTrendLabel(
+      countRecordsInRange(sales, currentStart, now),
+      countRecordsInRange(sales, previousStart, currentStart),
+    ),
+    changesTrend: getTrendLabel(currentChanges, previousChanges),
+    savedTimeTrend: getTrendLabel(
+      Math.round(currentChanges * 0.5),
+      Math.round(previousChanges * 0.5),
+    ),
+    tasksChart: buildDailySeries(tasks, (task) => task.createdAt),
+    salesChart: buildDailySeries(sales, (sale) => sale.createdAt),
+    changesChart,
+    savedTimeChart: changesChart.map((point) => ({
+      ...point,
+      value: Math.round(point.value * 0.5),
+    })),
   };
 }
 
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
 
-  const [tasks, sales] = await Promise.all([
+  const [tasks, sales, taskAuditLogs] = await Promise.all([
     db.task.findMany({
       where: { shop: session.shop },
-      select: { status: true, executionSummary: true },
+      select: { status: true, executionSummary: true, createdAt: true },
     }),
     db.sale.findMany({
       where: { shop: session.shop },
-      select: { status: true, executionSummary: true },
+      select: { status: true, executionSummary: true, createdAt: true },
+    }),
+    db.taskAuditLog.findMany({
+      where: { shop: session.shop, action: "applied" },
+      select: { createdAt: true },
     }),
   ]);
 
   return json({
-    overviewStats: buildOverviewStats(tasks, sales),
+    overviewStats: buildOverviewStats(tasks, sales, taskAuditLogs),
     taskStats: buildStats(taskStatDefinitions, tasks, taskMatchesStatus),
     saleStats: buildStats(saleStatDefinitions, sales, saleMatchesStatus),
   });
 };
 
-function MetricCard({ title, value, subtitle, icon, color, trend = "12%" }) {
+function MetricCard({ title, value, subtitle, icon, color, trend = "No changes", chart = [] }) {
+  const isQuietTrend = trend === "No changes";
+
   return (
     <div style={dashboardMetricCardStyle}>
       <Card>
@@ -299,10 +419,10 @@ function MetricCard({ title, value, subtitle, icon, color, trend = "12%" }) {
               </InlineStack>
             </BlockStack>
           </InlineStack>
-          <DashboardSparkline color={color.foreground} />
+          <DashboardSparkline color={color.foreground} data={chart} flat={isQuietTrend} />
         </InlineStack>
-        <Text as="span" tone={trend === "No changes" ? "subdued" : "success"} fontWeight="semibold">
-          {trend === "No changes" ? trend : `up ${trend} from last sync`}
+        <Text as="span" tone={isQuietTrend ? "subdued" : trend.startsWith("down") ? "critical" : "success"} fontWeight="semibold">
+          {isQuietTrend ? trend : `${trend} from last 30 days`}
         </Text>
       </BlockStack>
       </div>
@@ -311,22 +431,40 @@ function MetricCard({ title, value, subtitle, icon, color, trend = "12%" }) {
   );
 }
 
-function DashboardSparkline({ color }) {
+function DashboardSparkline({ color, data = [], flat = false }) {
+  const safeData = Array.isArray(data) ? data : [];
+  const values = safeData.length ? safeData.map((point) => Math.max(0, Number(point.value) || 0)) : [0];
+  const maxValue = Math.max(1, ...values);
+  const points = values.map((value, index) => {
+    const x = 8 + index * (104 / Math.max(1, values.length - 1));
+    const y = 8 + 38 - (value / maxValue) * 38;
+    return { x, y };
+  });
+  const linePoints = points.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ");
+  const areaPoints = `${linePoints} 112,54 8,54`;
+
+  if (flat || !values.some(Boolean)) {
+    return (
+      <svg viewBox="0 0 120 56" role="img" aria-label="No change chart" style={dashboardSparklineStyle}>
+        <line x1="8" y1="30" x2="112" y2="30" stroke={color} strokeWidth="1" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
   return (
     <svg viewBox="0 0 120 56" role="img" aria-label="Trend chart" style={dashboardSparklineStyle}>
-      <path
-        d="M5 44 C 18 30, 24 36, 34 24 S 52 38, 62 18 S 82 34, 92 20 S 108 28, 116 22"
+      <polygon points={areaPoints} fill={color} opacity="0.08" />
+      <polyline
+        points={linePoints}
         fill="none"
         stroke={color}
-        strokeWidth="3"
+        strokeWidth="1"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-      <path
-        d="M5 50 C 20 34, 28 40, 38 28 S 58 42, 68 22 S 86 38, 96 26 S 110 34, 116 28 L116 56 L5 56 Z"
-        fill={color}
-        opacity="0.08"
-      />
+      {points.map((point, index) => (
+        <circle key={index} cx={point.x} cy={point.y} r="1.7" fill={color} />
+      ))}
     </svg>
   );
 }
@@ -338,7 +476,6 @@ function StatsCard({
   actionLoading = false,
   onAction,
   stats,
-  learnMoreUrl,
 }) {
   return (
     <Card>
@@ -350,7 +487,7 @@ function StatsCard({
 
           <Button
             onClick={onAction}
-            variant="plain"
+            variant="primary"
             loading={actionLoading}
             disabled={actionLoading}
           >
@@ -374,11 +511,6 @@ function StatsCard({
           ))}
         </BlockStack>
 
-        <Box>
-          <Button url={learnMoreUrl} external>
-            Learn more
-          </Button>
-        </Box>
       </BlockStack>
     </Card>
   );
@@ -552,7 +684,8 @@ export default function AppIndex() {
                 subtitle="items"
                 icon={ProductIcon}
                 color={{ background: "#dff7ee", foreground: "#008060" }}
-                trend="12%"
+                trend={overviewStats.tasksTrend}
+                chart={overviewStats.tasksChart}
               />
               <MetricCard
                 title="Sales"
@@ -560,7 +693,8 @@ export default function AppIndex() {
                 subtitle="items"
                 icon={DiscountIcon}
                 color={{ background: "#ede9fe", foreground: "#5b21b6" }}
-                trend="50%"
+                trend={overviewStats.salesTrend}
+                chart={overviewStats.salesChart}
               />
               <MetricCard
                 title="Changes"
@@ -568,7 +702,8 @@ export default function AppIndex() {
                 subtitle="items"
                 icon={ChartHistogramGrowthIcon}
                 color={{ background: "#fff7ed", foreground: "#c2410c" }}
-                trend="25%"
+                trend={overviewStats.changesTrend}
+                chart={overviewStats.changesChart}
               />
               <MetricCard
                 title="Saved time"
@@ -576,7 +711,8 @@ export default function AppIndex() {
                 subtitle="saved"
                 icon={ClockIcon}
                 color={{ background: "#dbeafe", foreground: "#1d4ed8" }}
-                trend="No changes"
+                trend={overviewStats.savedTimeTrend}
+                chart={overviewStats.savedTimeChart}
               />
             </InlineGrid>
           </Layout.Section>
@@ -589,7 +725,6 @@ export default function AppIndex() {
               onAction={() => openPage("/app/tasks/new")}
               actionLoading={openingPath === "/app/tasks/new"}
               stats={taskStats}
-              learnMoreUrl="#"
             />
           </Layout.Section>
 
@@ -601,7 +736,6 @@ export default function AppIndex() {
               onAction={() => openPage("/app/sales/new")}
               actionLoading={openingPath === "/app/sales/new"}
               stats={saleStats}
-              learnMoreUrl="#"
             />
           </Layout.Section>
 
