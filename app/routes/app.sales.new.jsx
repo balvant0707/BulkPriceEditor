@@ -761,12 +761,16 @@ function SectionCard({ title, children }) {
   );
 }
 
-function DateTextField({ label, value, onChange, min }) {
+function NativePickerTextField({ label, type, value, onChange, min }) {
   const inputRef = useRef(null);
 
-  const openPicker = () => {
+  const openPicker = (event) => {
     const input = inputRef.current;
     if (!input) return;
+
+    if (event?.currentTarget !== input) {
+      event?.preventDefault?.();
+    }
 
     input.focus();
     if (typeof input.showPicker === "function") {
@@ -779,7 +783,15 @@ function DateTextField({ label, value, onChange, min }) {
   };
 
   return (
-    <label style={{ display: "block" }}>
+    <label
+      style={{ display: "block" }}
+      onPointerDown={openPicker}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          openPicker(event);
+        }
+      }}
+    >
       <span
         style={{
           display: "block",
@@ -794,7 +806,7 @@ function DateTextField({ label, value, onChange, min }) {
       </span>
       <input
         ref={inputRef}
-        type="date"
+        type={type}
         value={value}
         min={min}
         onClick={openPicker}
@@ -2476,19 +2488,19 @@ export default function NewSalePage() {
                     }}
                     gap="400"
                   >
-                    <DateTextField
+                    <NativePickerTextField
                       label="Start date"
+                      type="date"
                       value={form.startDate}
                       onChange={setField("startDate")}
                       min={minScheduleDate}
                     />
 
-                    <TextField
+                    <NativePickerTextField
                       label="Start time (GMT-4)"
                       type="time"
                       value={form.startTime}
                       onChange={setField("startTime")}
-                      autoComplete="off"
                     />
                   </InlineGrid>
 
@@ -2514,19 +2526,19 @@ export default function NewSalePage() {
                       }}
                       gap="400"
                     >
-                      <DateTextField
+                      <NativePickerTextField
                         label="End date"
+                        type="date"
                         value={form.endDate}
                         onChange={setField("endDate")}
                         min={minEndDate}
                       />
 
-                      <TextField
+                      <NativePickerTextField
                         label="End time (GMT-4)"
                         type="time"
                         value={form.endTime}
                         onChange={setField("endTime")}
-                        autoComplete="off"
                       />
                     </InlineGrid>
                   )}
