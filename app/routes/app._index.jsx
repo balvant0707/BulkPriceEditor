@@ -65,7 +65,11 @@ const dashboardMetricCardInnerStyle = {
 };
 
 const dashboardMetricContentStyle = {
-  height: "100%",
+  height: 182,
+  display: "flex",
+  flexDirection: "column",
+  justifyContent: "space-between",
+  overflow: "hidden",
 };
 
 const dashboardSparklineStyle = {
@@ -407,7 +411,6 @@ function MetricCard({ title, value, subtitle, icon, color, trend = "No changes",
       <div style={dashboardMetricCardInnerStyle}>
       <Card>
       <div style={dashboardMetricContentStyle}>
-      <BlockStack gap="400" align="space-between">
         <InlineStack align="space-between" blockAlign="start" gap="400" wrap={false}>
           <InlineStack gap="400" blockAlign="center">
             <div style={{ ...dashboardMetricIconStyle, background: color.background, color: color.foreground }}>
@@ -430,7 +433,6 @@ function MetricCard({ title, value, subtitle, icon, color, trend = "No changes",
         <Text as="span" tone={isQuietTrend ? "subdued" : trend.startsWith("down") ? "critical" : "success"} fontWeight="semibold">
           {isQuietTrend ? trend : `${trend} from last 30 days`}
         </Text>
-      </BlockStack>
       </div>
     </Card>
       </div>
