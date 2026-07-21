@@ -6,6 +6,7 @@ import {
   BlockStack,
   Box,
   Card,
+  Icon,
   IndexTable,
   InlineGrid,
   InlineStack,
@@ -14,6 +15,12 @@ import {
   Select,
   Text,
 } from "@shopify/polaris";
+import {
+  ChartHistogramGrowthIcon,
+  DiscountIcon,
+  ProductIcon,
+  ProductReturnIcon,
+} from "@shopify/polaris-icons";
 import db from "../db.server";
 import { authenticate } from "../shopify.server";
 import { normalizeSaleStatus, SALE_STATUS } from "../lib/sale-status";
@@ -31,8 +38,12 @@ const metricIconStyle = {
   borderRadius: 10,
   display: "grid",
   placeItems: "center",
-  fontSize: 22,
-  fontWeight: 700,
+  flex: "0 0 48px",
+};
+
+const pageContentStyle = {
+  maxWidth: 1480,
+  margin: "0 auto",
 };
 
 const donutStyle = (stats) => ({
@@ -385,7 +396,7 @@ function MetricCard({ title, value, subtitle, color, icon }) {
       <InlineStack align="space-between" blockAlign="center" gap="400">
         <InlineStack gap="400" blockAlign="center">
           <div style={{ ...metricIconStyle, background: color.background, color: color.foreground }}>
-            {icon}
+            <Icon source={icon} />
           </div>
           <BlockStack gap="100">
             <Text as="p" fontWeight="semibold">
@@ -583,9 +594,11 @@ export default function AnalysisPage() {
     <>
       <TitleBar title="Pryxo Bulk Price Editor" />
       <Page
+        fullWidth
         title="Analysis"
         subtitle="Review task and sale changes, recent activity, and rollback history."
       >
+        <div style={pageContentStyle}>
         <BlockStack gap="500">
           <InlineStack align="space-between" blockAlign="center" gap="400" wrap>
             <InlineStack gap="300" blockAlign="center" wrap>
@@ -614,28 +627,28 @@ export default function AnalysisPage() {
               value={formatInteger(stats.tasks)}
               subtitle={`${formatInteger(stats.completedTasks)} completed`}
               color={{ background: "#dff7ee", foreground: "#008060" }}
-              icon="T"
+              icon={ProductIcon}
             />
             <MetricCard
               title="Sales"
               value={formatInteger(stats.sales)}
               subtitle={`${formatInteger(stats.completedSales)} active`}
               color={{ background: "#ede9fe", foreground: "#5b21b6" }}
-              icon="S"
+              icon={DiscountIcon}
             />
             <MetricCard
               title="Changes"
               value={formatInteger(stats.totalChanges)}
               subtitle="items"
               color={{ background: "#fff7ed", foreground: "#c2410c" }}
-              icon="#"
+              icon={ChartHistogramGrowthIcon}
             />
             <MetricCard
               title="Rollbacks"
               value={formatInteger(stats.rollbacks)}
               subtitle="records"
               color={{ background: "#dbeafe", foreground: "#1d4ed8" }}
-              icon="R"
+              icon={ProductReturnIcon}
             />
           </InlineGrid>
 
@@ -647,6 +660,7 @@ export default function AnalysisPage() {
             </BlockStack>
           </InlineGrid>
         </BlockStack>
+        </div>
       </Page>
     </>
   );
