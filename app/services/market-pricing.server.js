@@ -226,9 +226,9 @@ export async function updateMarketPrices({
           });
           const nextCompareAtPrice = calculateMarketPrice(
             baseCompareAtPrice,
-            { ...variant, price: nextPrice ?? basePrice },
+            { ...variant, price: basePrice },
             compareAtPriceChange,
-            { resetValue: null, fallbackBase: nextPrice ?? basePrice },
+            { resetValue: null, fallbackBase: basePrice },
           );
 
           if (
@@ -358,9 +358,9 @@ async function updateBaseProductPrices({
     });
     const nextCompareAtPrice = calculateMarketPrice(
       baseCompareAtPrice,
-      { ...variant, price: nextPrice ?? basePrice },
+      { ...variant, price: basePrice },
       compareAtPriceChange,
-      { resetValue: null, fallbackBase: nextPrice ?? basePrice },
+      { resetValue: null, fallbackBase: basePrice },
     );
 
     if (

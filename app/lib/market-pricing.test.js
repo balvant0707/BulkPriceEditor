@@ -200,4 +200,96 @@ describe("market pricing calculations", () => {
       variantIdsToDelete: [],
     });
   });
+
+  it("sets fixed market compare-at price to the old market price for discounts", async () => {
+    const graphqlCalls = [];
+    const admin = {
+      graphql: async (query, { variables } = {}) => {
+        graphqlCalls.push({ query, variables });
+
+        if (query.includes("priceListFixedPricesUpdate")) {
+          return {
+            json: async () => ({
+              data: {
+                priceListFixedPricesUpdate: {
+                  pricesAdded: [
+                    {
+                      price: { amount: "200.00", currencyCode: "USD" },
+                      compareAtPrice: { amount: "316.35", currencyCode: "USD" },
+                    },
+                  ],
+                  userErrors: [],
+                },
+              },
+            }),
+          };
+        }
+
+        return {
+          json: async () => ({
+            data: {
+              priceList: {
+                prices: {
+                  nodes: [
+                    {
+                      originType: "FIXED",
+                      price: { amount: "316.35", currencyCode: "USD" },
+                      compareAtPrice: { amount: "427.50", currencyCode: "USD" },
+                      variant: { id: "gid://shopify/ProductVariant/1" },
+                    },
+                  ],
+                  pageInfo: { hasNextPage: false, endCursor: null },
+                },
+              },
+            },
+          }),
+        };
+      },
+    };
+
+    const result = await updateMarketPrices({
+      admin,
+      ownerType: "sale",
+      ownerId: 1,
+      shop: "demo.myshopify.com",
+      markets: [
+        {
+          id: "gid://shopify/Market/1",
+          name: "Canada",
+          currencyCode: "USD",
+          priceListIds: ["gid://shopify/PriceList/1"],
+        },
+      ],
+      variants: [
+        {
+          id: "gid://shopify/ProductVariant/1",
+          title: "Default Title",
+          price: "316.35",
+          compareAtPrice: "427.50",
+          product: {
+            id: "gid://shopify/Product/1",
+            title: "Demo product",
+          },
+        },
+      ],
+      priceChange: {
+        action: "set_new_value",
+        amount: "200",
+      },
+      compareAtPriceChange: {
+        action: "set_to_price",
+      },
+    });
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(graphqlCalls[1].variables.pricesToAdd[0], {
+      variantId: "gid://shopify/ProductVariant/1",
+      price: { amount: "200.00", currencyCode: "USD" },
+      compareAtPrice: { amount: "316.35", currencyCode: "USD" },
+    });
+    assert.deepEqual(result.logs[0].changes, [
+      "Market price: 316.35 -> 200.00",
+      "Market compare at price: 427.50 -> 316.35",
+    ]);
+  });
 });
