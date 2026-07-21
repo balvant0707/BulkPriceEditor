@@ -61,12 +61,17 @@ const metricIconStyle = {
 };
 
 const metricCardStyle = {
-  minHeight: 148,
+  minHeight: 170,
+  height: 170,
+  display: "flex",
+  flexDirection: "column",
+};
+
+const metricCardInnerStyle = {
   height: "100%",
 };
 
 const metricCardContentStyle = {
-  minHeight: 116,
   height: "100%",
 };
 
@@ -87,7 +92,7 @@ const lineChartStyle = {
 };
 
 const hoverChartStyle = {
-  width: 420,
+  width: 620,
   maxWidth: "100%",
   height: 230,
 };
@@ -737,6 +742,7 @@ function MetricCard({ title, value, subtitle, color, icon, trend = "No changes",
 
   return (
     <div style={metricCardStyle}>
+      <div style={metricCardInnerStyle}>
       <Card>
         <div style={metricCardContentStyle}>
           <BlockStack gap="400" align="space-between">
@@ -765,6 +771,7 @@ function MetricCard({ title, value, subtitle, color, icon, trend = "No changes",
           </BlockStack>
         </div>
       </Card>
+      </div>
     </div>
   );
 }
@@ -800,9 +807,6 @@ function MetricSparkline({ color, data = [], flat = false }) {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-      {points.map((point, index) => (
-        <circle key={index} cx={point.x} cy={point.y} r="1.7" fill={color} />
-      ))}
     </svg>
   );
 }
@@ -907,13 +911,13 @@ function ApplyTargetChart({ target }) {
   const currentPoints = buildLinePoints(chartData, (item) => item.current, {
     xStart: 42,
     yTop: 38,
-    width: 356,
+    width: 536,
     height: 136,
   });
   const previousPoints = buildLinePoints(chartData, (item) => item.previous, {
     xStart: 42,
     yTop: 38,
-    width: 356,
+    width: 536,
     height: 136,
   });
 
@@ -932,10 +936,10 @@ function ApplyTargetChart({ target }) {
           </Text>
         </InlineStack>
       </BlockStack>
-      <svg viewBox="0 0 420 230" role="img" aria-label={`${safeTarget.label || "Apply to"} chart`} style={hoverChartStyle}>
-        <line x1="42" y1="38" x2="398" y2="38" stroke="#e3e6ea" />
-        <line x1="42" y1="106" x2="398" y2="106" stroke="#e3e6ea" />
-        <line x1="42" y1="174" x2="398" y2="174" stroke="#e3e6ea" />
+      <svg viewBox="0 0 620 230" role="img" aria-label={`${safeTarget.label || "Apply to"} chart`} style={hoverChartStyle}>
+        <line x1="42" y1="38" x2="578" y2="38" stroke="#e3e6ea" />
+        <line x1="42" y1="106" x2="578" y2="106" stroke="#e3e6ea" />
+        <line x1="42" y1="174" x2="578" y2="174" stroke="#e3e6ea" />
         <text x="8" y="42" fill="#8a8f98" fontSize="12">20</text>
         <text x="14" y="110" fill="#8a8f98" fontSize="12">10</text>
         <text x="22" y="178" fill="#8a8f98" fontSize="12">0</text>
@@ -960,7 +964,7 @@ function ApplyTargetChart({ target }) {
           index % 2 === 0 ? (
             <text
               key={item.label}
-              x={42 + index * (356 / Math.max(1, chartData.length - 1))}
+              x={42 + index * (536 / Math.max(1, chartData.length - 1))}
               y="214"
               fill="#6d7175"
               fontSize="12"

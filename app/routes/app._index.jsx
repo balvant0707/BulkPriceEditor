@@ -54,12 +54,17 @@ const dashboardMetricIconStyle = {
 };
 
 const dashboardMetricCardStyle = {
-  minHeight: 148,
+  minHeight: 170,
+  height: 170,
+  display: "flex",
+  flexDirection: "column",
+};
+
+const dashboardMetricCardInnerStyle = {
   height: "100%",
 };
 
 const dashboardMetricContentStyle = {
-  minHeight: 116,
   height: "100%",
 };
 
@@ -399,6 +404,7 @@ function MetricCard({ title, value, subtitle, icon, color, trend = "No changes",
 
   return (
     <div style={dashboardMetricCardStyle}>
+      <div style={dashboardMetricCardInnerStyle}>
       <Card>
       <div style={dashboardMetricContentStyle}>
       <BlockStack gap="400" align="space-between">
@@ -427,6 +433,7 @@ function MetricCard({ title, value, subtitle, icon, color, trend = "No changes",
       </BlockStack>
       </div>
     </Card>
+      </div>
     </div>
   );
 }
@@ -462,9 +469,6 @@ function DashboardSparkline({ color, data = [], flat = false }) {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-      {points.map((point, index) => (
-        <circle key={index} cx={point.x} cy={point.y} r="1.7" fill={color} />
-      ))}
     </svg>
   );
 }
