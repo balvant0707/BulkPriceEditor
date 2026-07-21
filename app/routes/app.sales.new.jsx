@@ -50,6 +50,8 @@ const AUTO_REAPPLY_CONFLICT_MESSAGE =
   "You have completed a task with auto-reapply enabled for similar products. Disable auto-reapply on that task first.";
 const ACTIVE_WHOLE_STORE_SALE_MESSAGE =
   "An active Whole Store Sale already exists. Disable or end the current sale before creating another Whole Store Sale.";
+const MARKET_SCOPE_ERROR =
+  "Shopify Markets permissions are required to update market prices. Reconnect the app to approve read_markets and write_markets.";
 
 const MARKETS_QUERY = `#graphql
   query GetMarkets {
@@ -196,6 +198,9 @@ export async function action({ request, params }) {
   const validationError = validateSaleData(data);
   if (validationError) {
     return json({ error: validationError }, { status: 400 });
+  }
+  if (data.changeType === "markets" && !hasRequiredMarketScopes(session)) {
+    return json({ error: MARKET_SCOPE_ERROR }, { status: 400 });
   }
 
   const wholeStoreSaleConflict = await findActiveWholeStoreSale(
@@ -502,6 +507,17 @@ function toValidationNumber(value) {
   if (value === null || value === undefined || value === "") return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+function hasRequiredMarketScopes(session) {
+  const scopes = new Set(
+    String(session?.scope || "")
+      .split(",")
+      .map((scope) => scope.trim())
+      .filter(Boolean),
+  );
+
+  return scopes.has("read_markets") && scopes.has("write_markets");
 }
 
 async function findActiveWholeStoreSale(shop, saleId, saleData) {

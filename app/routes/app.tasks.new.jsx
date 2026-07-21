@@ -46,6 +46,9 @@ import {
 } from "../lib/task-discounted-exclusion";
 import { updateMarketPrices } from "../services/market-pricing.server";
 
+const MARKET_SCOPE_ERROR =
+  "Shopify Markets permissions are required to update market prices. Reconnect the app to approve read_markets and write_markets.";
+
 const MARKETS_QUERY = `#graphql
   query GetMarkets {
     shop {
@@ -388,6 +391,9 @@ export async function action({ request, params }) {
 
   if (validationError) {
     return json({ error: validationError }, { status: 400 });
+  }
+  if (data.applyChangesTo === "markets" && !hasRequiredMarketScopes(session)) {
+    return json({ error: MARKET_SCOPE_ERROR }, { status: 400 });
   }
 
   const estimatedAutoReapplyChanges = estimateTaskDataPriceChanges(data);
@@ -930,6 +936,17 @@ function validateTaskData(taskData) {
   }
 
   return "";
+}
+
+function hasRequiredMarketScopes(session) {
+  const scopes = new Set(
+    String(session?.scope || "")
+      .split(",")
+      .map((scope) => scope.trim())
+      .filter(Boolean),
+  );
+
+  return scopes.has("read_markets") && scopes.has("write_markets");
 }
 
 function estimateTaskDataPriceChanges(taskData) {
