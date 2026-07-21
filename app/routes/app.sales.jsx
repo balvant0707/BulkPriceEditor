@@ -73,6 +73,11 @@ const fullWidthTableStyle = {
   maxWidth: "none",
 };
 
+const fullWidthHeaderStyle = {
+  ...fullWidthTableStyle,
+  marginBottom: 24,
+};
+
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
   const flashSession = await getFlashSession(request);
@@ -384,10 +389,6 @@ function formatApplyScope(sale) {
   return formatScopeSummary(sale.applyScope || "whole_store", sale.applyResources || {});
 }
 
-function formatExcludeScope(sale) {
-  return formatScopeSummary(sale.excludeScope || "nothing", sale.excludeResources || {});
-}
-
 function CompactSpinner({ label }) {
   return (
     <span style={{ display: "inline-flex", transform: "scale(0.75)", transformOrigin: "center" }}>
@@ -666,11 +667,6 @@ export default function SalesPage() {
           </Text>
         </IndexTable.Cell>
         <IndexTable.Cell>
-          <Text as="span">
-            {formatExcludeScope(sale)}
-          </Text>
-        </IndexTable.Cell>
-        <IndexTable.Cell>
           <BlockStack gap="050">
             <Text as="span">From {formatDate(sale.startAt || sale.createdAt)}</Text>
             {sale.endAt ? <Text as="span">Until {formatDate(sale.endAt)}</Text> : null}
@@ -737,15 +733,23 @@ export default function SalesPage() {
       <TitleBar title="Pryxo Bulk Price Editor">
       </TitleBar>
 
-      <Page
-        title="Sales"
-        primaryAction={{
-          content: "Create sale",
-          onAction: () => navigate(createSaleUrl),
-          loading: isOpeningNewSale,
-          disabled: isOpeningNewSale,
-        }}
-      >
+      <Page>
+        <div style={fullWidthHeaderStyle}>
+          <InlineStack align="space-between" blockAlign="center">
+            <Text as="h1" variant="headingLg">
+              Sales
+            </Text>
+            <Button
+              variant="primary"
+              onClick={() => navigate(createSaleUrl)}
+              loading={isOpeningNewSale}
+              disabled={isOpeningNewSale}
+            >
+              Create sale
+            </Button>
+          </InlineStack>
+        </div>
+
         <Layout>
           <Layout.Section>
             {sales.length ? (
@@ -776,7 +780,6 @@ export default function SalesPage() {
                       { title: "Changes" },
                       { title: "Type" },
                       { title: "Apply to" },
-                      { title: "Exclude" },
                       { title: "Schedule" },
                       { title: "Status" },
                       { title: "Actions" },

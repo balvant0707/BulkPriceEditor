@@ -3519,13 +3519,6 @@ function getConfigValue(configuration, name, fallback = "") {
   return value || fallback;
 }
 
-function getConfigBoolean(configuration, name, fallback = false) {
-  const value = getConfigValue(configuration, name, fallback ? "true" : "false");
-  return !["false", "0", "off", "no", "disabled", ""].includes(
-    String(value).toLowerCase(),
-  );
-}
-
 function idsToSelectedItems(ids) {
   return ids.map((id) => ({ id, title: id }));
 }
@@ -3593,10 +3586,6 @@ export default function NewTaskPage() {
 
   const [applyChangesTo, setApplyChangesTo] = useState(
     getConfigValue(configuration, "apply_changes_to", task?.applyChangesTo || "products"),
-  );
-  const [applyToFixedPrices, setApplyToFixedPrices] = useState(
-    task?.applyToFixedPrices ??
-      getConfigBoolean(configuration, "apply_to_fixed_prices", false),
   );
   const [applyToActiveProducts, setApplyToActiveProducts] = useState(
     initialApplyToActiveProducts !== "false",
@@ -3751,7 +3740,6 @@ export default function NewTaskPage() {
 
     if (value === "products") {
       setSelectedMarkets([]);
-      setApplyToFixedPrices(false);
     }
   };
 
@@ -3846,12 +3834,6 @@ export default function NewTaskPage() {
 
                   {applyChangesTo === "markets" && (
                     <BlockStack>
-                      <input
-                        type="hidden"
-                        name="apply_to_fixed_prices"
-                        value={applyToFixedPrices ? "on" : ""}
-                      />
-
                       {marketsError ? (
                         <Banner tone="warning">{marketsError}</Banner>
                       ) : null}
@@ -3864,12 +3846,6 @@ export default function NewTaskPage() {
                             selected={selectedMarkets}
                             onChange={handleSelectedMarketsChange}
                             choices={marketChoices}
-                          />
-
-                          <Checkbox
-                            label="Only update variants that already have fixed market prices"
-                            checked={applyToFixedPrices}
-                            onChange={setApplyToFixedPrices}
                           />
 
                           {selectedMarketDetails.map((market) => (

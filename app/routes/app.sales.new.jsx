@@ -1692,10 +1692,6 @@ export default function NewSalePage() {
   const [form, setForm] = useState({
     title: initialForm.title || sale?.title || "",
     changeType: initialForm.changeType || sale?.changeType || "products",
-    applyToFixedPrices: getBooleanFormValue(
-      initialForm.applyToFixedPrices ?? sale?.applyToFixedPrices,
-      false,
-    ),
     markets:
       initialForm.markets ||
       sale?.markets?.map((market) => market.id).filter(Boolean) ||
@@ -2244,12 +2240,6 @@ export default function NewSalePage() {
                       choices={marketOptions}
                       selected={form.markets}
                       onChange={handleMarketsChange}
-                    />
-
-                    <Checkbox
-                      label="Only update variants that already have fixed market prices"
-                      checked={form.applyToFixedPrices}
-                      onChange={setField("applyToFixedPrices")}
                     />
 
                     {selectedMarketDetails.map((market) => (
