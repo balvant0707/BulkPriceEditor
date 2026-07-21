@@ -69,7 +69,8 @@ const confirmationModalContentStyle = {
 const fullWidthTableStyle = {
   marginLeft: "50%",
   transform: "translateX(-50%)",
-  width: "min(100%, calc(100vw - 32px))",
+  width: "calc(100vw - 32px)",
+  maxWidth: "none",
 };
 
 export const loader = async ({ request }) => {
