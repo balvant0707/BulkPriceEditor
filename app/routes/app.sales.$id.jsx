@@ -1050,7 +1050,7 @@ function SaleDetailsContent() {
                       <InlineStack gap="150" blockAlign="center" wrap={false}>
                         <ReapplyIcon />
                         <Text as="p" tone="subdued">
-                          Automatically re-apply price changes (up to 10,000 changes) - {formatAutoReapplyInterval(sale)}
+                          Automatically re-apply price changes - {formatAutoReapplyInterval(sale)}
                         </Text>
                       </InlineStack>
                     ) : null}

@@ -1,5 +1,5 @@
 export const AUTO_REAPPLY_TEXT =
-  "Automatically re-apply price changes (up to 10,000 changes)";
+  "Automatically re-apply price changes";
 export const AUTO_REAPPLY_INTERVAL_MS = 60 * 60 * 1000;
 const DEFAULT_REAPPLY_MINUTE = 20;
 const DEFAULT_REAPPLY_INTERVAL_UNIT = "hours";
