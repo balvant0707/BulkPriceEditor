@@ -14,12 +14,16 @@ import {
   Page,
   Select,
   Text,
+  Tooltip,
 } from "@shopify/polaris";
 import {
   ChartHistogramGrowthIcon,
+  CollectionIcon,
   DiscountIcon,
+  MarketsIcon,
   ProductIcon,
   ProductReturnIcon,
+  StoreIcon,
 } from "@shopify/polaris-icons";
 import db from "../db.server";
 import { authenticate } from "../shopify.server";
@@ -45,6 +49,8 @@ const pageContentStyle = {
   maxWidth: 1480,
   margin: "0 auto",
 };
+
+const chartBarColors = ["bg-fill-success", "bg-fill-info", "bg-fill-warning"];
 
 const donutStyle = (stats) => ({
   width: 168,
@@ -100,6 +106,7 @@ export const loader = async ({ request }) => {
   const stats = buildAnalysisStats(filteredTasks, filteredSales);
   const recentChanges = buildRecentChanges(filteredTasks, filteredSales);
   const rollbackRows = buildRollbackRows(filteredTasks, filteredSales);
+  const applyTargetCards = buildApplyTargetCards(filteredTasks, filteredSales);
 
   return json({
     selectedType,
@@ -108,6 +115,7 @@ export const loader = async ({ request }) => {
     stats,
     recentChanges,
     rollbackRows,
+    applyTargetCards,
   });
 };
 
@@ -226,6 +234,139 @@ function buildAnalysisStats(tasks, sales) {
     taskChanges,
     saleChanges,
   };
+}
+
+function buildApplyTargetCards(tasks, sales) {
+  const grouped = new Map();
+  const records = [
+    ...tasks.map((task) => ({ kind: "task", record: task })),
+    ...sales.map((sale) => ({ kind: "sale", record: sale })),
+  ];
+
+  for (const { kind, record } of records) {
+    const targets = getApplyTargets(record);
+    const changes = getChangeCount(record);
+    const date = getRecordDate(record);
+
+    for (const target of targets) {
+      const key = `${target.type}:${target.id || target.label}`;
+      const current =
+        grouped.get(key) ||
+        {
+          ...target,
+          id: key,
+          records: 0,
+          tasks: 0,
+          sales: 0,
+          changes: 0,
+          rollbacks: 0,
+          lastActivity: null,
+        };
+
+      current.records += 1;
+      current.tasks += kind === "task" ? 1 : 0;
+      current.sales += kind === "sale" ? 1 : 0;
+      current.changes += changes;
+      current.rollbacks += hasRollback(record) ? 1 : 0;
+      current.lastActivity = getLaterDate(current.lastActivity, date);
+      grouped.set(key, current);
+    }
+  }
+
+  return [...grouped.values()]
+    .sort((left, right) => {
+      const changeDiff = right.changes - left.changes;
+      if (changeDiff) return changeDiff;
+      return new Date(right.lastActivity || 0) - new Date(left.lastActivity || 0);
+    });
+}
+
+function getApplyTargets(record) {
+  const resources = getObjectValue(record.applyResources);
+  const summaryApplyTo = getObjectValue(getSummary(record).applyTo);
+  const scope = String(
+    record.applyScope || resources.scope || summaryApplyTo.scope || "whole_store",
+  ).toLowerCase();
+
+  const targets = [
+    ...resourceTargets(resources.collections, resources.collectionIds, "collection"),
+    ...resourceTargets(resources.products, resources.productIds, "product"),
+    ...resourceTargets(resources.variants, resources.variantIds, "variant"),
+    ...resourceTargets(resources.tags, resources.tagNames, "tag"),
+  ];
+
+  if (targets.length) return targets;
+
+  if (scope.includes("collection")) return [{ type: "collection", label: "Selected collections" }];
+  if (scope.includes("product") || scope.includes("variant")) return [{ type: "product", label: humanize(scope) }];
+  if (scope.includes("tag")) return [{ type: "tag", label: "Selected tags" }];
+  if (String(record.applyChangesTo || record.changeType || "").toLowerCase() === "markets") {
+    return getMarkets(record).length
+      ? getMarkets(record).map((market) => ({
+          type: "market",
+          id: market.id || market.handle || market.name,
+          label: market.name || market.label || market.handle || "Market",
+        }))
+      : [{ type: "market", label: "Markets" }];
+  }
+
+  return [{ type: "store", label: "Whole store" }];
+}
+
+function resourceTargets(items, ids, type) {
+  const itemList = Array.isArray(items) ? items : [];
+  const idList = Array.isArray(ids) ? ids : [];
+  const targets = itemList.map((item, index) => {
+    const label = getResourceLabel(item, idList[index], type);
+    return {
+      type,
+      id: getResourceId(item, idList[index], label),
+      label,
+    };
+  });
+
+  if (targets.length) return targets;
+
+  return idList.map((id) => ({
+    type,
+    id,
+    label: getResourceLabel(null, id, type),
+  }));
+}
+
+function getObjectValue(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function getResourceId(item, fallback, label) {
+  if (item && typeof item === "object") {
+    return item.id || item.admin_graphql_api_id || item.legacyResourceId || item.handle || fallback || label;
+  }
+  return item || fallback || label;
+}
+
+function getResourceLabel(item, fallback, type) {
+  if (item && typeof item === "object") {
+    return (
+      item.title ||
+      item.name ||
+      item.label ||
+      item.handle ||
+      item.id ||
+      fallback ||
+      humanize(type)
+    );
+  }
+
+  if (item) return String(item);
+  if (fallback) return String(fallback).split("/").pop();
+  return humanize(type);
+}
+
+function getLaterDate(left, right) {
+  if (!left) return right || null;
+  if (!right) return left;
+  return new Date(right) > new Date(left) ? right : left;
 }
 
 function isCompletedTask(task) {
@@ -418,6 +559,141 @@ function MetricCard({ title, value, subtitle, color, icon }) {
   );
 }
 
+function ApplyTargetsSection({ targets }) {
+  return (
+    <BlockStack gap="300">
+      <InlineStack align="space-between" blockAlign="center" gap="300" wrap>
+        <BlockStack gap="050">
+          <Text as="h2" variant="headingMd">
+            Apply to analysis
+          </Text>
+          <Text as="p" tone="subdued">
+            Hover any target to view its task, sale, and rollback chart.
+          </Text>
+        </BlockStack>
+        <Badge tone="info">{formatInteger(targets.length)} targets</Badge>
+      </InlineStack>
+      {targets.length ? (
+        <InlineGrid columns={{ xs: 1, sm: 2, md: 3, lg: 4 }} gap="400">
+          {targets.map((target) => (
+            <ApplyTargetCard key={target.id} target={target} />
+          ))}
+        </InlineGrid>
+      ) : (
+        <Card>
+          <EmptyTable message="No Apply to targets found for this filter." />
+        </Card>
+      )}
+    </BlockStack>
+  );
+}
+
+function ApplyTargetCard({ target }) {
+  const icon = getApplyTargetIcon(target.type);
+
+  return (
+    <Tooltip
+      width="wide"
+      padding="400"
+      preferredPosition="above"
+      content={<ApplyTargetChart target={target} />}
+    >
+      <Card>
+        <BlockStack gap="400">
+          <InlineStack align="space-between" blockAlign="start" gap="300">
+            <InlineStack gap="300" blockAlign="center">
+              <Box
+                background="bg-fill-success-secondary"
+                borderRadius="300"
+                color="text-success"
+                padding="300"
+              >
+                <Icon source={icon} />
+              </Box>
+              <BlockStack gap="050">
+                <Text as="h3" variant="headingSm" truncate>
+                  {target.label}
+                </Text>
+                <Text as="span" tone="subdued">
+                  {humanize(target.type)}
+                </Text>
+              </BlockStack>
+            </InlineStack>
+            <Box color="text-info">
+              <Icon source={ChartHistogramGrowthIcon} />
+            </Box>
+          </InlineStack>
+          <InlineStack align="space-between" blockAlign="end" gap="300">
+            <BlockStack gap="050">
+              <Text as="p" variant="headingLg">
+                {formatInteger(target.changes)}
+              </Text>
+              <Text as="span" tone="subdued">
+                changes
+              </Text>
+            </BlockStack>
+            <BlockStack gap="050" inlineAlign="end">
+              <Text as="span">
+                {formatInteger(target.records)} record{target.records === 1 ? "" : "s"}
+              </Text>
+              <Text as="span" tone="subdued">
+                {formatDate(target.lastActivity)}
+              </Text>
+            </BlockStack>
+          </InlineStack>
+        </BlockStack>
+      </Card>
+    </Tooltip>
+  );
+}
+
+function ApplyTargetChart({ target }) {
+  const values = [
+    { label: "Tasks", value: target.tasks },
+    { label: "Sales", value: target.sales },
+    { label: "Rollbacks", value: target.rollbacks },
+  ];
+  const maxValue = Math.max(1, ...values.map((item) => item.value));
+
+  return (
+    <BlockStack gap="300">
+      <BlockStack gap="050">
+        <Text as="p" fontWeight="semibold">
+          {target.label}
+        </Text>
+        <Text as="span" tone="subdued">
+          {formatInteger(target.changes)} changes across {formatInteger(target.records)} records
+        </Text>
+      </BlockStack>
+      <InlineStack gap="400" blockAlign="end">
+        {values.map((item, index) => (
+          <BlockStack key={item.label} gap="100" inlineAlign="center">
+            <Box
+              background={chartBarColors[index]}
+              borderRadius="200"
+              width="32px"
+              minHeight={`${Math.max(18, Math.round((item.value / maxValue) * 80))}px`}
+            />
+            <Text as="span" tone="subdued">
+              {item.label}
+            </Text>
+            <Text as="span" fontWeight="semibold">
+              {formatInteger(item.value)}
+            </Text>
+          </BlockStack>
+        ))}
+      </InlineStack>
+    </BlockStack>
+  );
+}
+
+function getApplyTargetIcon(type) {
+  if (type === "collection") return CollectionIcon;
+  if (type === "market") return MarketsIcon;
+  if (type === "store") return StoreIcon;
+  return ProductIcon;
+}
+
 function SummaryCard({ stats }) {
   const total = Math.max(1, stats.totalChanges + stats.rollbacks);
   const taskPercent = Math.round((stats.taskChanges / total) * 100);
@@ -574,7 +850,7 @@ function EmptyTable({ message }) {
 }
 
 export default function AnalysisPage() {
-  const { selectedType, selectedYear, availableYears, stats, recentChanges, rollbackRows } =
+  const { selectedType, selectedYear, availableYears, stats, recentChanges, rollbackRows, applyTargetCards } =
     useLoaderData();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -651,6 +927,8 @@ export default function AnalysisPage() {
               icon={ProductReturnIcon}
             />
           </InlineGrid>
+
+          <ApplyTargetsSection targets={applyTargetCards} />
 
           <InlineGrid columns={{ xs: 1, lg: "2fr 1fr" }} gap="500">
             <RecentChangesTable rows={recentChanges} />
