@@ -1,6 +1,7 @@
 import db from "../db.server";
 import { sendAppUninstalledEmails } from "../emails/mail.server";
 import { markShopUninstalled } from "../models/shop.server";
+import { normalizeScopePayload, normalizeWebhookTopic } from "./webhook-utils";
 
 export async function handleWebhook(webhook) {
   try {
@@ -24,10 +25,17 @@ async function processWebhook({ payload, session, shop, topic, webhookId }) {
   console.log(`Received ${topic} webhook for ${shopDomain}`, { webhookId });
 
   if (normalizedTopic === "app/scopes_update") {
-    if (session && payload?.current) {
+    const scope = normalizeScopePayload(payload?.current);
+
+    if (scope && shopDomain) {
+      await db.session.updateMany({
+        where: { shop: shopDomain },
+        data: { scope },
+      });
+    } else if (scope && session) {
       await db.session.update({
         where: { id: session.id },
-        data: { scope: payload.current.toString() },
+        data: { scope },
       });
     }
 
@@ -74,36 +82,6 @@ async function processWebhook({ payload, session, shop, topic, webhookId }) {
   }
 
   console.log(`Unhandled webhook topic ${topic} for ${shopDomain}`);
-}
-
-export function normalizeWebhookTopic(topic) {
-  const value = String(topic || "").toLowerCase();
-
-  if (value.includes("app") && value.includes("scopes")) {
-    return "app/scopes_update";
-  }
-
-  if (value.includes("app") && value.includes("uninstalled")) {
-    return "app/uninstalled";
-  }
-
-  if (value.includes("orders") && value.includes("create")) {
-    return "orders/create";
-  }
-
-  if (value.includes("customers") && value.includes("data")) {
-    return "customers/data_request";
-  }
-
-  if (value.includes("customers") && value.includes("redact")) {
-    return "customers/redact";
-  }
-
-  if (value.includes("shop") && value.includes("redact")) {
-    return "shop/redact";
-  }
-
-  return value.replace(/_/g, "/");
 }
 
 async function handleCustomerDataRequest({ payload, shop, webhookId }) {

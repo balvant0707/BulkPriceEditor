@@ -44,6 +44,7 @@ import {
   createSaleExecutionSummary,
   SALE_STATUS,
 } from "../lib/sale-status";
+import { hasRequiredMarketScopes } from "../lib/shopify-scopes.server";
 
 const BACK_URL = "/app/sales";
 const AUTO_REAPPLY_CONFLICT_MESSAGE =
@@ -151,7 +152,7 @@ export async function loader({ request, params }) {
 }
 
 export async function action({ request, params }) {
-  const { session } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
   const flashSession = await getFlashSession(request);
   const formData = await request.formData();
   const payload = JSON.parse(String(formData.get("payload") || "{}"));
@@ -199,7 +200,10 @@ export async function action({ request, params }) {
   if (validationError) {
     return json({ error: validationError }, { status: 400 });
   }
-  if (data.changeType === "markets" && !hasRequiredMarketScopes(session)) {
+  if (
+    data.changeType === "markets" &&
+    !(await hasRequiredMarketScopes(admin, session))
+  ) {
     return json({ error: MARKET_SCOPE_ERROR }, { status: 400 });
   }
 
@@ -507,17 +511,6 @@ function toValidationNumber(value) {
   if (value === null || value === undefined || value === "") return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
-}
-
-function hasRequiredMarketScopes(session) {
-  const scopes = new Set(
-    String(session?.scope || "")
-      .split(",")
-      .map((scope) => scope.trim())
-      .filter(Boolean),
-  );
-
-  return scopes.has("read_markets") && scopes.has("write_markets");
 }
 
 async function findActiveWholeStoreSale(shop, saleId, saleData) {
