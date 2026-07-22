@@ -1116,7 +1116,7 @@ function ApplyTargetsSection({ sections = [] }) {
         return (
         <BlockStack key={section.title} gap="300">
           <InlineStack align="space-between" blockAlign="center" gap="300" wrap>
-            <BlockStack gap="050" paddingTop="300">
+            <BlockStack gap="050" paddingBlockStart="300">
               <Text as="h2" variant="headingMd">
                 {section.title}
               </Text>
@@ -1481,9 +1481,6 @@ export default function AnalysisPage() {
             <BlockStack gap="050">
               <Text as="h1" variant="headingXl">
                 Analysis
-              </Text>
-              <Text as="p" tone="subdued">
-                Review task and sale changes, recent activity, and rollback history.
               </Text>
             </BlockStack>
             <InlineStack gap="300" blockAlign="center" wrap>
