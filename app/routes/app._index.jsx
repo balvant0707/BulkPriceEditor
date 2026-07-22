@@ -101,7 +101,6 @@ const dashboardChartOverlayStyle = {
 const dashboardChartPanelStyle = {
   background: "#ffffff",
   borderRadius: 8,
-  boxShadow: "0 16px 36px rgba(0, 0, 0, 0.14)",
 };
 
 const dashboardChartSvgStyle = {
@@ -534,18 +533,16 @@ function MetricCard({
       </div>
       {isChartOpen ? (
         <div style={dashboardChartOverlayStyle}>
-          <Card>
-            <div style={dashboardChartPanelStyle}>
-              <Box padding="400">
-                <DashboardMetricChart
-                  title={title}
-                  color={color.foreground}
-                  data={chart}
-                  previousData={previousChart}
-                />
-              </Box>
-            </div>
-          </Card>
+          <div style={dashboardChartPanelStyle}>
+            <Box padding="400">
+              <DashboardMetricChart
+                title={title}
+                color={color.foreground}
+                data={chart}
+                previousData={previousChart}
+              />
+            </Box>
+          </div>
         </div>
       ) : null}
     </div>
