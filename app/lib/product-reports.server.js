@@ -541,16 +541,36 @@ function buildActivityReportRow({
   }
 
   if (type === REPORT_TYPES.discount) {
+    const discountValues = normalizeDiscountValues(price, previousPrice);
+
     return {
       ...common,
+      price: toDecimalString(discountValues.price),
+      compareAtPrice: toDecimalString(discountValues.compareAtPrice),
       discountPercent:
-        previousPrice != null && previousPrice > 0 && price != null
-          ? toDecimalString(Math.max(0, ((previousPrice - price) / previousPrice) * 100))
+        discountValues.compareAtPrice != null &&
+        discountValues.compareAtPrice > 0 &&
+        discountValues.price != null
+          ? toDecimalString(
+              ((discountValues.compareAtPrice - discountValues.price) /
+                discountValues.compareAtPrice) *
+                100,
+            )
           : null,
     };
   }
 
   return null;
+}
+
+function normalizeDiscountValues(price, compareAtPrice) {
+  if (price == null || compareAtPrice == null) {
+    return { price, compareAtPrice };
+  }
+
+  return price <= compareAtPrice
+    ? { price, compareAtPrice }
+    : { price: compareAtPrice, compareAtPrice: price };
 }
 
 function buildReportRow({ reportId, shop, type, variant, currencyCode }) {
