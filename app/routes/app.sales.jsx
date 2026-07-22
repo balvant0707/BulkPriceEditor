@@ -732,10 +732,11 @@ export default function SalesPage() {
             {canRollbackSale(sale) ? (
               <Button
                 size="slim"
+                tone="critical"
                 loading={isSubmitting}
                 onClick={() => setRollbackSale(sale)}
               >
-                Disable
+                Rollback
               </Button>
             ) : null}
             {canDeleteSale(sale) ? (

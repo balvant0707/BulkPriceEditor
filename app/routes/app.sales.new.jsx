@@ -42,9 +42,11 @@ import { commitFlashSession, getFlashSession } from "../lib/flash.server";
 import { getAutoReapplyIntervalConfig } from "../lib/task-auto-reapply";
 import {
   createSaleExecutionSummary,
+  canProcessSale,
   SALE_STATUS,
 } from "../lib/sale-status";
 import { hasRequiredMarketScopes } from "../lib/shopify-scopes.server";
+import { executeSaleRecord } from "../lib/sales.server";
 
 const BACK_URL = "/app/sales";
 const AUTO_REAPPLY_CONFLICT_MESSAGE =
@@ -247,6 +249,8 @@ export async function action({ request, params }) {
       throw new Response("Sale not found", { status: 404 });
     }
 
+    scheduleSaleExecution(admin, saleId, session.shop);
+
     flashSession.flash("toast", "Sale updated.");
     return redirect(
       withShopifyEmbeddedParams(`/app/sales/${saleId}`, request, session.shop),
@@ -272,6 +276,8 @@ export async function action({ request, params }) {
         },
       });
     }
+    scheduleSaleExecution(admin, sale.id, session.shop);
+
     flashSession.flash("toast", "Sale created.");
     return redirect(
       withShopifyEmbeddedParams(`/app/sales/${sale.id}`, request, session.shop),
@@ -281,6 +287,159 @@ export async function action({ request, params }) {
         },
       },
     );
+  }
+}
+
+function scheduleSaleExecution(admin, saleId, shop) {
+  void runSaleExecution(admin, saleId, shop);
+}
+
+function normalizeApplyingProgress(progress) {
+  const value = Math.round(Number(progress) || 0);
+
+  if (value <= 1) return 1;
+  if (value >= 100) return 100;
+
+  return Math.max(10, Math.min(90, Math.ceil(value / 10) * 10));
+}
+
+function createSaleProgressUpdater(saleId, shop, initialSummary = {}) {
+  let lastWriteAt = 0;
+  let lastWrittenProgress = 0;
+  let latestSummary = {
+    ...initialSummary,
+    status: "Applying",
+    progress: 1,
+  };
+
+  return async (progress, summary = {}, options = {}) => {
+    const safeProgress = normalizeApplyingProgress(progress);
+    const now = Date.now();
+
+    latestSummary = {
+      ...latestSummary,
+      ...summary,
+      status: summary.status || latestSummary.status || "Applying",
+      progress: safeProgress,
+    };
+
+    const shouldWrite =
+      options.force ||
+      safeProgress - lastWrittenProgress >= 10 ||
+      now - lastWriteAt >= 1000;
+
+    if (!shouldWrite) return;
+
+    lastWriteAt = now;
+    lastWrittenProgress = safeProgress;
+
+    await db.sale.updateMany({
+      where: { id: saleId, shop, status: SALE_STATUS.APPLYING },
+      data: { executionSummary: latestSummary },
+    });
+  };
+}
+
+async function runSaleExecution(admin, saleId, shop) {
+  const sale = await db.sale.findFirst({
+    where: { id: saleId, shop },
+  });
+
+  if (!sale || !canProcessSale(sale)) {
+    return;
+  }
+
+  const claimed = await db.sale.updateMany({
+    where: {
+      id: sale.id,
+      shop,
+      status: sale.status,
+    },
+    data: {
+      status: SALE_STATUS.APPLYING,
+      executionSummary: {
+        ...(sale.executionSummary || {}),
+        ...createSaleExecutionSummary(SALE_STATUS.APPLYING, {
+          progress: 1,
+          processingStartedAt: new Date().toISOString(),
+        }),
+      },
+      startedAt: new Date(),
+    },
+  });
+
+  if (!claimed.count) {
+    return;
+  }
+
+  try {
+    const updateProgress = createSaleProgressUpdater(
+      sale.id,
+      shop,
+      {
+        ...(sale.executionSummary || {}),
+        ...createSaleExecutionSummary(SALE_STATUS.APPLYING, {
+          progress: 1,
+          processingStartedAt: new Date().toISOString(),
+        }),
+      },
+    );
+    const execution = await executeSaleRecord(
+      admin,
+      {
+        ...sale,
+        status: SALE_STATUS.APPLYING,
+      },
+      updateProgress,
+    );
+    const completedStatus = execution.ok ? SALE_STATUS.COMPLETED : SALE_STATUS.FAILED;
+
+    await db.sale.updateMany({
+      where: {
+        id: sale.id,
+        shop,
+        status: SALE_STATUS.APPLYING,
+      },
+      data: {
+        status: completedStatus,
+        executionSummary: {
+          ...(sale.executionSummary || {}),
+          ...execution,
+          ok: execution.ok,
+          status: execution.ok ? "Completed" : "Failed",
+          progress: 100,
+          processedItems:
+            execution.updatedVariants ||
+            execution.variantUpdates ||
+            execution.analyzedVariants ||
+            0,
+          totalItems: execution.analyzedVariants || 0,
+          errors: execution.errors || [],
+          processingCompletedAt: new Date().toISOString(),
+        },
+        completedAt: new Date(),
+      },
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unable to process sale.";
+
+    await db.sale.updateMany({
+      where: { id: sale.id, shop },
+      data: {
+        status: SALE_STATUS.FAILED,
+        executionSummary: {
+          ...(sale.executionSummary || {}),
+          ok: false,
+          status: "Failed",
+          progress: 100,
+          errors: [...(sale.executionSummary?.errors || []), message],
+          error: message,
+          processingCompletedAt: new Date().toISOString(),
+        },
+        completedAt: new Date(),
+      },
+    });
   }
 }
 
@@ -624,26 +783,11 @@ function getSelectionKeys(resources = {}, scope = "") {
 }
 
 function prepareSaleExecution(saleData) {
-  const now = new Date();
-
-  if (saleData.startAt && saleData.startAt > now) {
-    return {
-      status: SALE_STATUS.SCHEDULED,
-      executionSummary: createSaleExecutionSummary(SALE_STATUS.SCHEDULED, {
-        ok: true,
-        progress: 0,
-        scheduled: true,
-        message:
-          "Sale saved as scheduled. The sales cron endpoint activates it automatically.",
-      }),
-      startedAt: null,
-      completedAt: null,
-    };
-  }
-
   return {
     status: SALE_STATUS.PENDING,
-    executionSummary: createSaleExecutionSummary(SALE_STATUS.PENDING),
+    executionSummary: createSaleExecutionSummary(SALE_STATUS.PENDING, {
+      startAt: saleData.startAt?.toISOString?.() || "",
+    }),
     startedAt: null,
     completedAt: null,
   };
