@@ -54,8 +54,8 @@ const dashboardMetricIconStyle = {
 };
 
 const dashboardMetricCardStyle = {
-  minHeight: 200,
-  height: 200,
+  minHeight: 170,
+  height: 170,
   display: "flex",
   flexDirection: "column",
 };
