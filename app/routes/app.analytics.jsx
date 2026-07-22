@@ -66,6 +66,7 @@ const metricCardStyle = {
   display: "flex",
   flexDirection: "column",
   position: "relative",
+  marginBottom : "1rem",
 };
 
 const metricCardInnerStyle = {
@@ -104,6 +105,8 @@ const expandedChartOverlayStyle = {
   zIndex: 50,
   background: "#ffffff",
   borderRadius: 8,
+  boxShadow: "0 8px 24px rgba(0, 0, 0, 0.16)",
+
 };
 
 const expandedChartPanelStyle = {

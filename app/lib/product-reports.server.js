@@ -428,7 +428,11 @@ async function collectReportRows(admin, { shop, type, includeDraftProducts, repo
 }
 
 async function collectActivityReportRows(shop, type, reportId) {
-  const [tasks, sales] = await Promise.all([
+  const [shopRecord, tasks, sales] = await Promise.all([
+    db.shop.findUnique({
+      where: { shop },
+      select: { currency: true },
+    }),
     db.task.findMany({
       where: { shop },
       orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
@@ -444,6 +448,7 @@ async function collectActivityReportRows(shop, type, reportId) {
     }),
   ]);
   const rows = [];
+  const fallbackCurrencyCode = normalizeCurrencyCode(shopRecord?.currency);
 
   for (const task of tasks) {
     const titleLookup = buildActivityTitleLookup(task);
@@ -457,6 +462,7 @@ async function collectActivityReportRows(shop, type, reportId) {
         sourceId: task.id,
         log,
         titleLookup,
+        fallbackCurrencyCode,
       });
 
       if (row) rows.push(row);
@@ -478,6 +484,7 @@ async function collectActivityReportRows(shop, type, reportId) {
         sourceId: sale.id,
         log,
         titleLookup,
+        fallbackCurrencyCode,
       });
 
       if (row) rows.push(row);
@@ -495,6 +502,7 @@ function buildActivityReportRow({
   sourceId,
   log,
   titleLookup,
+  fallbackCurrencyCode = "",
 }) {
   const values = getActivityLogValues(log);
   const productId = String(log.productId || "");
@@ -525,7 +533,7 @@ function buildActivityReportRow({
     compareAtPrice: toDecimalString(previousPrice),
     marginPercent: null,
     discountPercent: null,
-    currencyCode: values.currencyCode || "",
+    currencyCode: values.currencyCode || fallbackCurrencyCode,
   };
 
   if (type === REPORT_TYPES.margin) {
@@ -571,6 +579,11 @@ function normalizeDiscountValues(price, compareAtPrice) {
   return price <= compareAtPrice
     ? { price, compareAtPrice }
     : { price: compareAtPrice, compareAtPrice: price };
+}
+
+function normalizeCurrencyCode(value) {
+  const code = String(value || "").trim().toUpperCase();
+  return /^[A-Z]{3}$/.test(code) ? code : "";
 }
 
 function buildReportRow({ reportId, shop, type, variant, currencyCode }) {

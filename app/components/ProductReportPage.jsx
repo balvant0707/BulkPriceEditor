@@ -307,10 +307,27 @@ function formatMoney(value, currencyCode) {
   if (value === "") return "-";
   const number = Number(value);
   if (!Number.isFinite(number)) return "-";
-  return `${currencyCode || ""} ${number.toLocaleString("en-IN", {
+
+  const code = String(currencyCode || "").trim().toUpperCase();
+
+  if (/^[A-Z]{3}$/.test(code)) {
+    try {
+      return new Intl.NumberFormat("en-IN", {
+        style: "currency",
+        currency: code,
+        currencyDisplay: "narrowSymbol",
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(number);
+    } catch (_error) {
+      // Fall through to plain number formatting for unknown currency codes.
+    }
+  }
+
+  return number.toLocaleString("en-IN", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  })}`.trim();
+  });
 }
 
 function formatPercent(value) {
