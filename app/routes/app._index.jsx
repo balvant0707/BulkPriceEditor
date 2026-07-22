@@ -88,9 +88,9 @@ const dashboardSparklineStyle = {
 };
 
 const dashboardChartOverlayStyle = {
-  position: "absolute",
+  position: "fixed",
   left: "18%",
-  top: "0",
+  top: "30%",
   width: "min(820px, calc(100vw - 64px))",
   transform: "translate(0%, -50%)",
   zIndex: 50,
