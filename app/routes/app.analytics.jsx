@@ -61,12 +61,11 @@ const metricIconStyle = {
 };
 
 const metricCardStyle = {
-  minHeight: 132,
-  height: 132,
+  minHeight: 112,
+  height: 112,
   display: "flex",
   flexDirection: "column",
   position: "relative",
-  marginBottom: "1rem",
 };
 
 const metricCardInnerStyle = {
@@ -74,7 +73,7 @@ const metricCardInnerStyle = {
 };
 
 const metricCardContentStyle = {
-  height: 92,
+  height: 72,
   display: "flex",
   flexDirection: "column",
   justifyContent: "space-between",
@@ -1622,7 +1621,7 @@ export default function AnalysisPage() {
             <MetricCard
               title="Tasks"
               value={formatInteger(stats.tasks)}
-              subtitle={`${formatInteger(stats.completedTasks)} completed`}
+              subtitle="items"
               color={{ background: "#dff7ee", foreground: "#008060" }}
               icon={ProductIcon}
               trend={stats.tasksTrend}
@@ -1632,7 +1631,7 @@ export default function AnalysisPage() {
             <MetricCard
               title="Sales"
               value={formatInteger(stats.sales)}
-              subtitle={`${formatInteger(stats.completedSales)} active`}
+              subtitle="items"
               color={{ background: "#ede9fe", foreground: "#5b21b6" }}
               icon={DiscountIcon}
               trend={stats.salesTrend}
