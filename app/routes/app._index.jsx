@@ -58,6 +58,7 @@ const dashboardMetricCardStyle = {
   height: 170,
   display: "flex",
   flexDirection: "column",
+  position: "relative",
 };
 
 const dashboardMetricCardInnerStyle = {
@@ -85,6 +86,46 @@ const dashboardSparklineStyle = {
   height: 56,
   flex: "0 0 120px",
 };
+
+const dashboardChartOverlayStyle = {
+  position: "absolute",
+  left: 0,
+  top: "100%",
+  width: "min(820px, calc(100vw - 64px))",
+  zIndex: 50,
+  paddingTop: 8,
+};
+
+const dashboardChartPanelStyle = {
+  boxShadow: "0 16px 36px rgba(0, 0, 0, 0.14)",
+};
+
+const dashboardChartSvgStyle = {
+  width: "100%",
+  height: 260,
+  display: "block",
+  overflow: "visible",
+};
+
+const dashboardChartTooltipStyle = {
+  position: "absolute",
+  pointerEvents: "none",
+  minWidth: 150,
+  padding: 8,
+  borderRadius: 8,
+  background: "#ffffff",
+  boxShadow: "0 8px 24px rgba(0, 0, 0, 0.16)",
+  border: "1px solid #e3e3e3",
+};
+
+const dashboardChartLegendDotStyle = {
+  width: 10,
+  height: 10,
+  borderRadius: "50%",
+  display: "inline-block",
+};
+
+const DASHBOARD_CHART_DAYS = 31;
 
 const taskStatDefinitions = [
   { id: "all", label: "All tasks", url: "/app/tasks" },
@@ -303,11 +344,20 @@ function getTrendLabel(currentValue, previousValue) {
   return `${percent >= 0 ? "up " : "down "}${Math.abs(percent)}%`;
 }
 
-function buildDailySeries(records, getDate, getValue = () => 1, days = 12) {
+function buildDailySeries(records, getDate, getValue = () => 1, days = DASHBOARD_CHART_DAYS) {
   const now = new Date();
   const start = new Date(now);
   start.setDate(start.getDate() - (days - 1));
   start.setHours(0, 0, 0, 0);
+
+  return buildDailySeriesForPeriod(records, getDate, getValue, start, days);
+}
+
+function buildDailySeriesForPeriod(records, getDate, getValue = () => 1, startDate, days = DASHBOARD_CHART_DAYS) {
+  const start = new Date(startDate);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(start.getDate() + days);
   const buckets = new Map();
 
   for (let index = 0; index < days; index += 1) {
@@ -321,7 +371,7 @@ function buildDailySeries(records, getDate, getValue = () => 1, days = 12) {
     if (!rawDate) continue;
 
     const date = new Date(rawDate);
-    if (Number.isNaN(date.getTime()) || date < start || date > now) continue;
+    if (Number.isNaN(date.getTime()) || date < start || date >= end) continue;
 
     const key = date.toISOString().slice(0, 10);
     buckets.set(key, (buckets.get(key) || 0) + Math.max(0, Number(getValue(record)) || 0));
@@ -332,6 +382,10 @@ function buildDailySeries(records, getDate, getValue = () => 1, days = 12) {
 
 function buildOverviewStats(tasks, sales, taskAuditLogs) {
   const { now, currentStart, previousStart } = getPeriodBounds();
+  const currentSeriesStart = new Date(currentStart);
+  currentSeriesStart.setHours(0, 0, 0, 0);
+  const previousSeriesStart = new Date(previousStart);
+  previousSeriesStart.setHours(0, 0, 0, 0);
   const totalTaskChanges = taskAuditLogs.length;
   const totalSaleChanges = sales.reduce(
     (sum, sale) => sum + getRecordChangeCount(sale),
@@ -356,6 +410,24 @@ function buildOverviewStats(tasks, sales, taskAuditLogs) {
     (record) => record.createdAt,
     (record) => record.value,
   );
+  const previousChangesChart = buildDailySeriesForPeriod(
+    changeRecords,
+    (record) => record.createdAt,
+    (record) => record.value,
+    previousSeriesStart,
+  );
+  const tasksChart = buildDailySeriesForPeriod(tasks, (task) => task.createdAt, () => 1, currentSeriesStart);
+  const previousTasksChart = buildDailySeriesForPeriod(tasks, (task) => task.createdAt, () => 1, previousSeriesStart);
+  const salesChart = buildDailySeriesForPeriod(sales, (sale) => sale.createdAt, () => 1, currentSeriesStart);
+  const previousSalesChart = buildDailySeriesForPeriod(sales, (sale) => sale.createdAt, () => 1, previousSeriesStart);
+  const savedTimeChart = changesChart.map((point) => ({
+    ...point,
+    value: Math.round(point.value * 0.5),
+  }));
+  const previousSavedTimeChart = previousChangesChart.map((point) => ({
+    ...point,
+    value: Math.round(point.value * 0.5),
+  }));
 
   return {
     tasks: tasks.length,
@@ -376,13 +448,14 @@ function buildOverviewStats(tasks, sales, taskAuditLogs) {
       Math.round(currentChanges * 0.5),
       Math.round(previousChanges * 0.5),
     ),
-    tasksChart: buildDailySeries(tasks, (task) => task.createdAt),
-    salesChart: buildDailySeries(sales, (sale) => sale.createdAt),
+    tasksChart,
+    previousTasksChart,
+    salesChart,
+    previousSalesChart,
     changesChart,
-    savedTimeChart: changesChart.map((point) => ({
-      ...point,
-      value: Math.round(point.value * 0.5),
-    })),
+    previousChangesChart,
+    savedTimeChart,
+    previousSavedTimeChart,
   };
 }
 
@@ -411,11 +484,25 @@ export const loader = async ({ request }) => {
   });
 };
 
-function MetricCard({ title, value, subtitle, icon, color, trend = "No changes", chart = [] }) {
+function MetricCard({
+  title,
+  value,
+  subtitle,
+  icon,
+  color,
+  trend = "No changes",
+  chart = [],
+  previousChart = [],
+}) {
   const isQuietTrend = trend === "No changes";
+  const [isChartOpen, setIsChartOpen] = useState(false);
 
   return (
-    <div style={dashboardMetricCardStyle}>
+    <div
+      style={dashboardMetricCardStyle}
+      onMouseEnter={() => setIsChartOpen(true)}
+      onMouseLeave={() => setIsChartOpen(false)}
+    >
       <div style={dashboardMetricCardInnerStyle}>
       <Card>
       <div style={dashboardMetricContentStyle}>
@@ -440,8 +527,193 @@ function MetricCard({ title, value, subtitle, icon, color, trend = "No changes",
       </div>
     </Card>
       </div>
+      {isChartOpen ? (
+        <div style={dashboardChartOverlayStyle}>
+          <Card>
+            <div style={dashboardChartPanelStyle}>
+              <Box padding="400">
+                <DashboardMetricChart
+                  title={title}
+                  color={color.foreground}
+                  data={chart}
+                  previousData={previousChart}
+                />
+              </Box>
+            </div>
+          </Card>
+        </div>
+      ) : null}
     </div>
   );
+}
+
+function DashboardMetricChart({ title, color, data = [], previousData = [] }) {
+  const [hoveredIndex, setHoveredIndex] = useState(null);
+  const chartWidth = 720;
+  const chartHeight = 230;
+  const padding = { top: 18, right: 16, bottom: 46, left: 46 };
+  const safeData = normalizeDashboardChartData(data);
+  const safePreviousData = normalizeDashboardChartData(previousData);
+  const maxValue = Math.max(
+    1,
+    ...safeData.map((point) => point.value),
+    ...safePreviousData.map((point) => point.value),
+  );
+  const plotWidth = chartWidth - padding.left - padding.right;
+  const plotHeight = chartHeight - padding.top - padding.bottom;
+  const points = buildDashboardChartPoints(safeData, maxValue, chartWidth, chartHeight, padding);
+  const previousPoints = buildDashboardChartPoints(safePreviousData, maxValue, chartWidth, chartHeight, padding);
+  const activeIndex = hoveredIndex ?? safeData.length - 1;
+  const activePoint = points[activeIndex];
+  const activeData = safeData[activeIndex];
+  const activePreviousData = safePreviousData[activeIndex];
+  const ticks = Array.from({ length: 4 }, (_, index) => Math.round((maxValue / 3) * index));
+  const labelIndexes = getDashboardChartLabelIndexes(safeData.length);
+  const tooltipLeft = activePoint ? `${Math.min(Math.max((activePoint.x / chartWidth) * 100, 8), 78)}%` : "50%";
+  const tooltipTop = activePoint ? Math.max(12, activePoint.y - 74) : 20;
+
+  const handlePointerMove = (event) => {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const x = ((event.clientX - bounds.left) / bounds.width) * chartWidth;
+    const relativeX = Math.min(Math.max(x - padding.left, 0), plotWidth);
+    const index = Math.round((relativeX / plotWidth) * Math.max(1, safeData.length - 1));
+    setHoveredIndex(Math.min(Math.max(index, 0), safeData.length - 1));
+  };
+
+  return (
+    <div style={{ position: "relative" }}>
+      <BlockStack gap="300">
+        <Text as="h3" variant="headingMd">
+          {title}
+        </Text>
+        <svg
+          viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+          role="img"
+          aria-label={`${title} chart`}
+          style={dashboardChartSvgStyle}
+          onPointerMove={handlePointerMove}
+          onPointerLeave={() => setHoveredIndex(null)}
+        >
+          {ticks.map((tick) => {
+            const y = padding.top + plotHeight - (tick / maxValue) * plotHeight;
+            return (
+              <g key={`tick-${tick}`}>
+                <line x1={padding.left} x2={chartWidth - padding.right} y1={y} y2={y} stroke="#ebebeb" />
+                <text x={padding.left - 26} y={y + 4} fill="#8a8a8a" fontSize="13">
+                  {tick}
+                </text>
+              </g>
+            );
+          })}
+          {labelIndexes.map((index) => (
+            <text key={safeData[index]?.date || index} x={points[index]?.x || padding.left} y={chartHeight - 14} fill="#6d7175" fontSize="13" textAnchor="middle">
+              {formatChartDate(safeData[index]?.date)}
+            </text>
+          ))}
+          <path d={buildLinePath(previousPoints)} fill="none" stroke="#8bd3f7" strokeWidth="2" strokeLinecap="round" strokeDasharray="4 7" />
+          <path d={buildLinePath(points)} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+          {activePoint ? (
+            <g>
+              <line x1={activePoint.x} x2={activePoint.x} y1={padding.top} y2={chartHeight - padding.bottom} stroke="#c9cccf" strokeDasharray="4 4" />
+              <circle cx={activePoint.x} cy={activePoint.y} r="5" fill="#ffffff" stroke={color} strokeWidth="2" />
+            </g>
+          ) : null}
+          <rect x={padding.left} y={padding.top} width={plotWidth} height={plotHeight} fill="transparent" />
+        </svg>
+        <InlineStack align="center" gap="500">
+          <InlineStack gap="150" blockAlign="center">
+            <span style={{ ...dashboardChartLegendDotStyle, background: color }} />
+            <Text as="span" tone="subdued">{formatChartPeriod(safeData)}</Text>
+          </InlineStack>
+          <InlineStack gap="150" blockAlign="center">
+            <span style={{ ...dashboardChartLegendDotStyle, background: "#8bd3f7" }} />
+            <Text as="span" tone="subdued">{formatChartPeriod(safePreviousData)}</Text>
+          </InlineStack>
+        </InlineStack>
+      </BlockStack>
+      {activePoint && activeData ? (
+        <div style={{ ...dashboardChartTooltipStyle, left: tooltipLeft, top: tooltipTop, transform: "translateX(-50%)" }}>
+          <BlockStack gap="100">
+            <Text as="p" fontWeight="semibold">{formatChartLongDate(activeData.date)}</Text>
+            <Text as="p">{`${title}: ${formatInteger(activeData.value)}`}</Text>
+            {activePreviousData ? (
+              <Text as="p" tone="subdued">{`${formatChartLongDate(activePreviousData.date)}: ${formatInteger(activePreviousData.value)}`}</Text>
+            ) : null}
+          </BlockStack>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function normalizeDashboardChartData(data = []) {
+  return Array.isArray(data)
+    ? data.map((point) => ({
+        date: point.date,
+        value: Math.max(0, Number(point.value) || 0),
+      }))
+    : [];
+}
+
+function buildDashboardChartPoints(data, maxValue, chartWidth, chartHeight, padding) {
+  const plotWidth = chartWidth - padding.left - padding.right;
+  const plotHeight = chartHeight - padding.top - padding.bottom;
+
+  return data.map((point, index) => {
+    const x = padding.left + index * (plotWidth / Math.max(1, data.length - 1));
+    const y = padding.top + plotHeight - (point.value / maxValue) * plotHeight;
+
+    return { x, y };
+  });
+}
+
+function buildLinePath(points = []) {
+  return points
+    .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`)
+    .join(" ");
+}
+
+function getDashboardChartLabelIndexes(length) {
+  if (!length) {
+    return [];
+  }
+
+  return [0, Math.floor((length - 1) / 4), Math.floor((length - 1) / 2), Math.floor(((length - 1) * 3) / 4), length - 1]
+    .filter((index, position, indexes) => indexes.indexOf(index) === position);
+}
+
+function parseChartDate(date) {
+  const parsed = new Date(`${date}T00:00:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function formatChartDate(date) {
+  const parsed = parseChartDate(date);
+  if (!parsed) {
+    return "";
+  }
+
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(parsed);
+}
+
+function formatChartLongDate(date) {
+  const parsed = parseChartDate(date);
+  if (!parsed) {
+    return "";
+  }
+
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(parsed);
+}
+
+function formatChartPeriod(data = []) {
+  const first = data[0]?.date;
+  const last = data[data.length - 1]?.date;
+
+  if (!first || !last) {
+    return "";
+  }
+
+  return `${formatChartDate(first)}-${formatChartLongDate(last)}`;
 }
 
 function DashboardSparkline({ color, data = [], flat = false }) {
@@ -697,6 +969,7 @@ export default function AppIndex() {
                   color={{ background: "#dff7ee", foreground: "#008060" }}
                   trend={overviewStats.tasksTrend}
                   chart={overviewStats.tasksChart}
+                  previousChart={overviewStats.previousTasksChart}
                 />
                 <MetricCard
                   title="Sales"
@@ -706,6 +979,7 @@ export default function AppIndex() {
                   color={{ background: "#ede9fe", foreground: "#5b21b6" }}
                   trend={overviewStats.salesTrend}
                   chart={overviewStats.salesChart}
+                  previousChart={overviewStats.previousSalesChart}
                 />
                 <MetricCard
                   title="Changes"
@@ -715,6 +989,7 @@ export default function AppIndex() {
                   color={{ background: "#fff7ed", foreground: "#c2410c" }}
                   trend={overviewStats.changesTrend}
                   chart={overviewStats.changesChart}
+                  previousChart={overviewStats.previousChangesChart}
                 />
                 <MetricCard
                   title="Saved time"
@@ -724,6 +999,7 @@ export default function AppIndex() {
                   color={{ background: "#dbeafe", foreground: "#1d4ed8" }}
                   trend={overviewStats.savedTimeTrend}
                   chart={overviewStats.savedTimeChart}
+                  previousChart={overviewStats.previousSavedTimeChart}
                 />
               </InlineGrid>
             </Box>
