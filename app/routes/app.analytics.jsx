@@ -1,5 +1,5 @@
 import { json } from "@remix-run/node";
-import { useLoaderData, useNavigate, useSearchParams } from "@remix-run/react";
+import { useLoaderData, useLocation, useNavigate, useSearchParams } from "@remix-run/react";
 import { TitleBar } from "@shopify/app-bridge-react";
 import { useMemo, useState } from "react";
 import {
@@ -29,6 +29,7 @@ import {
 } from "@shopify/polaris-icons";
 import db from "../db.server";
 import { authenticate } from "../shopify.server";
+import { withShopifyEmbeddedParams } from "../lib/shopify-embedded-url";
 import { normalizeSaleStatus, SALE_STATUS } from "../lib/sale-status";
 
 const RECORD_TYPE_OPTIONS = [
@@ -84,11 +85,6 @@ const metricSparklineStyle = {
 const pageContentStyle = {
   maxWidth: 1480,
   margin: "0 auto",
-};
-
-const lineChartStyle = {
-  width: "100%",
-  height: 320,
 };
 
 const hoverChartStyle = {
@@ -486,11 +482,11 @@ function buildDailySeriesForPeriod(records, getDate, getValue = () => 1, startDa
 function buildApplyToSections(tasks, sales) {
   return [
     {
-      title: "Create Tasks Apply To Field",
+      title: "Tasks",
       targets: buildApplyToCards(tasks, "task", TASK_APPLY_TO_OPTIONS),
     },
     {
-      title: "Create Sale Apply To Field",
+      title: "Sale",
       targets: buildApplyToCards(sales, "sale", SALE_APPLY_TO_OPTIONS),
     },
   ];
@@ -640,25 +636,27 @@ function getLogTarget(log, record, titleLookup) {
 }
 
 function buildChangeTrend(tasks, sales) {
-  const buckets = new Map();
   const records = [
-    ...tasks.map((task) => ({ kind: "task", record: task })),
-    ...sales.map((sale) => ({ kind: "sale", record: sale })),
+    ...tasks.map((task) => ({ kind: "task", ...task })),
+    ...sales.map((sale) => ({ kind: "sale", ...sale })),
   ];
+  const dates = records
+    .map((record) => getRecordDate(record))
+    .filter(Boolean)
+    .map((date) => new Date(date))
+    .filter((date) => !Number.isNaN(date.getTime()));
+  const end = dates.length ? new Date(Math.max(...dates.map((date) => date.getTime()))) : new Date();
+  end.setHours(0, 0, 0, 0);
+  const currentStart = new Date(end);
+  currentStart.setDate(end.getDate() - (ANALYTICS_CHART_DAYS - 1));
+  const previousStart = new Date(currentStart);
+  previousStart.setDate(currentStart.getDate() - ANALYTICS_CHART_DAYS);
+  const getRecordValue = (record) => getChangeCount(record) || 1;
 
-  for (const { kind, record } of records) {
-    const date = getRecordDate(record);
-    if (!date) continue;
-
-    const key = new Date(date).toISOString().slice(0, 10);
-    const current = buckets.get(key) || { date: key, tasks: 0, sales: 0 };
-    current[kind === "task" ? "tasks" : "sales"] += getChangeCount(record) || 1;
-    buckets.set(key, current);
-  }
-
-  return [...buckets.values()]
-    .sort((left, right) => left.date.localeCompare(right.date))
-    .slice(-14);
+  return {
+    current: buildDailySeriesForPeriod(records, (record) => getRecordDate(record), getRecordValue, currentStart),
+    previous: buildDailySeriesForPeriod(records, (record) => getRecordDate(record), getRecordValue, previousStart),
+  };
 }
 
 function isCompletedTask(task) {
@@ -925,7 +923,7 @@ function ExpandedDateChartOverlay({ title, color, data = [], previousData = [] }
   );
 }
 
-function ExpandedDateChart({ title, color, data = [], previousData = [] }) {
+function ExpandedDateChart({ title, color, data = [], previousData = [], showTitle = true }) {
   const [hoveredIndex, setHoveredIndex] = useState(null);
   const chartWidth = 720;
   const chartHeight = 230;
@@ -961,9 +959,11 @@ function ExpandedDateChart({ title, color, data = [], previousData = [] }) {
   return (
     <div style={{ position: "relative" }}>
       <BlockStack gap="300">
-        <Text as="h3" variant="headingMd">
-          {title}
-        </Text>
+        {showTitle ? (
+          <Text as="h3" variant="headingMd">
+            {title}
+          </Text>
+        ) : null}
         <svg
           viewBox={`0 0 ${chartWidth} ${chartHeight}`}
           role="img"
@@ -1116,12 +1116,9 @@ function ApplyTargetsSection({ sections = [] }) {
         return (
         <BlockStack key={section.title} gap="300">
           <InlineStack align="space-between" blockAlign="center" gap="300" wrap>
-            <BlockStack gap="050">
+            <BlockStack gap="050" paddingTop="300">
               <Text as="h2" variant="headingMd">
                 {section.title}
-              </Text>
-              <Text as="p" tone="subdued">
-                Hover any box to view its chart.
               </Text>
             </BlockStack>
             <Badge tone="info">{formatInteger(targets.length)} boxes</Badge>
@@ -1213,14 +1210,13 @@ function getApplyTargetIcon(type) {
 }
 
 function ChangeTrendCard({ data = [] }) {
-  const safeData = Array.isArray(data) ? data : [];
-  const total = safeData.reduce((sum, item) => sum + item.tasks + item.sales, 0);
-  const previousTotal = Math.max(1, Math.round(total * 0.42));
-  const percentChange = Math.round(((total - previousTotal) / previousTotal) * 100);
-  const currentPoints = buildLinePoints(safeData, (item) => item.tasks + item.sales);
-  const previousPoints = buildLinePoints(safeData, (item, index) =>
-    Math.max(0, Math.round((item.tasks + item.sales) * (index % 3 === 0 ? 0.55 : 0.25))),
-  );
+  const currentData = Array.isArray(data?.current) ? data.current : [];
+  const previousData = Array.isArray(data?.previous) ? data.previous : [];
+  const total = currentData.reduce((sum, item) => sum + (Number(item.value) || 0), 0);
+  const previousTotal = previousData.reduce((sum, item) => sum + (Number(item.value) || 0), 0);
+  const trend = getTrendLabel(total, previousTotal);
+  const isQuietTrend = trend === "No changes";
+  const isDownTrend = trend.startsWith("down");
 
   return (
     <Card>
@@ -1233,74 +1229,23 @@ function ChangeTrendCard({ data = [] }) {
             <Text as="p" variant="headingLg">
               {formatInteger(total)}
             </Text>
-            <Text as="span" tone={percentChange >= 0 ? "success" : "critical"} fontWeight="semibold">
-              {percentChange >= 0 ? "up" : "down"} {Math.abs(percentChange)}%
+            <Text as="span" tone={isQuietTrend ? "subdued" : isDownTrend ? "critical" : "success"} fontWeight="semibold">
+              {trend}
             </Text>
           </InlineStack>
         </BlockStack>
         <Box minHeight="260px">
-          <svg viewBox="0 0 720 260" role="img" aria-label="Changes over time chart" style={lineChartStyle}>
-            <line x1="48" y1="34" x2="690" y2="34" stroke="#e3e6ea" />
-            <line x1="48" y1="126" x2="690" y2="126" stroke="#e3e6ea" />
-            <line x1="48" y1="218" x2="690" y2="218" stroke="#e3e6ea" />
-            <text x="8" y="39" fill="#8a8f98" fontSize="13">20</text>
-            <text x="16" y="131" fill="#8a8f98" fontSize="13">10</text>
-            <text x="24" y="223" fill="#8a8f98" fontSize="13">0</text>
-            <polyline
-              points={previousPoints}
-              fill="none"
-              stroke="#7dc8eb"
-              strokeWidth="3"
-              strokeDasharray="6 8"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-            <polyline
-              points={currentPoints}
-              fill="none"
-              stroke="#16a8e6"
-              strokeWidth="4"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-            {safeData.map((item, index) => (
-              <text key={item.date} x={48 + index * (642 / Math.max(1, safeData.length - 1))} y="250" fill="#6d7175" fontSize="13">
-                {formatShortDate(item.date)}
-              </text>
-            ))}
-          </svg>
+          <ExpandedDateChart
+            title="Changes over time"
+            color="#16a8e6"
+            data={currentData}
+            previousData={previousData}
+            showTitle={false}
+          />
         </Box>
-        <InlineStack align="center" gap="600" wrap>
-          <InlineStack gap="200" blockAlign="center">
-            <span style={{ width: 10, height: 10, borderRadius: 999, background: "#16a8e6" }} />
-            <Text as="span" tone="subdued">Selected period</Text>
-          </InlineStack>
-          <InlineStack gap="200" blockAlign="center">
-            <span style={{ width: 10, height: 10, borderRadius: 999, background: "#7dc8eb" }} />
-            <Text as="span" tone="subdued">Previous period</Text>
-          </InlineStack>
-        </InlineStack>
       </BlockStack>
     </Card>
   );
-}
-
-function buildLinePoints(data, getValue, dimensions = {}) {
-  const safeData = Array.isArray(data) ? data : [];
-  const values = safeData.length ? safeData.map((item, index) => Math.max(0, Number(getValue(item, index)) || 0)) : [0];
-  const maxValue = Math.max(1, ...values);
-  const xStart = dimensions.xStart ?? 48;
-  const yTop = dimensions.yTop ?? 34;
-  const width = dimensions.width ?? 642;
-  const height = dimensions.height ?? 184;
-
-  return values
-    .map((value, index) => {
-      const x = xStart + index * (width / Math.max(1, values.length - 1));
-      const y = yTop + height - (value / maxValue) * height;
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    })
-    .join(" ");
 }
 
 function SummaryCard({ stats }) {
@@ -1511,6 +1456,7 @@ export default function AnalysisPage() {
     changeTrend = [],
   } = loaderData || {};
   const [searchParams] = useSearchParams();
+  const location = useLocation();
   const navigate = useNavigate();
   const yearOptions = [
     { label: "All years", value: "all" },
@@ -1521,7 +1467,8 @@ export default function AnalysisPage() {
     const params = new URLSearchParams(searchParams);
     if (!value || value === "all") params.delete(key);
     else params.set(key, value);
-    navigate(`/app/analysis${params.toString() ? `?${params.toString()}` : ""}`);
+    const path = `/app/analytics${params.toString() ? `?${params.toString()}` : ""}`;
+    navigate(withShopifyEmbeddedParams(path, location.search));
   };
 
   return (
