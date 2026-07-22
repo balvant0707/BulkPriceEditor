@@ -3,6 +3,7 @@ import { json, redirect } from "@remix-run/node";
 import {
   Outlet,
   useLocation,
+  useNavigation,
   useSubmit,
 } from "@remix-run/react";
 import {
@@ -16,7 +17,7 @@ import {
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import {
-  generateProductReport,
+  generateLatestActivityReport,
 } from "../lib/product-reports.server";
 import {
   normalizeShop,
@@ -31,7 +32,7 @@ export async function loader({ request }) {
 }
 
 export async function action({ request }) {
-  const { admin, session } = await authenticate.admin(request);
+  const { session } = await authenticate.admin(request);
   const shop = normalizeShop(session.shop);
   const formData = await request.formData();
   const reportType = formData.get("reportType");
@@ -40,7 +41,7 @@ export async function action({ request }) {
     throw new Response("Invalid report type", { status: 400 });
   }
 
-  const report = await generateProductReport(admin, shop, reportType);
+  const report = await generateLatestActivityReport(shop, reportType);
   const url = new URL(request.url);
 
   return redirect(withShopifyEmbeddedParams(report.url, url.search, shop));
@@ -52,6 +53,10 @@ function ToolCard({
   reportType,
 }) {
   const submit = useSubmit();
+  const navigation = useNavigation();
+  const isLoading =
+    navigation.state !== "idle" &&
+    navigation.formData?.get("reportType") === reportType;
 
   const handleViewLatestReport = () => {
     const formData = new FormData();
@@ -71,7 +76,9 @@ function ToolCard({
         </Text>
 
         <div>
-          <Button onClick={handleViewLatestReport}>View latest report</Button>
+          <Button loading={isLoading} onClick={handleViewLatestReport}>
+            View latest report
+          </Button>
         </div>
       </BlockStack>
     </Card>

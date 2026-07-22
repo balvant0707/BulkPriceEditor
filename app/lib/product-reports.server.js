@@ -170,6 +170,51 @@ export async function generateProductReport(admin, shop, type) {
   }
 }
 
+export async function generateLatestActivityReport(shop, type) {
+  if (!shop) {
+    throw new Error("Shop is required to generate a report.");
+  }
+
+  const report = await db.productReport.create({
+    data: {
+      shop,
+      type,
+      status: "Generating",
+      generatedAt: new Date(),
+    },
+  });
+
+  try {
+    const rows = await collectActivityReportRows(shop, type, report.id);
+
+    if (rows.length) {
+      await db.productReportRow.createMany({ data: rows });
+    }
+
+    await db.productReport.update({
+      where: { id: report.id },
+      data: {
+        status: "Completed",
+        totalRows: rows.length,
+        generatedAt: new Date(),
+      },
+    });
+
+    return {
+      id: report.id,
+      totalRows: rows.length,
+      url: getReportPath(type, report.id),
+    };
+  } catch (error) {
+    await db.productReport.update({
+      where: { id: report.id },
+      data: { status: "Failed" },
+    });
+
+    throw error;
+  }
+}
+
 export async function loadReportPage({
   shop,
   type,
@@ -382,6 +427,132 @@ async function collectReportRows(admin, { shop, type, includeDraftProducts, repo
   return { rows, currencyCode };
 }
 
+async function collectActivityReportRows(shop, type, reportId) {
+  const [tasks, sales] = await Promise.all([
+    db.task.findMany({
+      where: { shop },
+      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+      include: {
+        auditLogs: {
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        },
+      },
+    }),
+    db.sale.findMany({
+      where: { shop },
+      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+    }),
+  ]);
+  const rows = [];
+
+  for (const task of tasks) {
+    const titleLookup = buildActivityTitleLookup(task);
+
+    for (const log of task.auditLogs || []) {
+      const row = buildActivityReportRow({
+        reportId,
+        shop,
+        type,
+        source: "Task",
+        sourceId: task.id,
+        log,
+        titleLookup,
+      });
+
+      if (row) rows.push(row);
+    }
+  }
+
+  for (const sale of sales) {
+    const titleLookup = buildActivityTitleLookup(sale);
+    const logs = Array.isArray(sale.executionSummary?.logs)
+      ? sale.executionSummary.logs
+      : [];
+
+    for (const log of logs) {
+      const row = buildActivityReportRow({
+        reportId,
+        shop,
+        type,
+        source: "Sale",
+        sourceId: sale.id,
+        log,
+        titleLookup,
+      });
+
+      if (row) rows.push(row);
+    }
+  }
+
+  return rows;
+}
+
+function buildActivityReportRow({
+  reportId,
+  shop,
+  type,
+  source,
+  sourceId,
+  log,
+  titleLookup,
+}) {
+  const values = getActivityLogValues(log);
+  const productId = String(log.productId || "");
+  const variantId = String(log.variantId || log.id || "");
+
+  if (!productId && !variantId) return null;
+
+  const productTitle =
+    log.productTitle ||
+    titleLookup.get(productId) ||
+    titleLookup.get(variantId) ||
+    `${source} #${sourceId}`;
+  const variantTitle = log.variantTitle || getGidTail(variantId) || "";
+  const price = values.newPrice ?? values.price ?? null;
+  const previousPrice = values.previousPrice ?? values.compareAtPrice ?? null;
+  const common = {
+    reportId,
+    shop,
+    type,
+    productId: productId || `${source.toLowerCase()}-${sourceId}`,
+    productTitle,
+    productHandle: null,
+    variantId: variantId || `${source.toLowerCase()}-${sourceId}`,
+    variantTitle,
+    sku: log.variantSku || log.sku || null,
+    price: toDecimalString(price),
+    cost: null,
+    compareAtPrice: toDecimalString(previousPrice),
+    marginPercent: null,
+    discountPercent: null,
+    currencyCode: values.currencyCode || "",
+  };
+
+  if (type === REPORT_TYPES.margin) {
+    return {
+      ...common,
+      cost: toDecimalString(previousPrice),
+      marginPercent:
+        price != null && price !== 0 && previousPrice != null
+          ? toDecimalString(((price - previousPrice) / price) * 100)
+          : null,
+      compareAtPrice: null,
+    };
+  }
+
+  if (type === REPORT_TYPES.discount) {
+    return {
+      ...common,
+      discountPercent:
+        previousPrice != null && previousPrice > 0 && price != null
+          ? toDecimalString(Math.max(0, ((previousPrice - price) / previousPrice) * 100))
+          : null,
+    };
+  }
+
+  return null;
+}
+
 function buildReportRow({ reportId, shop, type, variant, currencyCode }) {
   const price = toNumber(variant.price);
   const cost = toNumber(variant.inventoryItem?.unitCost?.amount);
@@ -429,6 +600,109 @@ function buildReportRow({ reportId, shop, type, variant, currencyCode }) {
   }
 
   return null;
+}
+
+function buildActivityTitleLookup(record) {
+  const lookup = new Map();
+  const summary = safeObject(record.executionSummary);
+  const resources = safeObject(record.applyResources);
+  const addItem = (item) => {
+    if (!item || typeof item !== "object") return;
+
+    const title =
+      item.productTitle ||
+      item.title ||
+      item.name ||
+      item.label ||
+      item.product?.title ||
+      "";
+
+    if (!title) return;
+
+    [
+      item.productId,
+      item.variantId,
+      item.id,
+      item.gid,
+      item.admin_graphql_api_id,
+      item.product?.id,
+    ]
+      .filter(Boolean)
+      .forEach((id) => lookup.set(String(id), title));
+  };
+
+  [
+    resources.products,
+    resources.variants,
+    summary.logs,
+    summary.originalVariants,
+    summary.originalInventoryItems,
+    summary.originalMarketPrices,
+  ].forEach((items) => {
+    if (Array.isArray(items)) items.forEach(addItem);
+  });
+
+  return lookup;
+}
+
+function getActivityLogValues(log) {
+  const parsed = parseActivityChangeValues(log?.changes);
+  const previousPrice =
+    toNumber(log?.previousPrice) ??
+    toNumber(log?.oldPrice) ??
+    parsed.previousPrice ??
+    parsed.compareAtPrice;
+  const newPrice =
+    toNumber(log?.newPrice) ??
+    toNumber(log?.price) ??
+    parsed.newPrice ??
+    parsed.price;
+
+  return {
+    previousPrice,
+    newPrice,
+    price: parsed.price,
+    compareAtPrice: parsed.compareAtPrice,
+    currencyCode: log?.currencyCode || log?.currency || "",
+  };
+}
+
+function parseActivityChangeValues(changes) {
+  const result = {};
+  const changeItems = Array.isArray(changes) ? changes : [changes].filter(Boolean);
+
+  for (const change of changeItems) {
+    const text = String(change || "");
+    const match = text.match(/^(Price|Compare at price):\s*(.*?)\s*->\s*(.*?)$/i);
+
+    if (!match) continue;
+
+    const [, field, previousValue, nextValue] = match;
+    const previous = toNumberFromLogValue(previousValue);
+    const next = toNumberFromLogValue(nextValue);
+
+    if (/compare/i.test(field)) {
+      result.compareAtPrice = previous;
+      if (result.previousPrice == null) result.previousPrice = previous;
+      if (result.newPrice == null && next != null) result.newPrice = next;
+    } else {
+      result.price = next;
+      result.previousPrice = previous;
+      result.newPrice = next;
+    }
+  }
+
+  return result;
+}
+
+function toNumberFromLogValue(value) {
+  const text = String(value || "").trim();
+  if (!text || text.toLowerCase() === "blank") return null;
+  return toNumber(text.replace(/[^\d.-]/g, ""));
+}
+
+function getGidTail(value) {
+  return String(value || "").split("/").pop();
 }
 
 async function shopifyGraphql(admin, query, variables = {}) {
