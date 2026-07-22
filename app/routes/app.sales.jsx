@@ -796,7 +796,7 @@ export default function SalesPage() {
                           labelHidden
                           value={queryValue}
                           onChange={setQueryValue}
-                          placeholder="Search sales by name, selected products, collections, or tags"
+                          placeholder="Search sales ..."
                           prefix={<SearchIcon />}
                           autoComplete="off"
                         />

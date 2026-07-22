@@ -1158,7 +1158,7 @@ function TasksListPage({ tasks }) {
                     labelHidden
                     value={queryValue}
                     onChange={handleQueryChange}
-                    placeholder="Search tasks by selected products, collections, or tags"
+                    placeholder="Search tasks ..."
                     autoComplete="off"
                     clearButton
                     onClearButtonClick={() => setQueryValue("")}

@@ -925,9 +925,9 @@ function ExpandedDateChartOverlay({ title, color, data = [], previousData = [] }
 
 function ExpandedDateChart({ title, color, data = [], previousData = [], showTitle = true }) {
   const [hoveredIndex, setHoveredIndex] = useState(null);
-  const chartWidth = 720;
+  const chartWidth = 1200;
   const chartHeight = 230;
-  const padding = { top: 18, right: 16, bottom: 46, left: 46 };
+  const padding = { top: 18, right: 18, bottom: 46, left: 34 };
   const safeData = normalizeDateChartData(data);
   const safePreviousData = normalizeDateChartData(previousData);
   const maxValue = Math.max(
@@ -945,7 +945,7 @@ function ExpandedDateChart({ title, color, data = [], previousData = [], showTit
   const activePreviousData = safePreviousData[activeIndex];
   const ticks = Array.from({ length: 4 }, (_, index) => Math.round((maxValue / 3) * index));
   const labelIndexes = getDateChartLabelIndexes(safeData.length);
-  const tooltipLeft = activePoint ? `${Math.min(Math.max((activePoint.x / chartWidth) * 100, 8), 78)}%` : "50%";
+  const tooltipLeft = activePoint ? `${Math.min(Math.max((activePoint.x / chartWidth) * 100, 8), 88)}%` : "50%";
   const tooltipTop = activePoint ? Math.max(12, activePoint.y - 74) : 20;
 
   const handlePointerMove = (event) => {
