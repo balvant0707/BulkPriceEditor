@@ -607,7 +607,7 @@ function RecommendedAppsSection() {
 function HelpCard() {
   return (
     <Card>
-      <InlineStack gap="500" align="space-between" blockAlign="center" wrap>
+      <InlineStack gap="500" align="space-between" paddingBlockEnd="500" blockAlign="center" wrap>
         <Box width="calc(100% - 180px)">
           <BlockStack gap="200">
             <Text as="h2" variant="headingMd">
