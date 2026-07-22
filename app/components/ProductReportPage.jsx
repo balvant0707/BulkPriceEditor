@@ -216,10 +216,9 @@ export default function ProductReportPage({ type }) {
             >
               <TextField
                 label="Search products"
-                labelHidden
                 value={queryValue}
                 onChange={setQueryValue}
-                placeholder="Product or SKU"
+                placeholder="Search by Product...."
                 autoComplete="off"
               />
 

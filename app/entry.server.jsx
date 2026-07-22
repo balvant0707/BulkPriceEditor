@@ -14,6 +14,7 @@ export default async function handleRequest(
   remixContext,
 ) {
   addDocumentResponseHeaders(request, responseHeaders);
+  setNoStoreHeaders(responseHeaders);
   const userAgent = request.headers.get("user-agent");
   const callbackName = isbot(userAgent ?? "") ? "onAllReady" : "onShellReady";
 
@@ -48,4 +49,12 @@ export default async function handleRequest(
     // React has enough time to flush down the rejected boundary contents
     setTimeout(abort, streamTimeout + 1000);
   });
+}
+
+function setNoStoreHeaders(headers) {
+  headers.set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+  headers.set("Pragma", "no-cache");
+  headers.set("Expires", "0");
+  headers.set("CDN-Cache-Control", "no-store");
+  headers.set("Vercel-CDN-Cache-Control", "no-store");
 }

@@ -66,7 +66,7 @@ const dashboardMetricCardInnerStyle = {
 };
 
 const dashboardMetricContentStyle = {
-  height: 140,
+  height: 100,
   display: "flex",
   flexDirection: "column",
   justifyContent: "space-between",
@@ -91,6 +91,10 @@ const dashboardMetricSummaryStyle = {
   width: 120,
   minHeight: 56,
   flex: "0 0 120px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "flex-end",
+  textAlign: "right",
 };
 
 const dashboardChartOverlayStyle = {
@@ -493,7 +497,7 @@ function MetricCard({
   trend = "No changes",
 }) {
   const isQuietTrend = trend === "No changes";
-  const trendLabel = isQuietTrend ? trend : `${trend} from last 30 days`;
+  const summaryLabel = [title, value, subtitle].filter(Boolean).join(" ");
 
   return (
     <div style={dashboardMetricCardStyle}>
@@ -504,7 +508,11 @@ function MetricCard({
           <div style={{ ...dashboardMetricIconStyle, background: color.background, color: color.foreground }}>
             <Icon source={icon} />
           </div>
-          <div style={dashboardMetricSummaryStyle} aria-hidden="true" />
+          <div style={dashboardMetricSummaryStyle}>
+            <Text as="span" tone={isQuietTrend ? "subdued" : trend.startsWith("down") ? "critical" : "success"} fontWeight="semibold">
+              {summaryLabel}
+            </Text>
+          </div>
         </InlineStack>
         <div style={dashboardMetricTextLineStyle}>
           <Text as="span" fontWeight="semibold">
@@ -516,7 +524,7 @@ function MetricCard({
           <Text as="span">{subtitle}</Text>
         </div>
         <Text as="span" tone={isQuietTrend ? "subdued" : trend.startsWith("down") ? "critical" : "success"} fontWeight="semibold">
-          {trendLabel}
+          Last 30 days
         </Text>
       </div>
     </Card>

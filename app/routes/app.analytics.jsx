@@ -83,6 +83,16 @@ const metricSparklineStyle = {
   flex: "0 0 120px",
 };
 
+const metricSummaryStyle = {
+  width: 120,
+  minHeight: 56,
+  flex: "0 0 120px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "flex-end",
+  textAlign: "right",
+};
+
 const pageContentStyle = {
   maxWidth: 1480,
   margin: "0 auto",
@@ -855,9 +865,9 @@ function MetricCard({
   color,
   icon,
   trend = "No changes",
-  chart = [],
 }) {
   const isQuietTrend = trend === "No changes";
+  const summaryLabel = [title, value, subtitle].filter(Boolean).join(" ");
 
   return (
     <div style={metricCardStyle}>
@@ -882,10 +892,14 @@ function MetricCard({
                   </InlineStack>
                 </BlockStack>
               </InlineStack>
-              <MetricSparkline color={color.foreground} data={chart} flat={isQuietTrend} />
+              <div style={metricSummaryStyle}>
+                <Text as="span" tone={isQuietTrend ? "subdued" : trend.startsWith("down") ? "critical" : "success"} fontWeight="semibold">
+                  {summaryLabel}
+                </Text>
+              </div>
             </InlineStack>
             <Text as="span" tone={isQuietTrend ? "subdued" : trend.startsWith("down") ? "critical" : "success"} fontWeight="semibold">
-              {isQuietTrend ? trend : `${trend} from selected period`}
+              Last 30 days
             </Text>
           </BlockStack>
         </div>

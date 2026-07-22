@@ -42,5 +42,13 @@ export function ErrorBoundary() {
 }
 
 export const headers = (headersArgs) => {
-  return boundary.headers(headersArgs);
+  const headers = new Headers(boundary.headers(headersArgs));
+
+  headers.set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+  headers.set("Pragma", "no-cache");
+  headers.set("Expires", "0");
+  headers.set("CDN-Cache-Control", "no-store");
+  headers.set("Vercel-CDN-Cache-Control", "no-store");
+
+  return headers;
 };
