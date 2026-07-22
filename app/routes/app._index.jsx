@@ -94,9 +94,13 @@ const dashboardChartOverlayStyle = {
   width: "min(820px, calc(100vw - 64px))",
   transform: "translate(0%, -50%)",
   zIndex: 50,
+  background: "#ffffff",
+  borderRadius: 8,
 };
 
 const dashboardChartPanelStyle = {
+  background: "#ffffff",
+  borderRadius: 8,
   boxShadow: "0 16px 36px rgba(0, 0, 0, 0.14)",
 };
 
@@ -105,6 +109,7 @@ const dashboardChartSvgStyle = {
   height: 260,
   display: "block",
   overflow: "visible",
+  background: "#ffffff",
 };
 
 const dashboardChartTooltipStyle = {
