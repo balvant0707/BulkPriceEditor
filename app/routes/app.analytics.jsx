@@ -37,15 +37,6 @@ const RECORD_TYPE_OPTIONS = [
   { label: "Tasks", value: "tasks" },
   { label: "Sales", value: "sales" },
 ];
-const APPLY_TO_FILTER_OPTIONS = [
-  { label: "All apply to", value: "all" },
-  { label: "Whole store", value: "whole_store" },
-  { label: "Selected collections", value: "selected_collections" },
-  { label: "Selected products", value: "selected_products" },
-  { label: "Selected products with variants", value: "selected_products_with_variants" },
-  { label: "All store products not on sale", value: "all_store_products_not_on_sale" },
-  { label: "Selected tags", value: "selected_tags" },
-];
 const ROLLBACK_LIMIT = 8;
 const RECENT_CHANGES_PAGE_SIZE = 8;
 const TASK_APPLY_TO_OPTIONS = [
@@ -181,7 +172,7 @@ export const loader = async ({ request }) => {
   const url = new URL(request.url);
   const selectedType = normalizeRecordType(url.searchParams.get("type"));
   const selectedYear = normalizeYear(url.searchParams.get("year"));
-  const selectedApplyTo = normalizeApplyToFilter(url.searchParams.get("applyTo"));
+  const selectedApplyTo = normalizeApplyToFilter(url.searchParams.get("applyTo"), selectedType);
 
   const [tasks, sales] = await Promise.all([
     db.task.findMany({
@@ -239,7 +230,21 @@ function normalizeYear(value) {
     : "all";
 }
 
-function normalizeApplyToFilter(value) {
+function getApplyToFilterOptions(selectedType = "all") {
+  const sourceOptions = selectedType === "sales"
+    ? SALE_APPLY_TO_OPTIONS
+    : TASK_APPLY_TO_OPTIONS;
+
+  return [
+    { label: "All apply to", value: "all" },
+    ...sourceOptions.map((option) => ({
+      label: option.label,
+      value: option.key,
+    })),
+  ];
+}
+
+function normalizeApplyToFilter(value, selectedType = "all") {
   const normalized = String(value || "")
     .toLowerCase()
     .trim()
@@ -250,13 +255,13 @@ function normalizeApplyToFilter(value) {
   if (normalized === "products_on_sale" || normalized === "all_products_not_on_sale") {
     return "all_store_products_not_on_sale";
   }
-  return APPLY_TO_FILTER_OPTIONS.some((option) => option.value === normalized)
+  return getApplyToFilterOptions(selectedType).some((option) => option.value === normalized)
     ? normalized
     : "all";
 }
 
-function getApplyToFilterLabel(value) {
-  return APPLY_TO_FILTER_OPTIONS.find((option) => option.value === value)?.label || "All apply to";
+function getApplyToFilterLabel(value, selectedType = "all") {
+  return getApplyToFilterOptions(selectedType).find((option) => option.value === value)?.label || "All apply to";
 }
 
 function getAvailableYears(records) {
@@ -1058,9 +1063,9 @@ function ExpandedDateChart({
             {applyToLabel ? (
               <Text as="p" tone="subdued">{`Apply to: ${applyToLabel}`}</Text>
             ) : null}
-            <Text as="p">{`${title}: ${formatInteger(activeData.value)}`}</Text>
+            <Text as="p">{`${applyToLabel || title}: ${formatInteger(activeData.value)} changes`}</Text>
             {activePreviousData ? (
-              <Text as="p" tone="subdued">{`${formatLongDate(activePreviousData.date)}: ${formatInteger(activePreviousData.value)}`}</Text>
+              <Text as="p" tone="subdued">{`${formatLongDate(activePreviousData.date)}: ${formatInteger(activePreviousData.value)} changes`}</Text>
             ) : null}
           </BlockStack>
         </div>
@@ -1256,6 +1261,8 @@ function ChangeTrendCard({
   const trend = getTrendLabel(total, previousTotal);
   const isQuietTrend = trend === "No changes";
   const isDownTrend = trend.startsWith("down");
+  const applyToOptions = getApplyToFilterOptions(selectedType);
+  const applyToLabel = getApplyToFilterLabel(selectedApplyTo, selectedType);
 
   return (
     <Card>
@@ -1294,7 +1301,7 @@ function ChangeTrendCard({
             <div style={{ minWidth: 260 }}>
               <Select
                 label="Apply to"
-                options={APPLY_TO_FILTER_OPTIONS}
+                options={applyToOptions}
                 value={selectedApplyTo}
                 onChange={(value) => onFilterChange?.("applyTo", value)}
               />
@@ -1308,7 +1315,7 @@ function ChangeTrendCard({
             data={currentData}
             previousData={previousData}
             showTitle={false}
-            applyToLabel={getApplyToFilterLabel(selectedApplyTo)}
+            applyToLabel={applyToLabel}
           />
         </Box>
       </BlockStack>
