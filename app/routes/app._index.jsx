@@ -90,7 +90,7 @@ const dashboardSparklineStyle = {
 const dashboardChartOverlayStyle = {
   position: "fixed",
   left: "18%",
-  top: "60%",
+  top: "80%",
   width: "min(820px, calc(100vw - 64px))",
   transform: "translate(0%, -50%)",
   zIndex: 50,
@@ -531,7 +531,7 @@ function MetricCard({
         <div style={dashboardChartOverlayStyle}>
           <Card>
             <div style={dashboardChartPanelStyle}>
-              <Box padding="400">
+              <Box>
                 <DashboardMetricChart
                   title={title}
                   color={color.foreground}
