@@ -71,9 +71,9 @@ export default function ProductReportPage({ type }) {
   const exportUrl = useMemo(() => {
     const params = new URLSearchParams(searchParams);
     params.delete("page");
-    params.set("export", "csv");
     params.set("timezoneOffsetMinutes", String(new Date().getTimezoneOffset()));
-    return `${location.pathname}?${params.toString()}`;
+    const queryString = params.toString();
+    return `${location.pathname.replace(/\/$/, "")}/export${queryString ? `?${queryString}` : ""}`;
   }, [location.pathname, searchParams]);
 
   const handleFilterChange = (value) => {
@@ -89,7 +89,7 @@ export default function ProductReportPage({ type }) {
     updateSearch({ page: String(currentPage + 1) });
   };
 
-  const handleExportCsv = async () => {
+  const handleExportReport = async () => {
     if (isExporting) return;
 
     setIsExporting(true);
@@ -98,7 +98,8 @@ export default function ProductReportPage({ type }) {
       const response = await fetch(exportUrl, {
         credentials: "same-origin",
         headers: {
-          Accept: "text/csv",
+          Accept:
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         },
       });
 
@@ -111,7 +112,7 @@ export default function ProductReportPage({ type }) {
       const link = document.createElement("a");
 
       link.href = downloadUrl;
-      link.download = getCsvFilename(type);
+      link.download = getExcelFilename(type);
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -194,10 +195,10 @@ export default function ProductReportPage({ type }) {
     <Page
       title={title}
       backAction={{ content: "Tools", onAction: () => navigate("/app/tools") }}
-      secondaryActions={[
+      primaryAction={[
         {
-          content: "Export CSV",
-          onAction: handleExportCsv,
+          content: "Export Report",
+          onAction: handleExportReport,
           loading: isExporting,
           disabled: isExporting,
           variant: "primary",
@@ -362,8 +363,8 @@ function formatRangeLabel(totalRows, currentPage, rowCount) {
   return `${start}-${end} of ${totalRows}`;
 }
 
-function getCsvFilename(type) {
+function getExcelFilename(type) {
   return type === REPORT_TYPES.margin
-    ? "products-margin-report.csv"
-    : "products-discount-report.csv";
+    ? "products-margin-report.xlsx"
+    : "products-discount-report.xlsx";
 }
