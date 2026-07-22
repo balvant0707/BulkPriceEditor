@@ -87,6 +87,16 @@ const dashboardSparklineStyle = {
   flex: "0 0 120px",
 };
 
+const dashboardMetricSummaryStyle = {
+  width: 120,
+  minHeight: 56,
+  flex: "0 0 120px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "flex-end",
+  textAlign: "right",
+};
+
 const dashboardChartOverlayStyle = {
   position: "fixed",
   left: "18%",
@@ -495,18 +505,12 @@ function MetricCard({
   icon,
   color,
   trend = "No changes",
-  chart = [],
-  previousChart = [],
 }) {
   const isQuietTrend = trend === "No changes";
-  const [isChartOpen, setIsChartOpen] = useState(false);
+  const trendLabel = isQuietTrend ? trend : `${trend} from last 30 days`;
 
   return (
-    <div
-      style={dashboardMetricCardStyle}
-      onMouseEnter={() => setIsChartOpen(true)}
-      onMouseLeave={() => setIsChartOpen(false)}
-    >
+    <div style={dashboardMetricCardStyle}>
       <div style={dashboardMetricCardInnerStyle}>
       <Card>
       <div style={dashboardMetricContentStyle}>
@@ -514,7 +518,11 @@ function MetricCard({
           <div style={{ ...dashboardMetricIconStyle, background: color.background, color: color.foreground }}>
             <Icon source={icon} />
           </div>
-          <DashboardSparkline color={color.foreground} data={chart} flat={isQuietTrend} />
+          <div style={dashboardMetricSummaryStyle}>
+            <Text as="span" tone={isQuietTrend ? "subdued" : trend.startsWith("down") ? "critical" : "success"} fontWeight="semibold">
+              {trendLabel}
+            </Text>
+          </div>
         </InlineStack>
         <div style={dashboardMetricTextLineStyle}>
           <Text as="span" fontWeight="semibold">
@@ -525,26 +533,9 @@ function MetricCard({
           </Text>
           <Text as="span">{subtitle}</Text>
         </div>
-        <Text as="span" tone={isQuietTrend ? "subdued" : trend.startsWith("down") ? "critical" : "success"} fontWeight="semibold">
-          {isQuietTrend ? trend : `${trend} from last 30 days`}
-        </Text>
       </div>
     </Card>
       </div>
-      {isChartOpen ? (
-        <div style={dashboardChartOverlayStyle}>
-          <div style={dashboardChartPanelStyle}>
-            <Box padding="400">
-              <DashboardMetricChart
-                title={title}
-                color={color.foreground}
-                data={chart}
-                previousData={previousChart}
-              />
-            </Box>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }

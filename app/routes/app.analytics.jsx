@@ -856,17 +856,11 @@ function MetricCard({
   icon,
   trend = "No changes",
   chart = [],
-  previousChart = [],
 }) {
   const isQuietTrend = trend === "No changes";
-  const [isChartOpen, setIsChartOpen] = useState(false);
 
   return (
-    <div
-      style={metricCardStyle}
-      onMouseEnter={() => setIsChartOpen(true)}
-      onMouseLeave={() => setIsChartOpen(false)}
-    >
+    <div style={metricCardStyle}>
       <div style={metricCardInnerStyle}>
       <Card>
         <div style={metricCardContentStyle}>
@@ -897,14 +891,6 @@ function MetricCard({
         </div>
       </Card>
       </div>
-      {isChartOpen ? (
-        <ExpandedDateChartOverlay
-          title={title}
-          color={color.foreground}
-          data={chart}
-          previousData={previousChart}
-        />
-      ) : null}
     </div>
   );
 }
@@ -1140,14 +1126,9 @@ function ApplyTargetsSection({ sections = [] }) {
 
 function ApplyTargetCard({ target = {} }) {
   const icon = getApplyTargetIcon(target.type);
-  const [isChartOpen, setIsChartOpen] = useState(false);
 
   return (
-    <div
-      onMouseEnter={() => setIsChartOpen(true)}
-      onMouseLeave={() => setIsChartOpen(false)}
-      style={{ position: "relative" }}
-    >
+    <div style={{ position: "relative" }}>
       <Card>
         <BlockStack gap="400">
           <InlineStack align="space-between" blockAlign="start" gap="300">
@@ -1193,14 +1174,6 @@ function ApplyTargetCard({ target = {} }) {
           </InlineStack>
         </BlockStack>
       </Card>
-      {isChartOpen ? (
-        <ExpandedDateChartOverlay
-          title={target.label || "Apply target"}
-          color="#16a8e6"
-          data={target.chart}
-          previousData={target.previousChart}
-        />
-      ) : null}
     </div>
   );
 }
