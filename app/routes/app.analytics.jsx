@@ -1108,9 +1108,6 @@ function ExpandedDateChart({
         <div style={{ ...expandedChartTooltipStyle, left: tooltipLeft, top: tooltipTop, transform: "translateX(-50%)" }}>
           <BlockStack gap="100">
             <Text as="p" fontWeight="semibold">{formatLongDate(activeData.date)}</Text>
-            {applyToLabel ? (
-              <Text as="p" tone="subdued">{`Apply to: ${applyToLabel}`}</Text>
-            ) : null}
             {breakdownRows.length ? (
               breakdownRows.map((row) => (
                 <Text as="p" key={row.value}>{`${row.label}: ${formatInteger(row.count)} changes`}</Text>
