@@ -488,8 +488,6 @@ function MetricCard({
   color,
   trend = "No changes",
 }) {
-  const isQuietTrend = trend === "No changes";
-
   return (
     <div style={dashboardMetricCardStyle}>
       <div style={dashboardMetricCardInnerStyle}>
@@ -501,19 +499,19 @@ function MetricCard({
           </div>
           <div style={dashboardMetricSummaryStyle}>
             <InlineStack gap="150" blockAlign="baseline" wrap={false}>
-              <Text as="span" tone={isQuietTrend ? "subdued" : trend.startsWith("down") ? "critical" : "success"} fontWeight="semibold">
+              <Text as="span" fontWeight="semibold">
                 {title}
               </Text>
-              <Text as="span" variant="headingLg" tone={isQuietTrend ? "subdued" : trend.startsWith("down") ? "critical" : "success"}>
+              <Text as="span" variant="headingLg">
                 {value}
               </Text>
-              <Text as="span" tone={isQuietTrend ? "subdued" : trend.startsWith("down") ? "critical" : "success"} fontWeight="semibold">
+              <Text as="span" fontWeight="semibold">
                 {subtitle}
               </Text>
             </InlineStack>
           </div>
         </InlineStack>
-        <Text as="span" tone={isQuietTrend ? "subdued" : trend.startsWith("down") ? "critical" : "success"} fontWeight="semibold">
+        <Text as="span" fontWeight="semibold">
           Last 30 days
         </Text>
       </div>

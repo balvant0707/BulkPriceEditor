@@ -37,6 +37,15 @@ const RECORD_TYPE_OPTIONS = [
   { label: "Tasks", value: "tasks" },
   { label: "Sales", value: "sales" },
 ];
+const APPLY_TO_FILTER_OPTIONS = [
+  { label: "All apply to", value: "all" },
+  { label: "Whole store", value: "whole_store" },
+  { label: "Selected collections", value: "selected_collections" },
+  { label: "Selected products", value: "selected_products" },
+  { label: "Selected products with variants", value: "selected_products_with_variants" },
+  { label: "All store products not on sale", value: "all_store_products_not_on_sale" },
+  { label: "Selected tags", value: "selected_tags" },
+];
 const ROLLBACK_LIMIT = 8;
 const RECENT_CHANGES_PAGE_SIZE = 8;
 const TASK_APPLY_TO_OPTIONS = [
@@ -172,6 +181,7 @@ export const loader = async ({ request }) => {
   const url = new URL(request.url);
   const selectedType = normalizeRecordType(url.searchParams.get("type"));
   const selectedYear = normalizeYear(url.searchParams.get("year"));
+  const selectedApplyTo = normalizeApplyToFilter(url.searchParams.get("applyTo"));
 
   const [tasks, sales] = await Promise.all([
     db.task.findMany({
@@ -196,8 +206,8 @@ export const loader = async ({ request }) => {
     ...sales.map((sale) => ({ kind: "sale", record: sale })),
   ];
   const availableYears = getAvailableYears(allRecords);
-  const filteredTasks = filterRecords(tasks, "task", selectedType, selectedYear);
-  const filteredSales = filterRecords(sales, "sale", selectedType, selectedYear);
+  const filteredTasks = filterRecords(tasks, "task", selectedType, selectedYear, selectedApplyTo);
+  const filteredSales = filterRecords(sales, "sale", selectedType, selectedYear, selectedApplyTo);
   const stats = buildAnalysisStats(filteredTasks, filteredSales);
   const recentChanges = buildRecentChanges(filteredTasks, filteredSales);
   const rollbackRows = buildRollbackRows(filteredTasks, filteredSales);
@@ -207,6 +217,7 @@ export const loader = async ({ request }) => {
   return json({
     selectedType,
     selectedYear,
+    selectedApplyTo,
     availableYears,
     stats,
     recentChanges,
@@ -228,6 +239,26 @@ function normalizeYear(value) {
     : "all";
 }
 
+function normalizeApplyToFilter(value) {
+  const normalized = String(value || "")
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, "_")
+    .replace(/-/g, "_");
+
+  if (!normalized || normalized === "all") return "all";
+  if (normalized === "products_on_sale" || normalized === "all_products_not_on_sale") {
+    return "all_store_products_not_on_sale";
+  }
+  return APPLY_TO_FILTER_OPTIONS.some((option) => option.value === normalized)
+    ? normalized
+    : "all";
+}
+
+function getApplyToFilterLabel(value) {
+  return APPLY_TO_FILTER_OPTIONS.find((option) => option.value === value)?.label || "All apply to";
+}
+
 function getAvailableYears(records) {
   const years = records
     .map(({ record }) => getRecordDate(record))
@@ -238,14 +269,21 @@ function getAvailableYears(records) {
   return [...new Set(years)].sort((a, b) => b - a).map(String);
 }
 
-function filterRecords(records, kind, selectedType, selectedYear) {
+function filterRecords(records, kind, selectedType, selectedYear, selectedApplyTo) {
   if (selectedType === "tasks" && kind !== "task") return [];
   if (selectedType === "sales" && kind !== "sale") return [];
 
   return records.filter((record) => {
-    if (selectedYear === "all") return true;
-    const date = getRecordDate(record);
-    return date && String(new Date(date).getFullYear()) === selectedYear;
+    if (selectedApplyTo !== "all" && normalizeApplyScope(record) !== selectedApplyTo) {
+      return false;
+    }
+
+    if (selectedYear !== "all") {
+      const date = getRecordDate(record);
+      return date && String(new Date(date).getFullYear()) === selectedYear;
+    }
+
+    return true;
   });
 }
 
@@ -870,8 +908,6 @@ function MetricCard({
   icon,
   trend = "No changes",
 }) {
-  const isQuietTrend = trend === "No changes";
-
   return (
     <div style={metricCardStyle}>
       <div style={metricCardInnerStyle}>
@@ -883,19 +919,19 @@ function MetricCard({
             </div>
             <div style={metricSummaryStyle}>
               <InlineStack gap="150" blockAlign="baseline" wrap={false}>
-                <Text as="span" tone={isQuietTrend ? "subdued" : trend.startsWith("down") ? "critical" : "success"} fontWeight="semibold">
+                <Text as="span" fontWeight="semibold">
                   {title}
                 </Text>
-                <Text as="span" variant="headingLg" tone={isQuietTrend ? "subdued" : trend.startsWith("down") ? "critical" : "success"}>
+                <Text as="span" variant="headingLg">
                   {value}
                 </Text>
-                <Text as="span" tone={isQuietTrend ? "subdued" : trend.startsWith("down") ? "critical" : "success"} fontWeight="semibold">
+                <Text as="span" fontWeight="semibold">
                   {subtitle}
                 </Text>
               </InlineStack>
             </div>
           </InlineStack>
-          <Text as="span" tone={isQuietTrend ? "subdued" : trend.startsWith("down") ? "critical" : "success"} fontWeight="semibold">
+          <Text as="span" fontWeight="semibold">
             Last 30 days
           </Text>
         </div>
@@ -922,7 +958,14 @@ function ExpandedDateChartOverlay({ title, color, data = [], previousData = [] }
   );
 }
 
-function ExpandedDateChart({ title, color, data = [], previousData = [], showTitle = true }) {
+function ExpandedDateChart({
+  title,
+  color,
+  data = [],
+  previousData = [],
+  showTitle = true,
+  applyToLabel = "",
+}) {
   const [hoveredIndex, setHoveredIndex] = useState(null);
   const chartWidth = 1200;
   const chartHeight = 230;
@@ -1012,6 +1055,9 @@ function ExpandedDateChart({ title, color, data = [], previousData = [], showTit
         <div style={{ ...expandedChartTooltipStyle, left: tooltipLeft, top: tooltipTop, transform: "translateX(-50%)" }}>
           <BlockStack gap="100">
             <Text as="p" fontWeight="semibold">{formatLongDate(activeData.date)}</Text>
+            {applyToLabel ? (
+              <Text as="p" tone="subdued">{`Apply to: ${applyToLabel}`}</Text>
+            ) : null}
             <Text as="p">{`${title}: ${formatInteger(activeData.value)}`}</Text>
             {activePreviousData ? (
               <Text as="p" tone="subdued">{`${formatLongDate(activePreviousData.date)}: ${formatInteger(activePreviousData.value)}`}</Text>
@@ -1195,7 +1241,14 @@ function getApplyTargetIcon(type) {
   return ProductIcon;
 }
 
-function ChangeTrendCard({ data = [] }) {
+function ChangeTrendCard({
+  data = [],
+  selectedType = "all",
+  selectedYear = "all",
+  selectedApplyTo = "all",
+  yearOptions = [],
+  onFilterChange,
+}) {
   const currentData = Array.isArray(data?.current) ? data.current : [];
   const previousData = Array.isArray(data?.previous) ? data.previous : [];
   const total = currentData.reduce((sum, item) => sum + (Number(item.value) || 0), 0);
@@ -1207,19 +1260,47 @@ function ChangeTrendCard({ data = [] }) {
   return (
     <Card>
       <BlockStack gap="400">
-        <BlockStack gap="050">
-          <Text as="h2" variant="headingMd">
-            Changes over time
-          </Text>
-          <InlineStack gap="200" blockAlign="center">
-            <Text as="p" variant="headingLg">
-              {formatInteger(total)}
+        <InlineStack align="space-between" blockAlign="start" gap="400" wrap>
+          <BlockStack gap="050">
+            <Text as="h2" variant="headingMd">
+              Changes over time
             </Text>
-            <Text as="span" tone={isQuietTrend ? "subdued" : isDownTrend ? "critical" : "success"} fontWeight="semibold">
-              {trend}
-            </Text>
+            <InlineStack gap="200" blockAlign="center">
+              <Text as="p" variant="headingLg">
+                {formatInteger(total)}
+              </Text>
+              <Text as="span" tone={isQuietTrend ? "subdued" : isDownTrend ? "critical" : "success"} fontWeight="semibold">
+                {trend}
+              </Text>
+            </InlineStack>
+          </BlockStack>
+          <InlineStack gap="300" blockAlign="center" wrap>
+            <div style={{ minWidth: 180 }}>
+              <Select
+                label="Type"
+                options={RECORD_TYPE_OPTIONS}
+                value={selectedType}
+                onChange={(value) => onFilterChange?.("type", value)}
+              />
+            </div>
+            <div style={{ minWidth: 160 }}>
+              <Select
+                label="Year"
+                options={yearOptions}
+                value={selectedYear}
+                onChange={(value) => onFilterChange?.("year", value)}
+              />
+            </div>
+            <div style={{ minWidth: 260 }}>
+              <Select
+                label="Apply to"
+                options={APPLY_TO_FILTER_OPTIONS}
+                value={selectedApplyTo}
+                onChange={(value) => onFilterChange?.("applyTo", value)}
+              />
+            </div>
           </InlineStack>
-        </BlockStack>
+        </InlineStack>
         <Box minHeight="260px">
           <ExpandedDateChart
             title="Changes over time"
@@ -1227,6 +1308,7 @@ function ChangeTrendCard({ data = [] }) {
             data={currentData}
             previousData={previousData}
             showTitle={false}
+            applyToLabel={getApplyToFilterLabel(selectedApplyTo)}
           />
         </Box>
       </BlockStack>
@@ -1434,6 +1516,7 @@ export default function AnalysisPage() {
   const {
     selectedType = "all",
     selectedYear = "all",
+    selectedApplyTo = "all",
     availableYears = [],
     stats = {},
     recentChanges = [],
@@ -1463,31 +1546,9 @@ export default function AnalysisPage() {
       <Page fullWidth>
         <div style={pageContentStyle}>
         <BlockStack gap="500">
-          <InlineStack align="space-between" blockAlign="end" gap="400" wrap>
-            <BlockStack gap="050">
-              <Text as="h1" variant="headingXl">
-                Analysis
-              </Text>
-            </BlockStack>
-            <InlineStack gap="300" blockAlign="center" wrap>
-              <div style={{ minWidth: 180 }}>
-                <Select
-                  label="Type"
-                  options={RECORD_TYPE_OPTIONS}
-                  value={selectedType}
-                  onChange={(value) => updateFilter("type", value)}
-                />
-              </div>
-              <div style={{ minWidth: 160 }}>
-                <Select
-                  label="Year"
-                  options={yearOptions}
-                  value={selectedYear}
-                  onChange={(value) => updateFilter("year", value)}
-                />
-              </div>
-            </InlineStack>
-          </InlineStack>
+          <Text as="h1" variant="headingXl">
+            Analysis
+          </Text>
 
           <InlineGrid columns={{ xs: 1, sm: 2, md: 4 }} gap="400">
             <MetricCard
@@ -1532,9 +1593,14 @@ export default function AnalysisPage() {
             />
           </InlineGrid>
 
-          <ApplyTargetsSection sections={applyToSections} />
-
-          <ChangeTrendCard data={changeTrend} />
+          <ChangeTrendCard
+            data={changeTrend}
+            selectedType={selectedType}
+            selectedYear={selectedYear}
+            selectedApplyTo={selectedApplyTo}
+            yearOptions={yearOptions}
+            onFilterChange={updateFilter}
+          />
 
           <InlineGrid columns={{ xs: 1, lg: "2fr 1fr" }} gap="500">
             <RecentChangesTable rows={recentChanges} />
