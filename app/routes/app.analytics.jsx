@@ -1035,13 +1035,11 @@ function ExpandedDateChart({
   const activeIndex = hoveredIndex ?? safeData.length - 1;
   const activePoint = points[activeIndex];
   const activeData = safeData[activeIndex];
-  const activePreviousData = safePreviousData[activeIndex];
   const ticks = Array.from({ length: 4 }, (_, index) => Math.round((maxValue / 3) * index));
   const labelIndexes = getDateChartLabelIndexes(safeData.length);
   const tooltipLeft = activePoint ? `${Math.min(Math.max((activePoint.x / chartWidth) * 100, 8), 88)}%` : "50%";
   const tooltipTop = activePoint ? Math.max(12, activePoint.y - 74) : 20;
   const breakdownRows = getApplyToBreakdownRows(activeData, applyToOptions);
-  const previousBreakdownRows = getApplyToBreakdownRows(activePreviousData, applyToOptions);
 
   const handlePointerMove = (event) => {
     const bounds = event.currentTarget.getBoundingClientRect();
@@ -1115,16 +1113,6 @@ function ExpandedDateChart({
             ) : (
               <Text as="p">{`${applyToLabel || title}: ${formatInteger(activeData.value)} changes`}</Text>
             )}
-            {activePreviousData ? (
-              <Text as="p" tone="subdued">{`${formatLongDate(activePreviousData.date)}: ${formatInteger(activePreviousData.value)} changes`}</Text>
-            ) : null}
-            {previousBreakdownRows.length ? (
-              previousBreakdownRows.map((row) => (
-                <Text as="p" tone="subdued" key={`previous-${row.value}`}>
-                  {`${row.label}: ${formatInteger(row.count)} changes`}
-                </Text>
-              ))
-            ) : null}
           </BlockStack>
         </div>
       ) : null}
