@@ -264,6 +264,14 @@ function getApplyToFilterLabel(value, selectedType = "all") {
   return getApplyToFilterOptions(selectedType).find((option) => option.value === value)?.label || "All apply to";
 }
 
+function getApplyToBreakdownOptions(selectedType = "all", selectedApplyTo = "all") {
+  if (selectedApplyTo !== "all") {
+    return getApplyToFilterOptions(selectedType).filter((option) => option.value === selectedApplyTo);
+  }
+
+  return getApplyToFilterOptions(selectedType).filter((option) => option.value !== "all");
+}
+
 function getAvailableYears(records) {
   const years = records
     .map(({ record }) => getRecordDate(record))
@@ -714,9 +722,46 @@ function buildChangeTrend(tasks, sales) {
   const getRecordValue = (record) => getChangeCount(record) || 1;
 
   return {
-    current: buildDailySeriesForPeriod(records, (record) => getRecordDate(record), getRecordValue, currentStart),
-    previous: buildDailySeriesForPeriod(records, (record) => getRecordDate(record), getRecordValue, previousStart),
+    current: buildApplyToDailySeriesForPeriod(records, currentStart, getRecordValue),
+    previous: buildApplyToDailySeriesForPeriod(records, previousStart, getRecordValue),
   };
+}
+
+function buildApplyToDailySeriesForPeriod(records, startDate, getValue = () => 1, days = ANALYTICS_CHART_DAYS) {
+  const start = new Date(startDate || new Date());
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(start.getDate() + days);
+  const buckets = new Map();
+
+  for (let index = 0; index < days; index += 1) {
+    const date = new Date(start);
+    date.setDate(start.getDate() + index);
+    buckets.set(date.toISOString().slice(0, 10), {
+      date: date.toISOString().slice(0, 10),
+      value: 0,
+      applyToBreakdown: {},
+    });
+  }
+
+  for (const record of records) {
+    const rawDate = getRecordDate(record);
+    if (!rawDate) continue;
+
+    const date = new Date(rawDate);
+    if (Number.isNaN(date.getTime()) || date < start || date > end) continue;
+
+    const key = date.toISOString().slice(0, 10);
+    const bucket = buckets.get(key);
+    if (!bucket) continue;
+
+    const value = Math.max(0, Number(getValue(record)) || 0);
+    const applyTo = normalizeApplyScope(record);
+    bucket.value += value;
+    bucket.applyToBreakdown[applyTo] = (bucket.applyToBreakdown[applyTo] || 0) + value;
+  }
+
+  return [...buckets.values()];
 }
 
 function isCompletedTask(task) {
@@ -970,6 +1015,7 @@ function ExpandedDateChart({
   previousData = [],
   showTitle = true,
   applyToLabel = "",
+  applyToOptions = [],
 }) {
   const [hoveredIndex, setHoveredIndex] = useState(null);
   const chartWidth = 1200;
@@ -994,6 +1040,8 @@ function ExpandedDateChart({
   const labelIndexes = getDateChartLabelIndexes(safeData.length);
   const tooltipLeft = activePoint ? `${Math.min(Math.max((activePoint.x / chartWidth) * 100, 8), 88)}%` : "50%";
   const tooltipTop = activePoint ? Math.max(12, activePoint.y - 74) : 20;
+  const breakdownRows = getApplyToBreakdownRows(activeData, applyToOptions);
+  const previousBreakdownRows = getApplyToBreakdownRows(activePreviousData, applyToOptions);
 
   const handlePointerMove = (event) => {
     const bounds = event.currentTarget.getBoundingClientRect();
@@ -1063,9 +1111,22 @@ function ExpandedDateChart({
             {applyToLabel ? (
               <Text as="p" tone="subdued">{`Apply to: ${applyToLabel}`}</Text>
             ) : null}
-            <Text as="p">{`${applyToLabel || title}: ${formatInteger(activeData.value)} changes`}</Text>
+            {breakdownRows.length ? (
+              breakdownRows.map((row) => (
+                <Text as="p" key={row.value}>{`${row.label}: ${formatInteger(row.count)} changes`}</Text>
+              ))
+            ) : (
+              <Text as="p">{`${applyToLabel || title}: ${formatInteger(activeData.value)} changes`}</Text>
+            )}
             {activePreviousData ? (
               <Text as="p" tone="subdued">{`${formatLongDate(activePreviousData.date)}: ${formatInteger(activePreviousData.value)} changes`}</Text>
+            ) : null}
+            {previousBreakdownRows.length ? (
+              previousBreakdownRows.map((row) => (
+                <Text as="p" tone="subdued" key={`previous-${row.value}`}>
+                  {`${row.label}: ${formatInteger(row.count)} changes`}
+                </Text>
+              ))
             ) : null}
           </BlockStack>
         </div>
@@ -1078,9 +1139,22 @@ function normalizeDateChartData(data = []) {
   return Array.isArray(data)
     ? data.map((point, index) => ({
         date: point.date || point.label || `Point ${index + 1}`,
-        value: Math.max(0, Number(point.value) || 0),
+      value: Math.max(0, Number(point.value) || 0),
+      applyToBreakdown: getObjectValue(point.applyToBreakdown),
       }))
     : [];
+}
+
+function getApplyToBreakdownRows(point, options = []) {
+  if (!point || !options.length) return [];
+  const breakdown = getObjectValue(point.applyToBreakdown);
+
+  return options
+    .map((option) => ({
+      ...option,
+      count: Math.max(0, Number(breakdown[option.value]) || 0),
+    }))
+    .filter((row) => row.count > 0 || options.length === 1);
 }
 
 function buildDateChartPoints(data, maxValue, chartWidth, chartHeight, padding) {
@@ -1263,6 +1337,7 @@ function ChangeTrendCard({
   const isDownTrend = trend.startsWith("down");
   const applyToOptions = getApplyToFilterOptions(selectedType);
   const applyToLabel = getApplyToFilterLabel(selectedApplyTo, selectedType);
+  const breakdownOptions = getApplyToBreakdownOptions(selectedType, selectedApplyTo);
 
   return (
     <Card>
@@ -1316,6 +1391,7 @@ function ChangeTrendCard({
             previousData={previousData}
             showTitle={false}
             applyToLabel={applyToLabel}
+            applyToOptions={breakdownOptions}
           />
         </Box>
       </BlockStack>
