@@ -72,6 +72,14 @@ const dashboardMetricContentStyle = {
   overflow: "hidden",
 };
 
+const dashboardMetricTextLineStyle = {
+  display: "flex",
+  alignItems: "baseline",
+  gap: 8,
+  minWidth: 0,
+  whiteSpace: "nowrap",
+};
+
 const dashboardSparklineStyle = {
   width: 120,
   height: 56,
@@ -412,24 +420,20 @@ function MetricCard({ title, value, subtitle, icon, color, trend = "No changes",
       <Card>
       <div style={dashboardMetricContentStyle}>
         <InlineStack align="space-between" blockAlign="start" gap="400" wrap={false}>
-          <InlineStack gap="400" blockAlign="center">
-            <div style={{ ...dashboardMetricIconStyle, background: color.background, color: color.foreground }}>
-              <Icon source={icon} />
-            </div>
-            <BlockStack gap="050">
-              <Text as="p" fontWeight="semibold">
-                {title}
-              </Text>
-              <InlineStack gap="150" blockAlign="end">
-                <Text as="p" variant="headingXl">
-                  {value}
-                </Text>
-                <Text as="span">{subtitle}</Text>
-              </InlineStack>
-            </BlockStack>
-          </InlineStack>
+          <div style={{ ...dashboardMetricIconStyle, background: color.background, color: color.foreground }}>
+            <Icon source={icon} />
+          </div>
           <DashboardSparkline color={color.foreground} data={chart} flat={isQuietTrend} />
         </InlineStack>
+        <div style={dashboardMetricTextLineStyle}>
+          <Text as="span" fontWeight="semibold">
+            {title}
+          </Text>
+          <Text as="span" variant="headingXl">
+            {value}
+          </Text>
+          <Text as="span">{subtitle}</Text>
+        </div>
         <Text as="span" tone={isQuietTrend ? "subdued" : trend.startsWith("down") ? "critical" : "success"} fontWeight="semibold">
           {isQuietTrend ? trend : `${trend} from last 30 days`}
         </Text>
