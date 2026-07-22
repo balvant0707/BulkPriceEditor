@@ -687,7 +687,7 @@ export default function AppIndex() {
       <Page title="Dashboard">
         <Layout>
           <Layout.Section>
-            <Box paddingBlockEnd="600">
+            <Box paddingBlockEnd="00">
               <InlineGrid columns={{ xs: 1, sm: 2, md: 4 }} gap="400">
                 <MetricCard
                   title="Tasks"
