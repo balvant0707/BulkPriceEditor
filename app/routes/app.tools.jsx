@@ -1,9 +1,9 @@
 // app/routes/app.tools.jsx
 import { json, redirect } from "@remix-run/node";
 import {
-  Form,
   Outlet,
   useLocation,
+  useSubmit,
 } from "@remix-run/react";
 import {
   BlockStack,
@@ -51,6 +51,14 @@ function ToolCard({
   description,
   reportType,
 }) {
+  const submit = useSubmit();
+
+  const handleViewLatestReport = () => {
+    const formData = new FormData();
+    formData.set("reportType", reportType);
+    submit(formData, { method: "post" });
+  };
+
   return (
     <Card>
       <BlockStack gap="400">
@@ -63,10 +71,7 @@ function ToolCard({
         </Text>
 
         <div>
-          <Form method="post">
-            <input type="hidden" name="reportType" value={reportType} />
-            <Button submit>View latest report</Button>
-          </Form>
+          <Button onClick={handleViewLatestReport}>View latest report</Button>
         </div>
       </BlockStack>
     </Card>
