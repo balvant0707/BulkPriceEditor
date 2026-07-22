@@ -1,7 +1,7 @@
 import { json } from "@remix-run/node";
-import { useLoaderData, useLocation, useNavigate, useSearchParams } from "@remix-run/react";
+import { useLoaderData } from "@remix-run/react";
 import { TitleBar } from "@shopify/app-bridge-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Badge,
   BlockStack,
@@ -29,7 +29,6 @@ import {
 } from "@shopify/polaris-icons";
 import db from "../db.server";
 import { authenticate } from "../shopify.server";
-import { withShopifyEmbeddedParams } from "../lib/shopify-embedded-url";
 import { normalizeSaleStatus, SALE_STATUS } from "../lib/sale-status";
 
 const RECORD_TYPE_OPTIONS = [
@@ -73,7 +72,7 @@ const metricCardInnerStyle = {
 };
 
 const metricCardContentStyle = {
-  height: 72,
+  height: 90,
   display: "flex",
   flexDirection: "column",
   justifyContent: "space-between",
@@ -168,10 +167,6 @@ const donutInnerStyle = {
 
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
-  const url = new URL(request.url);
-  const selectedType = normalizeRecordType(url.searchParams.get("type"));
-  const selectedYear = normalizeYear(url.searchParams.get("year"));
-  const selectedApplyTo = normalizeApplyToFilter(url.searchParams.get("applyTo"), selectedType);
 
   const [tasks, sales] = await Promise.all([
     db.task.findMany({
@@ -196,38 +191,21 @@ export const loader = async ({ request }) => {
     ...sales.map((sale) => ({ kind: "sale", record: sale })),
   ];
   const availableYears = getAvailableYears(allRecords);
-  const filteredTasks = filterRecords(tasks, "task", selectedType, selectedYear, selectedApplyTo);
-  const filteredSales = filterRecords(sales, "sale", selectedType, selectedYear, selectedApplyTo);
-  const stats = buildAnalysisStats(filteredTasks, filteredSales);
-  const recentChanges = buildRecentChanges(filteredTasks, filteredSales);
-  const rollbackRows = buildRollbackRows(filteredTasks, filteredSales);
-  const applyToSections = buildApplyToSections(filteredTasks, filteredSales);
-  const changeTrend = buildChangeTrend(filteredTasks, filteredSales);
+  const stats = buildAnalysisStats(tasks, sales);
+  const recentChanges = buildRecentChanges(tasks, sales);
+  const rollbackRows = buildRollbackRows(tasks, sales);
+  const applyToSections = buildApplyToSections(tasks, sales);
+  const chartRecords = buildChartRecords(tasks, sales);
 
   return json({
-    selectedType,
-    selectedYear,
-    selectedApplyTo,
     availableYears,
     stats,
     recentChanges,
     rollbackRows,
     applyToSections,
-    changeTrend,
+    chartRecords,
   });
 };
-
-function normalizeRecordType(value) {
-  return ["tasks", "sales"].includes(value) ? value : "all";
-}
-
-function normalizeYear(value) {
-  if (!value || value === "all") return "all";
-  const year = Number(value);
-  return Number.isInteger(year) && year >= 2000 && year <= 2100
-    ? String(year)
-    : "all";
-}
 
 function getApplyToFilterOptions(selectedType = "all") {
   const sourceOptions = selectedType === "sales"
@@ -241,22 +219,6 @@ function getApplyToFilterOptions(selectedType = "all") {
       value: option.key,
     })),
   ];
-}
-
-function normalizeApplyToFilter(value, selectedType = "all") {
-  const normalized = String(value || "")
-    .toLowerCase()
-    .trim()
-    .replace(/\s+/g, "_")
-    .replace(/-/g, "_");
-
-  if (!normalized || normalized === "all") return "all";
-  if (normalized === "products_on_sale" || normalized === "all_products_not_on_sale") {
-    return "all_store_products_not_on_sale";
-  }
-  return getApplyToFilterOptions(selectedType).some((option) => option.value === normalized)
-    ? normalized
-    : "all";
 }
 
 function getApplyToFilterLabel(value, selectedType = "all") {
@@ -281,11 +243,11 @@ function getAvailableYears(records) {
   return [...new Set(years)].sort((a, b) => b - a).map(String);
 }
 
-function filterRecords(records, kind, selectedType, selectedYear, selectedApplyTo) {
-  if (selectedType === "tasks" && kind !== "task") return [];
-  if (selectedType === "sales" && kind !== "sale") return [];
-
+function filterChartRecords(records, selectedType, selectedYear, selectedApplyTo) {
   return records.filter((record) => {
+    if (selectedType === "tasks" && record.kind !== "task") return false;
+    if (selectedType === "sales" && record.kind !== "sale") return false;
+
     if (selectedApplyTo !== "all" && normalizeApplyScope(record) !== selectedApplyTo) {
       return false;
     }
@@ -300,7 +262,7 @@ function filterRecords(records, kind, selectedType, selectedYear, selectedApplyT
 }
 
 function getRecordDate(record) {
-  return record.completedAt || record.startedAt || record.startAt || record.updatedAt || record.createdAt;
+  return record.date || record.completedAt || record.startedAt || record.startAt || record.updatedAt || record.createdAt;
 }
 
 function getSummary(record) {
@@ -607,6 +569,8 @@ function buildApplyToCards(records, kind, options) {
 }
 
 function normalizeApplyScope(record) {
+  if (record?.applyTo) return record.applyTo;
+
   const resources = getObjectValue(record.applyResources);
   const summaryApplyTo = getObjectValue(getSummary(record).applyTo);
   const rawScope = String(
@@ -703,10 +667,14 @@ function getLogTarget(log, record, titleLookup) {
 }
 
 function buildChangeTrend(tasks, sales) {
-  const records = [
-    ...tasks.map((task) => ({ kind: "task", ...task })),
-    ...sales.map((sale) => ({ kind: "sale", ...sale })),
-  ];
+  const records = Array.isArray(sales)
+    ? [
+        ...tasks.map((task) => ({ kind: "task", ...task })),
+        ...sales.map((sale) => ({ kind: "sale", ...sale })),
+      ]
+    : Array.isArray(tasks)
+      ? tasks
+      : [];
   const dates = records
     .map((record) => getRecordDate(record))
     .filter(Boolean)
@@ -718,12 +686,31 @@ function buildChangeTrend(tasks, sales) {
   currentStart.setDate(end.getDate() - (ANALYTICS_CHART_DAYS - 1));
   const previousStart = new Date(currentStart);
   previousStart.setDate(currentStart.getDate() - ANALYTICS_CHART_DAYS);
-  const getRecordValue = (record) => getChangeCount(record) || 1;
+  const getRecordValue = (record) => Number(record.value) || getChangeCount(record) || 1;
 
   return {
     current: buildApplyToDailySeriesForPeriod(records, currentStart, getRecordValue),
     previous: buildApplyToDailySeriesForPeriod(records, previousStart, getRecordValue),
   };
+}
+
+function buildChartRecords(tasks, sales) {
+  return [
+    ...tasks.map((task) => ({
+      id: `task-${task.id}`,
+      kind: "task",
+      date: getRecordDate(task),
+      applyTo: normalizeApplyScope(task),
+      value: getChangeCount(task) || 1,
+    })),
+    ...sales.map((sale) => ({
+      id: `sale-${sale.id}`,
+      kind: "sale",
+      date: getRecordDate(sale),
+      applyTo: normalizeApplyScope(sale),
+      value: getChangeCount(sale) || 1,
+    })),
+  ].filter((record) => record.date);
 }
 
 function buildApplyToDailySeriesForPeriod(records, startDate, getValue = () => 1, days = ANALYTICS_CHART_DAYS) {
@@ -1305,13 +1292,21 @@ function getApplyTargetIcon(type) {
 }
 
 function ChangeTrendCard({
-  data = [],
-  selectedType = "all",
-  selectedYear = "all",
-  selectedApplyTo = "all",
+  records = [],
   yearOptions = [],
-  onFilterChange,
 }) {
+  const [selectedType, setSelectedType] = useState("all");
+  const [selectedYear, setSelectedYear] = useState("all");
+  const [selectedApplyTo, setSelectedApplyTo] = useState("all");
+  const applyToOptions = getApplyToFilterOptions(selectedType);
+  const normalizedApplyTo = applyToOptions.some((option) => option.value === selectedApplyTo)
+    ? selectedApplyTo
+    : "all";
+  const filteredRecords = useMemo(
+    () => filterChartRecords(records, selectedType, selectedYear, normalizedApplyTo),
+    [records, selectedType, selectedYear, normalizedApplyTo],
+  );
+  const data = useMemo(() => buildChangeTrend(filteredRecords), [filteredRecords]);
   const currentData = Array.isArray(data?.current) ? data.current : [];
   const previousData = Array.isArray(data?.previous) ? data.previous : [];
   const total = currentData.reduce((sum, item) => sum + (Number(item.value) || 0), 0);
@@ -1319,9 +1314,16 @@ function ChangeTrendCard({
   const trend = getTrendLabel(total, previousTotal);
   const isQuietTrend = trend === "No changes";
   const isDownTrend = trend.startsWith("down");
-  const applyToOptions = getApplyToFilterOptions(selectedType);
-  const applyToLabel = getApplyToFilterLabel(selectedApplyTo, selectedType);
-  const breakdownOptions = getApplyToBreakdownOptions(selectedType, selectedApplyTo);
+  const applyToLabel = getApplyToFilterLabel(normalizedApplyTo, selectedType);
+  const breakdownOptions = getApplyToBreakdownOptions(selectedType, normalizedApplyTo);
+
+  const handleTypeChange = (value) => {
+    setSelectedType(value);
+    const nextApplyToOptions = getApplyToFilterOptions(value);
+    if (!nextApplyToOptions.some((option) => option.value === selectedApplyTo)) {
+      setSelectedApplyTo("all");
+    }
+  };
 
   return (
     <Card>
@@ -1346,7 +1348,7 @@ function ChangeTrendCard({
                 label="Type"
                 options={RECORD_TYPE_OPTIONS}
                 value={selectedType}
-                onChange={(value) => onFilterChange?.("type", value)}
+                onChange={handleTypeChange}
               />
             </div>
             <div style={{ minWidth: 160 }}>
@@ -1354,15 +1356,15 @@ function ChangeTrendCard({
                 label="Year"
                 options={yearOptions}
                 value={selectedYear}
-                onChange={(value) => onFilterChange?.("year", value)}
+                onChange={setSelectedYear}
               />
             </div>
             <div style={{ minWidth: 260 }}>
               <Select
                 label="Apply to"
                 options={applyToOptions}
-                value={selectedApplyTo}
-                onChange={(value) => onFilterChange?.("applyTo", value)}
+                value={normalizedApplyTo}
+                onChange={setSelectedApplyTo}
               />
             </div>
           </InlineStack>
@@ -1581,31 +1583,28 @@ function EmptyTable({ message }) {
 export default function AnalysisPage() {
   const loaderData = useLoaderData();
   const {
-    selectedType = "all",
-    selectedYear = "all",
-    selectedApplyTo = "all",
     availableYears = [],
     stats = {},
     recentChanges = [],
     rollbackRows = [],
     applyToSections = [],
-    changeTrend = [],
+    chartRecords = [],
   } = loaderData || {};
-  const [searchParams] = useSearchParams();
-  const location = useLocation();
-  const navigate = useNavigate();
   const yearOptions = [
     { label: "All years", value: "all" },
     ...(Array.isArray(availableYears) ? availableYears : []).map((year) => ({ label: year, value: year })),
   ];
 
-  const updateFilter = (key, value) => {
-    const params = new URLSearchParams(searchParams);
-    if (!value || value === "all") params.delete(key);
-    else params.set(key, value);
-    const path = `/app/analytics${params.toString() ? `?${params.toString()}` : ""}`;
-    navigate(withShopifyEmbeddedParams(path, location.search));
-  };
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const chartFilterKeys = ["type", "year", "applyTo"];
+    const hasChartFilterParams = chartFilterKeys.some((key) => url.searchParams.has(key));
+
+    if (!hasChartFilterParams) return;
+
+    chartFilterKeys.forEach((key) => url.searchParams.delete(key));
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+  }, []);
 
   return (
     <>
@@ -1661,12 +1660,8 @@ export default function AnalysisPage() {
           </InlineGrid>
 
           <ChangeTrendCard
-            data={changeTrend}
-            selectedType={selectedType}
-            selectedYear={selectedYear}
-            selectedApplyTo={selectedApplyTo}
+            records={chartRecords}
             yearOptions={yearOptions}
-            onFilterChange={updateFilter}
           />
 
           <InlineGrid columns={{ xs: 1, lg: "2fr 1fr" }} gap="500">
