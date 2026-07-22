@@ -65,7 +65,7 @@ const dashboardMetricCardInnerStyle = {
 };
 
 const dashboardMetricContentStyle = {
-  height: 182,
+  height: 140,
   display: "flex",
   flexDirection: "column",
   justifyContent: "space-between",
