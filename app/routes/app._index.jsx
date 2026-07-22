@@ -54,8 +54,8 @@ const dashboardMetricIconStyle = {
 };
 
 const dashboardMetricCardStyle = {
-  minHeight: 92,
-  height: 92,
+  minHeight: 132,
+  height: 132,
   display: "flex",
   flexDirection: "column",
   position: "relative",
@@ -66,9 +66,10 @@ const dashboardMetricCardInnerStyle = {
 };
 
 const dashboardMetricContentStyle = {
-  height: 52,
+  height: 92,
   display: "flex",
-  alignItems: "center",
+  flexDirection: "column",
+  justifyContent: "space-between",
   overflow: "hidden",
 };
 
@@ -83,8 +84,8 @@ const dashboardMetricSummaryStyle = {
   flex: "1 1 auto",
   display: "flex",
   alignItems: "center",
-  justifyContent: "flex-end",
-  textAlign: "right",
+  justifyContent: "flex-start",
+  textAlign: "left",
   minWidth: 0,
 };
 
@@ -488,23 +489,33 @@ function MetricCard({
   trend = "No changes",
 }) {
   const isQuietTrend = trend === "No changes";
-  const summaryLabel = [title, value, subtitle].filter(Boolean).join(" ");
 
   return (
     <div style={dashboardMetricCardStyle}>
       <div style={dashboardMetricCardInnerStyle}>
       <Card>
       <div style={dashboardMetricContentStyle}>
-        <InlineStack align="space-between" blockAlign="center" gap="400" wrap={false}>
+        <InlineStack align="start" blockAlign="center" gap="300" wrap={false}>
           <div style={{ ...dashboardMetricIconStyle, background: color.background, color: color.foreground }}>
             <Icon source={icon} />
           </div>
           <div style={dashboardMetricSummaryStyle}>
-            <Text as="span" tone={isQuietTrend ? "subdued" : trend.startsWith("down") ? "critical" : "success"} fontWeight="semibold">
-              {summaryLabel}
-            </Text>
+            <InlineStack gap="150" blockAlign="baseline" wrap={false}>
+              <Text as="span" tone={isQuietTrend ? "subdued" : trend.startsWith("down") ? "critical" : "success"} fontWeight="semibold">
+                {title}
+              </Text>
+              <Text as="span" variant="headingLg" tone={isQuietTrend ? "subdued" : trend.startsWith("down") ? "critical" : "success"}>
+                {value}
+              </Text>
+              <Text as="span" tone={isQuietTrend ? "subdued" : trend.startsWith("down") ? "critical" : "success"} fontWeight="semibold">
+                {subtitle}
+              </Text>
+            </InlineStack>
           </div>
         </InlineStack>
+        <Text as="span" tone={isQuietTrend ? "subdued" : trend.startsWith("down") ? "critical" : "success"} fontWeight="semibold">
+          Last 30 days
+        </Text>
       </div>
     </Card>
       </div>
@@ -959,7 +970,6 @@ export default function AppIndex() {
                 <MetricCard
                   title="Saved time"
                   value={overviewStats.savedTime}
-                  subtitle="saved"
                   icon={ClockIcon}
                   color={{ background: "#dbeafe", foreground: "#1d4ed8" }}
                   trend={overviewStats.savedTimeTrend}

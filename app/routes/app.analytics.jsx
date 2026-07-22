@@ -61,8 +61,8 @@ const metricIconStyle = {
 };
 
 const metricCardStyle = {
-  minHeight: 92,
-  height: 92,
+  minHeight: 132,
+  height: 132,
   display: "flex",
   flexDirection: "column",
   position: "relative",
@@ -74,9 +74,10 @@ const metricCardInnerStyle = {
 };
 
 const metricCardContentStyle = {
-  height: 52,
+  height: 92,
   display: "flex",
-  alignItems: "center",
+  flexDirection: "column",
+  justifyContent: "space-between",
   overflow: "hidden",
 };
 
@@ -91,8 +92,8 @@ const metricSummaryStyle = {
   flex: "1 1 auto",
   display: "flex",
   alignItems: "center",
-  justifyContent: "flex-end",
-  textAlign: "right",
+  justifyContent: "flex-start",
+  textAlign: "left",
   minWidth: 0,
 };
 
@@ -870,23 +871,33 @@ function MetricCard({
   trend = "No changes",
 }) {
   const isQuietTrend = trend === "No changes";
-  const summaryLabel = [title, value, subtitle].filter(Boolean).join(" ");
 
   return (
     <div style={metricCardStyle}>
       <div style={metricCardInnerStyle}>
       <Card>
         <div style={metricCardContentStyle}>
-          <InlineStack align="space-between" blockAlign="center" gap="400" wrap={false}>
+          <InlineStack align="start" blockAlign="center" gap="300" wrap={false}>
             <div style={{ ...metricIconStyle, background: color.background, color: color.foreground }}>
               <Icon source={icon} />
             </div>
             <div style={metricSummaryStyle}>
-              <Text as="span" tone={isQuietTrend ? "subdued" : trend.startsWith("down") ? "critical" : "success"} fontWeight="semibold">
-                {summaryLabel}
-              </Text>
+              <InlineStack gap="150" blockAlign="baseline" wrap={false}>
+                <Text as="span" tone={isQuietTrend ? "subdued" : trend.startsWith("down") ? "critical" : "success"} fontWeight="semibold">
+                  {title}
+                </Text>
+                <Text as="span" variant="headingLg" tone={isQuietTrend ? "subdued" : trend.startsWith("down") ? "critical" : "success"}>
+                  {value}
+                </Text>
+                <Text as="span" tone={isQuietTrend ? "subdued" : trend.startsWith("down") ? "critical" : "success"} fontWeight="semibold">
+                  {subtitle}
+                </Text>
+              </InlineStack>
             </div>
           </InlineStack>
+          <Text as="span" tone={isQuietTrend ? "subdued" : trend.startsWith("down") ? "critical" : "success"} fontWeight="semibold">
+            Last 30 days
+          </Text>
         </div>
       </Card>
       </div>
