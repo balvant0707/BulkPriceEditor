@@ -153,9 +153,6 @@ export default function ProductReportPage({ type }) {
         </BlockStack>
       </IndexTable.Cell>
       <IndexTable.Cell>
-        <Text as="span">{row.variantTitle || "-"}</Text>
-      </IndexTable.Cell>
-      <IndexTable.Cell>
         <Text as="span" tone={row.sku ? undefined : "subdued"}>
           {row.sku || "-"}
         </Text>
@@ -195,15 +192,12 @@ export default function ProductReportPage({ type }) {
     <Page
       title={title}
       backAction={{ content: "Tools", onAction: () => navigate("/app/tools") }}
-      primaryAction={[
-        {
-          content: "Export Report",
-          onAction: handleExportReport,
-          loading: isExporting,
-          disabled: isExporting,
-          variant: "primary",
-        },
-      ]}
+      primaryAction={{
+        content: "Export Report",
+        onAction: handleExportReport,
+        loading: isExporting,
+        disabled: isExporting,
+      }}
       fullWidth
     >
       <TitleBar title="Pryxo Bulk Price Editor" />
@@ -225,7 +219,7 @@ export default function ProductReportPage({ type }) {
                 labelHidden
                 value={queryValue}
                 onChange={setQueryValue}
-                placeholder="Product, variant, or SKU"
+                placeholder="Product or SKU"
                 autoComplete="off"
               />
 
@@ -255,7 +249,6 @@ export default function ProductReportPage({ type }) {
                 type === REPORT_TYPES.margin
                   ? [
                       { title: "Product" },
-                      { title: "Variant" },
                       { title: "SKU" },
                       { title: "Price" },
                       { title: "Cost" },
@@ -263,7 +256,6 @@ export default function ProductReportPage({ type }) {
                     ]
                   : [
                       { title: "Product" },
-                      { title: "Variant" },
                       { title: "SKU" },
                       { title: "Price" },
                       { title: "Compare at price" },

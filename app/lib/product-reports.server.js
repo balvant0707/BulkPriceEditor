@@ -320,15 +320,14 @@ export async function loadReportExportRows({
 export function buildCsvResponse({ filename, type, rows }) {
   const headers =
     type === REPORT_TYPES.margin
-      ? ["Product", "Variant", "SKU", "Price", "Cost", "Margin"]
-      : ["Product", "Variant", "SKU", "Price", "Compare at price", "Discount"];
+      ? ["Product", "SKU", "Price", "Cost", "Margin"]
+      : ["Product", "SKU", "Price", "Compare at price", "Discount"];
   const csvRows = [
     headers,
     ...rows.map((row) =>
       type === REPORT_TYPES.margin
         ? [
             row.productTitle,
-            row.variantTitle,
             row.sku,
             row.price,
             row.cost,
@@ -336,7 +335,6 @@ export function buildCsvResponse({ filename, type, rows }) {
           ]
         : [
             row.productTitle,
-            row.variantTitle,
             row.sku,
             row.price,
             row.compareAtPrice,
@@ -357,15 +355,14 @@ export function buildCsvResponse({ filename, type, rows }) {
 export function buildExcelResponse({ filename, type, rows }) {
   const headers =
     type === REPORT_TYPES.margin
-      ? ["Product", "Variant", "SKU", "Price", "Cost", "Margin"]
-      : ["Product", "Variant", "SKU", "Price", "Compare at price", "Discount"];
+      ? ["Product", "SKU", "Price", "Cost", "Margin"]
+      : ["Product", "SKU", "Price", "Compare at price", "Discount"];
   const title =
     type === REPORT_TYPES.margin ? "Products Margin Report" : "Products Discount Report";
   const reportRows = rows.map((row) =>
     type === REPORT_TYPES.margin
       ? [
           row.productTitle,
-          row.variantTitle,
           row.sku,
           row.price,
           row.cost,
@@ -373,7 +370,6 @@ export function buildExcelResponse({ filename, type, rows }) {
         ]
       : [
           row.productTitle,
-          row.variantTitle,
           row.sku,
           row.price,
           row.compareAtPrice,
