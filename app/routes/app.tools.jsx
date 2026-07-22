@@ -1,8 +1,8 @@
 // app/routes/app.tools.jsx
-import { json } from "@remix-run/node";
+import { json, redirect } from "@remix-run/node";
 import {
+  Form,
   Outlet,
-  useLoaderData,
   useLocation,
 } from "@remix-run/react";
 import {
@@ -16,7 +16,7 @@ import {
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import {
-  getLatestReportUrl,
+  generateProductReport,
 } from "../lib/product-reports.server";
 import {
   normalizeShop,
@@ -25,25 +25,32 @@ import {
 import { withShopifyEmbeddedParams } from "../lib/shopify-embedded-url";
 
 export async function loader({ request }) {
-  const { session } = await authenticate.admin(request);
-  const shop = normalizeShop(session.shop);
+  await authenticate.admin(request);
 
-  return json({
-    latestMarginReportUrl: await getLatestReportUrl(shop, REPORT_TYPES.margin),
-    latestDiscountReportUrl: await getLatestReportUrl(shop, REPORT_TYPES.discount),
-  });
+  return json({});
+}
+
+export async function action({ request }) {
+  const { admin, session } = await authenticate.admin(request);
+  const shop = normalizeShop(session.shop);
+  const formData = await request.formData();
+  const reportType = formData.get("reportType");
+
+  if (!Object.values(REPORT_TYPES).includes(reportType)) {
+    throw new Response("Invalid report type", { status: 400 });
+  }
+
+  const report = await generateProductReport(admin, shop, reportType);
+  const url = new URL(request.url);
+
+  return redirect(withShopifyEmbeddedParams(report.url, url.search, shop));
 }
 
 function ToolCard({
   title,
   description,
-  latestReportUrl,
-  locationSearch,
+  reportType,
 }) {
-  const currentReportUrl = latestReportUrl
-    ? withShopifyEmbeddedParams(latestReportUrl, locationSearch)
-    : "";
-
   return (
     <Card>
       <BlockStack gap="400">
@@ -56,9 +63,10 @@ function ToolCard({
         </Text>
 
         <div>
-          <Button url={currentReportUrl || undefined} disabled={!currentReportUrl}>
-            View latest report
-          </Button>
+          <Form method="post">
+            <input type="hidden" name="reportType" value={reportType} />
+            <Button submit>View latest report</Button>
+          </Form>
         </div>
       </BlockStack>
     </Card>
@@ -66,7 +74,6 @@ function ToolCard({
 }
 
 export default function ToolsPage() {
-  const { latestMarginReportUrl, latestDiscountReportUrl } = useLoaderData();
   const location = useLocation();
 
   if (location.pathname !== "/app/tools") {
@@ -82,8 +89,7 @@ export default function ToolsPage() {
           <ToolCard
             title="View products margin"
             description="Analyze gross margins across your catalog. See price, cost, and margin for each variant to identify pricing opportunities."
-            latestReportUrl={latestMarginReportUrl}
-            locationSearch={location.search}
+            reportType={REPORT_TYPES.margin}
           />
         </Layout.Section>
 
@@ -91,8 +97,7 @@ export default function ToolsPage() {
           <ToolCard
             title="View products with discount"
             description="Find products that still have compare-at prices set - from manual edits or other apps. Review them before running a cleanup task."
-            latestReportUrl={latestDiscountReportUrl}
-            locationSearch={location.search}
+            reportType={REPORT_TYPES.discount}
           />
         </Layout.Section>
       </Layout>

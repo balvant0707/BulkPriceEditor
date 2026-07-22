@@ -39,7 +39,6 @@ const PRODUCT_VARIANTS_QUERY = `#graphql
 `;
 
 const VARIANT_PAGE_SIZE = 250;
-const MAX_REPORT_ROWS = 10000;
 
 export async function loadSettings(shop) {
   if (!shop) return {};
@@ -104,9 +103,11 @@ export async function getLatestReportUrl(shop, type) {
     where: {
       shop,
       type,
-      status: "Completed",
+      status: {
+        notIn: ["Generating", "Failed"],
+      },
     },
-    orderBy: [{ generatedAt: "desc" }, { id: "desc" }],
+    orderBy: [{ generatedAt: "desc" }, { updatedAt: "desc" }, { id: "desc" }],
     select: { id: true },
   });
 
@@ -362,7 +363,6 @@ async function collectReportRows(admin, { shop, type, includeDraftProducts, repo
     const connection = data.productVariants;
 
     for (const variant of connection?.nodes || []) {
-      if (rows.length >= MAX_REPORT_ROWS) break;
       if (!includeDraftProducts && variant.product?.status !== "ACTIVE") continue;
 
       const row = buildReportRow({
@@ -376,10 +376,7 @@ async function collectReportRows(admin, { shop, type, includeDraftProducts, repo
       if (row) rows.push(row);
     }
 
-    after =
-      rows.length < MAX_REPORT_ROWS && connection?.pageInfo?.hasNextPage
-        ? connection.pageInfo.endCursor
-        : null;
+    after = connection?.pageInfo?.hasNextPage ? connection.pageInfo.endCursor : null;
   } while (after);
 
   return { rows, currencyCode };
