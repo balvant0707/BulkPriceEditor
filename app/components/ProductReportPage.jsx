@@ -38,8 +38,6 @@ export default function ProductReportPage({ type }) {
   const currentPage = Number(loaderData.currentPage || 1);
   const query = loaderData.query || "";
   const filter = loaderData.filter || "all";
-  const dateFrom = loaderData.dateFrom || "";
-  const dateTo = loaderData.dateTo || "";
   const shopifyStoreHandle = loaderData.shopifyStoreHandle || "";
   const submit = useSubmit();
   const location = useLocation();
@@ -47,17 +45,11 @@ export default function ProductReportPage({ type }) {
   const [searchParams] = useSearchParams();
   const [queryValue, setQueryValue] = useState(query || "");
   const [filterValue, setFilterValue] = useState(filter || "all");
-  const [dateFromValue, setDateFromValue] = useState(dateFrom || "");
-  const [dateToValue, setDateToValue] = useState(dateTo || "");
   const [isExporting, setIsExporting] = useState(false);
   const title =
     type === REPORT_TYPES.margin
       ? "Products Margin Report"
       : "Products Discount Report";
-  const reportDescription =
-    type === REPORT_TYPES.margin
-      ? "Review price, cost, and gross margin for each variant."
-      : "Review variants that still have compare-at prices and discount values.";
 
   useEffect(() => {
     setQueryValue(query || "");
@@ -66,14 +58,6 @@ export default function ProductReportPage({ type }) {
   useEffect(() => {
     setFilterValue(filter || "all");
   }, [filter]);
-
-  useEffect(() => {
-    setDateFromValue(dateFrom || "");
-  }, [dateFrom]);
-
-  useEffect(() => {
-    setDateToValue(dateTo || "");
-  }, [dateTo]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -87,23 +71,14 @@ export default function ProductReportPage({ type }) {
   const exportUrl = useMemo(() => {
     const params = new URLSearchParams(searchParams);
     params.delete("page");
+    params.set("export", "csv");
     params.set("timezoneOffsetMinutes", String(new Date().getTimezoneOffset()));
-    return `${location.pathname.replace(/\/$/, "")}/export?${params.toString()}`;
+    return `${location.pathname}?${params.toString()}`;
   }, [location.pathname, searchParams]);
 
   const handleFilterChange = (value) => {
     setFilterValue(value);
     updateSearch({ margin: value === "all" ? "" : value, page: "" });
-  };
-
-  const handleDateFromChange = (value) => {
-    setDateFromValue(value);
-    updateSearch({ dateFrom: value, page: "" });
-  };
-
-  const handleDateToChange = (value) => {
-    setDateToValue(value);
-    updateSearch({ dateTo: value, page: "" });
   };
 
   const handlePrevious = () => {
@@ -123,8 +98,7 @@ export default function ProductReportPage({ type }) {
       const response = await fetch(exportUrl, {
         credentials: "same-origin",
         headers: {
-          Accept:
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          Accept: "text/csv",
         },
       });
 
@@ -137,7 +111,7 @@ export default function ProductReportPage({ type }) {
       const link = document.createElement("a");
 
       link.href = downloadUrl;
-      link.download = getExcelFilename(type);
+      link.download = getCsvFilename(type);
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -202,7 +176,7 @@ export default function ProductReportPage({ type }) {
       ) : (
         <>
           <IndexTable.Cell>
-            <Text as="span"alignment="start" align="start" numeric>
+            <Text as="span" alignment="start" align="start" numeric>
               {formatMoney(row.compareAtPrice, row.currencyCode)}
             </Text>
           </IndexTable.Cell>
@@ -222,10 +196,11 @@ export default function ProductReportPage({ type }) {
       backAction={{ content: "Tools", onAction: () => navigate("/app/tools") }}
       secondaryActions={[
         {
-          content: "Export Excel",
+          content: "Export CSV",
           onAction: handleExportCsv,
           loading: isExporting,
           disabled: isExporting,
+          variant: "primary",
         },
       ]}
       fullWidth
@@ -234,18 +209,19 @@ export default function ProductReportPage({ type }) {
 
       <Card padding="0">
         <BlockStack gap="0">
-          <Box padding="400" background="bg-surface-secondary">
+          <Box padding="400">
             <InlineGrid
               columns={{
                 xs: "1fr",
                 sm: type === REPORT_TYPES.margin
-                  ? "minmax(220px, 1fr) 180px 180px 180px"
-                  : "minmax(220px, 1fr) 180px 180px",
+                  ? "minmax(220px, 1fr) 224px"
+                  : "minmax(220px, 1fr)",
               }}
               gap="400"
             >
               <TextField
-                label="Search Products"
+                label="Search products"
+                labelHidden
                 value={queryValue}
                 onChange={setQueryValue}
                 placeholder="Product, variant, or SKU"
@@ -264,24 +240,6 @@ export default function ProductReportPage({ type }) {
                   onChange={handleFilterChange}
                 />
               ) : null}
-
-              <TextField
-                label="From date"
-                type="date"
-                value={dateFromValue}
-                onChange={handleDateFromChange}
-                max={dateToValue || undefined}
-                autoComplete="off"
-              />
-
-              <TextField
-                label="To date"
-                type="date"
-                value={dateToValue}
-                onChange={handleDateToChange}
-                min={dateFromValue || undefined}
-                autoComplete="off"
-              />
             </InlineGrid>
           </Box>
 
@@ -371,13 +329,7 @@ function renderMargin(value) {
   }
 
   const number = Number(value);
-  return (
-    <InlineStack align="start">
-      <Badge tone={number < 0 ? "critical" : "success"}>
-        {formatPercent(number)}
-      </Badge>
-    </InlineStack>
-  );
+  return <Text as="span" tone={number < 0 ? "critical" : undefined}>{formatPercent(number)}</Text>;
 }
 
 function getProductAdminUrl(shopifyStoreHandle, productId) {
@@ -393,21 +345,8 @@ function formatRangeLabel(totalRows, currentPage, rowCount) {
   return `${start}-${end} of ${totalRows}`;
 }
 
-function formatDate(value) {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "-";
-  return date.toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
-function getExcelFilename(type) {
+function getCsvFilename(type) {
   return type === REPORT_TYPES.margin
-    ? "products-margin-report.xls"
-    : "products-discount-report.xls";
+    ? "products-margin-report.csv"
+    : "products-discount-report.csv";
 }
