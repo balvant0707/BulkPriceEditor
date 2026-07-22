@@ -61,12 +61,12 @@ const metricIconStyle = {
 };
 
 const metricCardStyle = {
-  minHeight: 170,
-  height: 170,
+  minHeight: 92,
+  height: 92,
   display: "flex",
   flexDirection: "column",
   position: "relative",
-  marginBottom : "1rem",
+  marginBottom: "1rem",
 };
 
 const metricCardInnerStyle = {
@@ -74,7 +74,10 @@ const metricCardInnerStyle = {
 };
 
 const metricCardContentStyle = {
-  height: "100%",
+  height: 52,
+  display: "flex",
+  alignItems: "center",
+  overflow: "hidden",
 };
 
 const metricSparklineStyle = {
@@ -84,13 +87,13 @@ const metricSparklineStyle = {
 };
 
 const metricSummaryStyle = {
-  width: 120,
-  minHeight: 56,
-  flex: "0 0 120px",
+  minHeight: 52,
+  flex: "1 1 auto",
   display: "flex",
   alignItems: "center",
   justifyContent: "flex-end",
   textAlign: "right",
+  minWidth: 0,
 };
 
 const pageContentStyle = {
@@ -874,34 +877,16 @@ function MetricCard({
       <div style={metricCardInnerStyle}>
       <Card>
         <div style={metricCardContentStyle}>
-          <BlockStack gap="400" align="space-between">
-            <InlineStack align="space-between" blockAlign="start" gap="400" wrap={false}>
-              <InlineStack gap="400" blockAlign="center">
-                <div style={{ ...metricIconStyle, background: color.background, color: color.foreground }}>
-                  <Icon source={icon} />
-                </div>
-                <BlockStack gap="050">
-                  <Text as="p" fontWeight="semibold">
-                    {title}
-                  </Text>
-                  <InlineStack gap="150" blockAlign="end">
-                    <Text as="p" variant="headingXl">
-                      {value}
-                    </Text>
-                    {subtitle ? <Text as="span">{subtitle}</Text> : null}
-                  </InlineStack>
-                </BlockStack>
-              </InlineStack>
-              <div style={metricSummaryStyle}>
-                <Text as="span" tone={isQuietTrend ? "subdued" : trend.startsWith("down") ? "critical" : "success"} fontWeight="semibold">
-                  {summaryLabel}
-                </Text>
-              </div>
-            </InlineStack>
-            <Text as="span" tone={isQuietTrend ? "subdued" : trend.startsWith("down") ? "critical" : "success"} fontWeight="semibold">
-              Last 30 days
-            </Text>
-          </BlockStack>
+          <InlineStack align="space-between" blockAlign="center" gap="400" wrap={false}>
+            <div style={{ ...metricIconStyle, background: color.background, color: color.foreground }}>
+              <Icon source={icon} />
+            </div>
+            <div style={metricSummaryStyle}>
+              <Text as="span" tone={isQuietTrend ? "subdued" : trend.startsWith("down") ? "critical" : "success"} fontWeight="semibold">
+                {summaryLabel}
+              </Text>
+            </div>
+          </InlineStack>
         </div>
       </Card>
       </div>

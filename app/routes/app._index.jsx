@@ -54,8 +54,8 @@ const dashboardMetricIconStyle = {
 };
 
 const dashboardMetricCardStyle = {
-  minHeight: 170,
-  height: 170,
+  minHeight: 92,
+  height: 92,
   display: "flex",
   flexDirection: "column",
   position: "relative",
@@ -66,19 +66,10 @@ const dashboardMetricCardInnerStyle = {
 };
 
 const dashboardMetricContentStyle = {
-  height: 100,
+  height: 52,
   display: "flex",
-  flexDirection: "column",
-  justifyContent: "space-between",
+  alignItems: "center",
   overflow: "hidden",
-};
-
-const dashboardMetricTextLineStyle = {
-  display: "flex",
-  alignItems: "baseline",
-  gap: 8,
-  minWidth: 0,
-  whiteSpace: "nowrap",
 };
 
 const dashboardSparklineStyle = {
@@ -88,13 +79,13 @@ const dashboardSparklineStyle = {
 };
 
 const dashboardMetricSummaryStyle = {
-  width: 120,
-  minHeight: 56,
-  flex: "0 0 120px",
+  minHeight: 52,
+  flex: "1 1 auto",
   display: "flex",
   alignItems: "center",
   justifyContent: "flex-end",
   textAlign: "right",
+  minWidth: 0,
 };
 
 const dashboardChartOverlayStyle = {
@@ -504,7 +495,7 @@ function MetricCard({
       <div style={dashboardMetricCardInnerStyle}>
       <Card>
       <div style={dashboardMetricContentStyle}>
-        <InlineStack align="space-between" blockAlign="start" gap="400" wrap={false}>
+        <InlineStack align="space-between" blockAlign="center" gap="400" wrap={false}>
           <div style={{ ...dashboardMetricIconStyle, background: color.background, color: color.foreground }}>
             <Icon source={icon} />
           </div>
@@ -514,18 +505,6 @@ function MetricCard({
             </Text>
           </div>
         </InlineStack>
-        <div style={dashboardMetricTextLineStyle}>
-          <Text as="span" fontWeight="semibold">
-            {title}
-          </Text>
-          <Text as="span" variant="headingXl">
-            {value}
-          </Text>
-          <Text as="span">{subtitle}</Text>
-        </div>
-        <Text as="span" tone={isQuietTrend ? "subdued" : trend.startsWith("down") ? "critical" : "success"} fontWeight="semibold">
-          Last 30 days
-        </Text>
       </div>
     </Card>
       </div>
