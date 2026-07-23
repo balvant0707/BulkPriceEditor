@@ -95,6 +95,7 @@ export default function PeriodComparisonChart({
           {controls}
         </InlineStack>
 
+
         <div style={{ position: "relative" }}>
           <svg
             viewBox={`0 0 ${chartWidth} ${chartHeight}`}
