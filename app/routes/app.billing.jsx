@@ -177,7 +177,7 @@ export default function PricingPage() {
 
   return (
     <>
-      <TitleBar title="Manage your plan" />
+      <TitleBar title="Pryxo Bulk Price Editor" />
       <Page title="Manage your plan" fullWidth>
         <Layout>
           <Layout.Section>
