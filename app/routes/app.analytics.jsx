@@ -17,6 +17,7 @@ import {
   Select,
   Tabs,
   Text,
+  TextField,
 } from "@shopify/polaris";
 import {
   ChartHistogramGrowthIcon,
@@ -1271,6 +1272,7 @@ function RecentChangesTable({ rows = [] }) {
   const safeRows = Array.isArray(rows) ? rows : [];
   const [selectedTab, setSelectedTab] = useState(0);
   const [page, setPage] = useState(1);
+  const [query, setQuery] = useState("");
   const taskCount = safeRows.filter((row) => row.type === "Task").length;
   const saleCount = safeRows.filter((row) => row.type === "Sale").length;
   const tabs = useMemo(
@@ -1281,7 +1283,9 @@ function RecentChangesTable({ rows = [] }) {
     [saleCount, taskCount],
   );
   const selectedType = selectedTab === 0 ? "Task" : "Sale";
-  const visibleRows = safeRows.filter((row) => row.type === selectedType);
+  const visibleRows = safeRows
+    .filter((row) => row.type === selectedType)
+    .filter((row) => matchesRecentChangeSearch(row, query));
   const totalPages = Math.max(1, Math.ceil(visibleRows.length / RECENT_CHANGES_PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
   const paginatedRows = visibleRows.slice(
@@ -1292,6 +1296,10 @@ function RecentChangesTable({ rows = [] }) {
     setSelectedTab(index);
     setPage(1);
   };
+  const handleQueryChange = (value) => {
+    setQuery(value);
+    setPage(1);
+  };
 
   return (
     <Card padding="0">
@@ -1300,7 +1308,22 @@ function RecentChangesTable({ rows = [] }) {
           <Text as="h2" variant="headingMd">
             Recent changes
           </Text>
-          <Tabs tabs={tabs} selected={selectedTab} onSelect={handleTabSelect} />
+          <InlineStack align="space-between" blockAlign="center" gap="400" wrap>
+            <Tabs tabs={tabs} selected={selectedTab} onSelect={handleTabSelect} />
+            <div style={{ minWidth: 280, flex: "0 1 380px" }}>
+              <TextField
+                label="Search recent changes"
+                labelHidden
+                type="search"
+                value={query}
+                onChange={handleQueryChange}
+                placeholder="Search recent changes"
+                clearButton
+                onClearButtonClick={() => handleQueryChange("")}
+                autoComplete="off"
+              />
+            </div>
+          </InlineStack>
         </BlockStack>
       </Box>
       <IndexTable
@@ -1337,7 +1360,15 @@ function RecentChangesTable({ rows = [] }) {
           </IndexTable.Row>
         ))}
       </IndexTable>
-      {!visibleRows.length ? <EmptyTable message={`No ${selectedType.toLowerCase()} changes found.`} /> : null}
+      {!visibleRows.length ? (
+        <EmptyTable
+          message={
+            query.trim()
+              ? `No ${selectedType.toLowerCase()} changes match your search.`
+              : `No ${selectedType.toLowerCase()} changes found.`
+          }
+        />
+      ) : null}
       {visibleRows.length > RECENT_CHANGES_PAGE_SIZE ? (
         <Box padding="400" borderBlockStartWidth="025" borderColor="border">
           <InlineStack align="space-between" blockAlign="center" gap="400" wrap>
@@ -1357,6 +1388,22 @@ function RecentChangesTable({ rows = [] }) {
       ) : null}
     </Card>
   );
+}
+
+function matchesRecentChangeSearch(row, query) {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return true;
+
+  return [
+    row.change,
+    row.target,
+    row.title,
+    row.status,
+    row.type,
+    formatDate(row.date),
+  ]
+    .filter(Boolean)
+    .some((value) => String(value).toLowerCase().includes(normalizedQuery));
 }
 
 function RollbacksTable({ rows = [] }) {
