@@ -55,7 +55,6 @@ const HELP_URL = "#";
 const PAGE_SIZE = 10;
 const SALE_TABS = [
   { id: "all", content: "All" },
-  { id: "active", content: "Active" },
   { id: "scheduled", content: "Scheduled" },
   { id: "completed", content: "Completed" },
 ];
