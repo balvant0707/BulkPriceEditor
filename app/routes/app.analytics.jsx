@@ -30,6 +30,7 @@ import {
 import db from "../db.server";
 import { authenticate } from "../shopify.server";
 import { normalizeSaleStatus, SALE_STATUS } from "../lib/sale-status";
+import PeriodComparisonChart from "../components/PeriodComparisonChart";
 
 const RECORD_TYPE_OPTIONS = [
   { label: "All", value: "all" },
@@ -98,50 +99,6 @@ const metricSummaryStyle = {
 const pageContentStyle = {
   maxWidth: 1480,
   margin: "0 auto",
-};
-
-const hoverChartStyle = {
-  width: "100%",
-  height: 240,
-  display: "block",
-  overflow: "visible",
-  background: "#ffffff",
-};
-
-const expandedChartOverlayStyle = {
-  position: "fixed",
-  left: "18%",
-  top: "70%",
-  width: "min(820px, calc(100vw - 64px))",
-  transform: "translate(0%, -50%)",
-  zIndex: 50,
-  background: "#ffffff",
-  borderRadius: 8,
-  boxShadow: "0 8px 24px rgba(0, 0, 0, 0.16)",
-
-};
-
-const expandedChartPanelStyle = {
-  background: "#ffffff",
-  borderRadius: 8,
-};
-
-const expandedChartTooltipStyle = {
-  position: "absolute",
-  pointerEvents: "none",
-  minWidth: 150,
-  padding: 8,
-  borderRadius: 8,
-  background: "#ffffff",
-  boxShadow: "0 8px 24px rgba(0, 0, 0, 0.16)",
-  border: "1px solid #e3e3e3",
-};
-
-const chartLegendDotStyle = {
-  width: 10,
-  height: 10,
-  borderRadius: "50%",
-  display: "inline-block",
 };
 
 const ANALYTICS_CHART_PAST_DAYS = 7;
@@ -942,226 +899,6 @@ function MetricCard({
   );
 }
 
-function ExpandedDateChartOverlay({ title, color, data = [], previousData = [] }) {
-  return (
-    <div style={expandedChartOverlayStyle}>
-      <div style={expandedChartPanelStyle}>
-        <Box padding="400">
-          <ExpandedDateChart
-            title={title}
-            color={color}
-            data={data}
-            previousData={previousData}
-          />
-        </Box>
-      </div>
-    </div>
-  );
-}
-
-function ExpandedDateChart({
-  title,
-  color,
-  data = [],
-  previousData = [],
-  showTitle = true,
-  applyToLabel = "",
-  applyToOptions = [],
-}) {
-  const [hoveredIndex, setHoveredIndex] = useState(null);
-  const chartWidth = 1200;
-  const chartHeight = 230;
-  const padding = { top: 16, right: 22, bottom: 42, left: 58 };
-  const safeData = normalizeDateChartData(data);
-  const safePreviousData = normalizeDateChartData(previousData);
-  const rawMaxValue = Math.max(
-    0,
-    ...safeData.map((point) => point.value),
-    ...safePreviousData.map((point) => point.value),
-  );
-  const maxValue = Math.max(15, Math.ceil(rawMaxValue / 5) * 5);
-  const plotWidth = chartWidth - padding.left - padding.right;
-  const plotHeight = chartHeight - padding.top - padding.bottom;
-  const points = buildDateChartPoints(safeData, maxValue, chartWidth, chartHeight, padding);
-  const previousPoints = buildDateChartPoints(safePreviousData, maxValue, chartWidth, chartHeight, padding);
-  const activeIndex = hoveredIndex;
-  const activePoint = points[activeIndex];
-  const activeData = safeData[activeIndex];
-  const ticks = getDateChartTicks(maxValue);
-  const labelIndexes = getDateChartLabelIndexes(safeData.length);
-  const tooltipLeft = activePoint ? `${Math.min(Math.max((activePoint.x / chartWidth) * 100, 8), 88)}%` : "50%";
-  const tooltipTop = activePoint ? Math.max(12, activePoint.y - 74) : 20;
-  const breakdownRows = getApplyToBreakdownRows(activeData, applyToOptions);
-
-  const handlePointerMove = (event) => {
-    const bounds = event.currentTarget.getBoundingClientRect();
-    const x = ((event.clientX - bounds.left) / bounds.width) * chartWidth;
-    const relativeX = Math.min(Math.max(x - padding.left, 0), plotWidth);
-    const index = Math.round((relativeX / plotWidth) * Math.max(1, safeData.length - 1));
-    setHoveredIndex(Math.min(Math.max(index, 0), safeData.length - 1));
-  };
-
-  return (
-    <div style={{ position: "relative" }}>
-      <BlockStack gap="300">
-        {showTitle ? (
-          <Text as="h3" variant="headingMd">
-            {title}
-          </Text>
-        ) : null}
-        <svg
-          viewBox={`0 0 ${chartWidth} ${chartHeight}`}
-          role="img"
-          aria-label={`${title} chart`}
-          style={hoverChartStyle}
-          onPointerMove={handlePointerMove}
-          onPointerLeave={() => setHoveredIndex(null)}
-        >
-          {ticks.map((tick) => {
-            const y = padding.top + plotHeight - (tick / maxValue) * plotHeight;
-            return (
-              <g key={`tick-${tick}`}>
-                <line x1={padding.left} x2={chartWidth - padding.right} y1={y} y2={y} stroke="#eef0f3" strokeWidth="2" />
-                <text x={padding.left - 42} y={y + 5} fill="#8b95a1" fontSize="18" fontWeight="500">
-                  {tick}
-                </text>
-              </g>
-            );
-          })}
-          {labelIndexes.map((index) => (
-            <text key={safeData[index]?.date || index} x={points[index]?.x || padding.left} y={chartHeight - 12} fill="#8b95a1" fontSize="18" fontWeight="600" textAnchor="middle">
-              {formatShortDate(safeData[index]?.date)}
-            </text>
-          ))}
-          <path d={buildDateChartPath(previousPoints)} fill="none" stroke="#8bd3f7" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="2 13" />
-          <path d={buildDateChartPath(points)} fill="none" stroke={color} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
-          {activePoint ? (
-            <g>
-              <line x1={activePoint.x} x2={activePoint.x} y1={padding.top} y2={chartHeight - padding.bottom} stroke="#c9cccf" strokeDasharray="4 4" />
-              <circle cx={activePoint.x} cy={activePoint.y} r="5" fill="#ffffff" stroke={color} strokeWidth="2" />
-            </g>
-          ) : null}
-          <rect x={padding.left} y={padding.top} width={plotWidth} height={plotHeight} fill="transparent" />
-        </svg>
-        <InlineStack align="center" gap="500" wrap>
-          <InlineStack gap="150" blockAlign="center">
-            <span style={{ ...chartLegendDotStyle, background: color }} />
-            <Text as="span" tone="subdued">{formatDateChartPeriod(safeData)}</Text>
-          </InlineStack>
-          <InlineStack gap="150" blockAlign="center">
-            <span style={{ ...chartLegendDotStyle, background: "#8bd3f7" }} />
-            <Text as="span" tone="subdued">{formatDateChartPeriod(safePreviousData)}</Text>
-          </InlineStack>
-        </InlineStack>
-      </BlockStack>
-      {activePoint && activeData ? (
-        <div style={{ ...expandedChartTooltipStyle, left: tooltipLeft, top: tooltipTop, transform: "translateX(-50%)" }}>
-          <BlockStack gap="100">
-            <Text as="p" fontWeight="semibold">{formatLongDate(activeData.date)}</Text>
-            {breakdownRows.length ? (
-              breakdownRows.map((row) => (
-                <Text as="p" key={row.value}>{`${row.label}: ${formatInteger(row.count)} changes`}</Text>
-              ))
-            ) : (
-              <Text as="p">{`${applyToLabel || title}: ${formatInteger(activeData.value)} changes`}</Text>
-            )}
-          </BlockStack>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function normalizeDateChartData(data = []) {
-  return Array.isArray(data)
-    ? data.map((point, index) => ({
-        date: point.date || point.label || `Point ${index + 1}`,
-      value: Math.max(0, Number(point.value) || 0),
-      applyToBreakdown: getObjectValue(point.applyToBreakdown),
-      }))
-    : [];
-}
-
-function getApplyToBreakdownRows(point, options = []) {
-  if (!point || !options.length) return [];
-  const breakdown = getObjectValue(point.applyToBreakdown);
-
-  return options
-    .map((option) => ({
-      ...option,
-      count: Math.max(0, Number(breakdown[option.value]) || 0),
-    }))
-    .filter((row) => row.count > 0 || options.length === 1);
-}
-
-function buildDateChartPoints(data, maxValue, chartWidth, chartHeight, padding) {
-  const plotWidth = chartWidth - padding.left - padding.right;
-  const plotHeight = chartHeight - padding.top - padding.bottom;
-
-  return data.map((point, index) => {
-    const x = padding.left + index * (plotWidth / Math.max(1, data.length - 1));
-    const y = padding.top + plotHeight - (point.value / maxValue) * plotHeight;
-
-    return { x, y };
-  });
-}
-
-function buildDateChartPath(points = []) {
-  if (!points.length) {
-    return "";
-  }
-
-  if (points.length < 3) {
-    return points
-      .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`)
-      .join(" ");
-  }
-
-  return points.reduce((path, point, index) => {
-    if (index === 0) {
-      return `M ${point.x.toFixed(2)} ${point.y.toFixed(2)}`;
-    }
-
-    const previous = points[index - 1];
-    const next = points[index + 1] || point;
-    const beforePrevious = points[index - 2] || previous;
-    const controlPointStart = {
-      x: previous.x + (point.x - beforePrevious.x) / 6,
-      y: previous.y + (point.y - beforePrevious.y) / 6,
-    };
-    const controlPointEnd = {
-      x: point.x - (next.x - previous.x) / 6,
-      y: point.y - (next.y - previous.y) / 6,
-    };
-
-    return `${path} C ${controlPointStart.x.toFixed(2)} ${controlPointStart.y.toFixed(2)}, ${controlPointEnd.x.toFixed(2)} ${controlPointEnd.y.toFixed(2)}, ${point.x.toFixed(2)} ${point.y.toFixed(2)}`;
-  }, "");
-}
-
-function getDateChartTicks(maxValue) {
-  const step = Math.max(5, Math.ceil(maxValue / 3 / 5) * 5);
-  const ticks = [];
-
-  for (let tick = 0; tick <= maxValue; tick += step) {
-    ticks.push(tick);
-  }
-
-  if (ticks[ticks.length - 1] !== maxValue) {
-    ticks.push(maxValue);
-  }
-
-  return ticks;
-}
-
-function getDateChartLabelIndexes(length) {
-  if (!length) {
-    return [];
-  }
-
-  return [0, Math.floor((length - 1) / 4), Math.floor((length - 1) / 2), Math.floor(((length - 1) * 3) / 4), length - 1]
-    .filter((index, position, indexes) => indexes.indexOf(index) === position);
-}
-
 function formatDateChartPeriod(data = []) {
   const first = data[0]?.date;
   const last = data[data.length - 1]?.date;
@@ -1317,10 +1054,6 @@ function ChangeTrendCard({
   const currentData = Array.isArray(data?.current) ? data.current : [];
   const previousData = Array.isArray(data?.previous) ? data.previous : [];
   const total = currentData.reduce((sum, item) => sum + (Number(item.value) || 0), 0);
-  const previousTotal = previousData.reduce((sum, item) => sum + (Number(item.value) || 0), 0);
-  const trend = getTrendLabel(total, previousTotal);
-  const isQuietTrend = trend === "No changes";
-  const isDownTrend = trend.startsWith("down");
   const applyToLabel = getApplyToFilterLabel(normalizedApplyTo, selectedType);
   const breakdownOptions = getApplyToBreakdownOptions(selectedType, normalizedApplyTo);
 
@@ -1333,59 +1066,44 @@ function ChangeTrendCard({
   };
 
   return (
-    <Card>
-      <BlockStack gap="400">
-        <InlineStack align="space-between" blockAlign="start" gap="400" wrap>
-          <BlockStack gap="050">
-            <Text as="h2" variant="headingMd">
-              Changes over time
-            </Text>
-            <InlineStack gap="200" blockAlign="center">
-              <Text as="p" variant="headingLg">
-                {formatInteger(total)}
-              </Text>
-            </InlineStack>
-          </BlockStack>
-          <InlineStack gap="300" blockAlign="center" wrap>
-            <div style={{ minWidth: 180 }}>
-              <Select
-                label="Type"
-                options={RECORD_TYPE_OPTIONS}
-                value={selectedType}
-                onChange={handleTypeChange}
-              />
-            </div>
-            <div style={{ minWidth: 160 }}>
-              <Select
-                label="Year"
-                options={yearOptions}
-                value={selectedYear}
-                onChange={setSelectedYear}
-              />
-            </div>
-            <div style={{ minWidth: 260 }}>
-              <Select
-                label="Apply to"
-                options={applyToOptions}
-                value={normalizedApplyTo}
-                onChange={setSelectedApplyTo}
-              />
-            </div>
-          </InlineStack>
+    <PeriodComparisonChart
+      title="Changes over time"
+      value={total}
+      currentData={currentData}
+      previousData={previousData}
+      currentPeriodLabel={formatDateChartPeriod(currentData)}
+      previousPeriodLabel={formatDateChartPeriod(previousData)}
+      applyToLabel={applyToLabel}
+      applyToOptions={breakdownOptions}
+      controls={(
+        <InlineStack gap="300" blockAlign="center" wrap>
+          <div style={{ minWidth: 180 }}>
+            <Select
+              label="Type"
+              options={RECORD_TYPE_OPTIONS}
+              value={selectedType}
+              onChange={handleTypeChange}
+            />
+          </div>
+          <div style={{ minWidth: 160 }}>
+            <Select
+              label="Year"
+              options={yearOptions}
+              value={selectedYear}
+              onChange={setSelectedYear}
+            />
+          </div>
+          <div style={{ minWidth: 260 }}>
+            <Select
+              label="Apply to"
+              options={applyToOptions}
+              value={normalizedApplyTo}
+              onChange={setSelectedApplyTo}
+            />
+          </div>
         </InlineStack>
-        <Box minHeight="260px">
-          <ExpandedDateChart
-            title="Changes over time"
-            color="#16a8e6"
-            data={currentData}
-            previousData={previousData}
-            showTitle={false}
-            applyToLabel={applyToLabel}
-            applyToOptions={breakdownOptions}
-          />
-        </Box>
-      </BlockStack>
-    </Card>
+      )}
+    />
   );
 }
 
