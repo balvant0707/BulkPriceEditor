@@ -258,7 +258,7 @@ function formatInteger(value) {
 
 function formatShortDate(value) {
   if (!value) return "-";
-  const date = new Date(value);
+  const date = parseChartDate(value);
   if (Number.isNaN(date.getTime())) return "-";
 
   return date.toLocaleDateString("en-US", {
@@ -269,7 +269,7 @@ function formatShortDate(value) {
 
 function formatLongDate(value) {
   if (!value) return "-";
-  const date = new Date(value);
+  const date = parseChartDate(value);
   if (Number.isNaN(date.getTime())) return "-";
 
   return date.toLocaleDateString("en-US", {
@@ -286,4 +286,15 @@ function formatChartPeriod(data = []) {
   if (!first || !last) return "";
 
   return `${formatShortDate(first)}-${formatLongDate(last)}`;
+}
+
+function parseChartDate(value) {
+  if (typeof value === "string") {
+    const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (match) {
+      return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+    }
+  }
+
+  return new Date(value);
 }

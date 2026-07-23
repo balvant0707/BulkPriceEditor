@@ -422,7 +422,7 @@ function buildDailySeriesForPeriod(records, getDate, getValue = () => 1, startDa
   for (let index = 0; index < days; index += 1) {
     const date = new Date(start);
     date.setDate(start.getDate() + index);
-    buckets.set(date.toISOString().slice(0, 10), 0);
+    buckets.set(formatDateKey(date), 0);
   }
 
   for (const record of records) {
@@ -432,7 +432,7 @@ function buildDailySeriesForPeriod(records, getDate, getValue = () => 1, startDa
     const date = new Date(rawDate);
     if (Number.isNaN(date.getTime()) || date < start || date >= end) continue;
 
-    const key = date.toISOString().slice(0, 10);
+    const key = formatDateKey(date);
     buckets.set(key, (buckets.get(key) || 0) + Math.max(0, Number(getValue(record)) || 0));
   }
 
@@ -643,8 +643,9 @@ function buildApplyToDailySeriesForPeriod(records, startDate, getValue = () => 1
   for (let index = 0; index < days; index += 1) {
     const date = new Date(start);
     date.setDate(start.getDate() + index);
-    buckets.set(date.toISOString().slice(0, 10), {
-      date: date.toISOString().slice(0, 10),
+    const key = formatDateKey(date);
+    buckets.set(key, {
+      date: key,
       value: 0,
       applyToBreakdown: {},
     });
@@ -657,7 +658,7 @@ function buildApplyToDailySeriesForPeriod(records, startDate, getValue = () => 1
     const date = new Date(rawDate);
     if (Number.isNaN(date.getTime()) || date < start || date >= end) continue;
 
-    const key = date.toISOString().slice(0, 10);
+    const key = formatDateKey(date);
     const bucket = buckets.get(key);
     if (!bucket) continue;
 
@@ -668,6 +669,15 @@ function buildApplyToDailySeriesForPeriod(records, startDate, getValue = () => 1
   }
 
   return [...buckets.values()];
+}
+
+function formatDateKey(value) {
+  const date = new Date(value);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
 }
 
 function isCompletedTask(task) {
@@ -814,7 +824,7 @@ function formatDate(value) {
 
 function formatShortDate(value) {
   if (!value) return "-";
-  const date = new Date(value);
+  const date = parseLocalDate(value);
   if (Number.isNaN(date.getTime())) return "-";
 
   return date.toLocaleDateString("en-US", {
@@ -825,7 +835,7 @@ function formatShortDate(value) {
 
 function formatLongDate(value) {
   if (!value) return "-";
-  const date = new Date(value);
+  const date = parseLocalDate(value);
   if (Number.isNaN(date.getTime())) return "-";
 
   return date.toLocaleDateString("en-US", {
@@ -841,6 +851,17 @@ function statusTone(status) {
   if (value.includes("cancel") || value.includes("rollback")) return "warning";
   if (value.includes("complete") || value.includes("applied") || value.includes("active")) return "success";
   return "info";
+}
+
+function parseLocalDate(value) {
+  if (typeof value === "string") {
+    const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (match) {
+      return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+    }
+  }
+
+  return new Date(value);
 }
 
 function buildDonutGradient(stats) {
