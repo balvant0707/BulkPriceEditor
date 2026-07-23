@@ -1952,7 +1952,6 @@ export default function NewSalePage() {
       markets.filter(
         (market) =>
           !market.disabled &&
-          market.primary &&
           (market.priceListIds || []).length > 0,
       ),
     [markets],

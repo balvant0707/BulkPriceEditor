@@ -3662,7 +3662,6 @@ export default function NewTaskPage() {
       markets.filter(
         (market) =>
           !market.disabled &&
-          market.primary &&
           (market.priceListIds || []).length > 0,
       ),
     [markets],
