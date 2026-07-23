@@ -102,7 +102,7 @@ const pageContentStyle = {
 
 const hoverChartStyle = {
   width: "100%",
-  height: 260,
+  height: 240,
   display: "block",
   overflow: "visible",
   background: "#ffffff",
@@ -971,22 +971,23 @@ function ExpandedDateChart({
   const [hoveredIndex, setHoveredIndex] = useState(null);
   const chartWidth = 1200;
   const chartHeight = 230;
-  const padding = { top: 18, right: 18, bottom: 46, left: 34 };
+  const padding = { top: 16, right: 22, bottom: 42, left: 58 };
   const safeData = normalizeDateChartData(data);
   const safePreviousData = normalizeDateChartData(previousData);
-  const maxValue = Math.max(
-    1,
+  const rawMaxValue = Math.max(
+    0,
     ...safeData.map((point) => point.value),
     ...safePreviousData.map((point) => point.value),
   );
+  const maxValue = Math.max(15, Math.ceil(rawMaxValue / 5) * 5);
   const plotWidth = chartWidth - padding.left - padding.right;
   const plotHeight = chartHeight - padding.top - padding.bottom;
   const points = buildDateChartPoints(safeData, maxValue, chartWidth, chartHeight, padding);
   const previousPoints = buildDateChartPoints(safePreviousData, maxValue, chartWidth, chartHeight, padding);
-  const activeIndex = hoveredIndex ?? safeData.length - 1;
+  const activeIndex = hoveredIndex;
   const activePoint = points[activeIndex];
   const activeData = safeData[activeIndex];
-  const ticks = Array.from({ length: 4 }, (_, index) => Math.round((maxValue / 3) * index));
+  const ticks = getDateChartTicks(maxValue);
   const labelIndexes = getDateChartLabelIndexes(safeData.length);
   const tooltipLeft = activePoint ? `${Math.min(Math.max((activePoint.x / chartWidth) * 100, 8), 88)}%` : "50%";
   const tooltipTop = activePoint ? Math.max(12, activePoint.y - 74) : 20;
@@ -1020,20 +1021,20 @@ function ExpandedDateChart({
             const y = padding.top + plotHeight - (tick / maxValue) * plotHeight;
             return (
               <g key={`tick-${tick}`}>
-                <line x1={padding.left} x2={chartWidth - padding.right} y1={y} y2={y} stroke="#ebebeb" />
-                <text x={padding.left - 26} y={y + 4} fill="#8a8a8a" fontSize="13">
+                <line x1={padding.left} x2={chartWidth - padding.right} y1={y} y2={y} stroke="#eef0f3" strokeWidth="2" />
+                <text x={padding.left - 42} y={y + 5} fill="#8b95a1" fontSize="18" fontWeight="500">
                   {tick}
                 </text>
               </g>
             );
           })}
           {labelIndexes.map((index) => (
-            <text key={safeData[index]?.date || index} x={points[index]?.x || padding.left} y={chartHeight - 14} fill="#6d7175" fontSize="13" textAnchor="middle">
+            <text key={safeData[index]?.date || index} x={points[index]?.x || padding.left} y={chartHeight - 12} fill="#8b95a1" fontSize="18" fontWeight="600" textAnchor="middle">
               {formatShortDate(safeData[index]?.date)}
             </text>
           ))}
-          <path d={buildDateChartPath(previousPoints)} fill="none" stroke="#8bd3f7" strokeWidth="2" strokeLinecap="round" strokeDasharray="4 7" />
-          <path d={buildDateChartPath(points)} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+          <path d={buildDateChartPath(previousPoints)} fill="none" stroke="#8bd3f7" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="2 13" />
+          <path d={buildDateChartPath(points)} fill="none" stroke={color} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
           {activePoint ? (
             <g>
               <line x1={activePoint.x} x2={activePoint.x} y1={padding.top} y2={chartHeight - padding.bottom} stroke="#c9cccf" strokeDasharray="4 4" />
@@ -1106,9 +1107,50 @@ function buildDateChartPoints(data, maxValue, chartWidth, chartHeight, padding) 
 }
 
 function buildDateChartPath(points = []) {
-  return points
-    .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`)
-    .join(" ");
+  if (!points.length) {
+    return "";
+  }
+
+  if (points.length < 3) {
+    return points
+      .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`)
+      .join(" ");
+  }
+
+  return points.reduce((path, point, index) => {
+    if (index === 0) {
+      return `M ${point.x.toFixed(2)} ${point.y.toFixed(2)}`;
+    }
+
+    const previous = points[index - 1];
+    const next = points[index + 1] || point;
+    const beforePrevious = points[index - 2] || previous;
+    const controlPointStart = {
+      x: previous.x + (point.x - beforePrevious.x) / 6,
+      y: previous.y + (point.y - beforePrevious.y) / 6,
+    };
+    const controlPointEnd = {
+      x: point.x - (next.x - previous.x) / 6,
+      y: point.y - (next.y - previous.y) / 6,
+    };
+
+    return `${path} C ${controlPointStart.x.toFixed(2)} ${controlPointStart.y.toFixed(2)}, ${controlPointEnd.x.toFixed(2)} ${controlPointEnd.y.toFixed(2)}, ${point.x.toFixed(2)} ${point.y.toFixed(2)}`;
+  }, "");
+}
+
+function getDateChartTicks(maxValue) {
+  const step = Math.max(5, Math.ceil(maxValue / 3 / 5) * 5);
+  const ticks = [];
+
+  for (let tick = 0; tick <= maxValue; tick += step) {
+    ticks.push(tick);
+  }
+
+  if (ticks[ticks.length - 1] !== maxValue) {
+    ticks.push(maxValue);
+  }
+
+  return ticks;
 }
 
 function getDateChartLabelIndexes(length) {
