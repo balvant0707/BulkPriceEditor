@@ -3803,7 +3803,7 @@ export default function NewTaskPage() {
         narrowWidth
         backAction={{
           content: "Back",
-          url: "/app",
+          url: "/app/tasks",
         }}
         primaryAction={{
           content: isSubmitting
