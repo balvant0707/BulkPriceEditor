@@ -1281,20 +1281,20 @@ function RecentChangesTable({ rows = [] }) {
         itemCount={paginatedRows.length}
         selectable={false}
         headings={[
+          { title: "Title" },
           { title: "Changes" },
-          { title: "Target" },
           { title: "Date" },
           { title: "Status" },
         ]}
       >
         {paginatedRows.map((row, index) => (
           <IndexTable.Row id={row.id} key={row.id} position={index}>
+             <IndexTable.Cell>{row.target}</IndexTable.Cell>
             <IndexTable.Cell>
               <Link url={row.url} removeUnderline>
                 {row.change}
               </Link>
             </IndexTable.Cell>
-            <IndexTable.Cell>{row.target}</IndexTable.Cell>
             <IndexTable.Cell>{formatDate(row.date)}</IndexTable.Cell>
             <IndexTable.Cell>
               <Badge tone={statusTone(row.status)}>{humanize(row.status || "Updated")}</Badge>
