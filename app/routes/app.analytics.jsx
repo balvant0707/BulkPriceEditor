@@ -101,9 +101,7 @@ const pageContentStyle = {
   margin: "0 auto",
 };
 
-const ANALYTICS_CHART_PAST_DAYS = 7;
-const ANALYTICS_CHART_FUTURE_DAYS = 7;
-const ANALYTICS_CHART_DAYS = ANALYTICS_CHART_PAST_DAYS + 1 + ANALYTICS_CHART_FUTURE_DAYS;
+const ANALYTICS_CHART_DAYS = 30;
 
 const donutStyle = (stats) => ({
   width: 168,
@@ -353,7 +351,7 @@ function buildAnalysisStats(tasks, sales) {
 function getAnalyticsChartStart(referenceDate = new Date()) {
   const start = new Date(referenceDate);
   start.setHours(0, 0, 0, 0);
-  start.setDate(start.getDate() - ANALYTICS_CHART_PAST_DAYS);
+  start.setDate(start.getDate() - (ANALYTICS_CHART_DAYS - 1));
 
   return start;
 }
@@ -890,7 +888,7 @@ function MetricCard({
             </div>
           </InlineStack>
           <Text as="span" fontWeight="semibold">
-            7 days before and after today
+            Last 30 days
           </Text>
         </div>
       </Card>

@@ -119,8 +119,8 @@ export default function PeriodComparisonChart({
                 {formatShortDate(safeData[index]?.date)}
               </text>
             ))}
-            <path d={buildChartPath(previousPoints)} fill="none" stroke={comparisonColor} strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="2 13" />
-            <path d={buildChartPath(points)} fill="none" stroke={color} strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" />
+            <path d={buildChartPath(previousPoints)} fill="none" stroke={comparisonColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="2 13" />
+            <path d={buildChartPath(points)} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
             {activePoint ? (
               <g>
                 <line x1={activePoint.x} x2={activePoint.x} y1={padding.top} y2={chartHeight - padding.bottom} stroke="#c9cccf" strokeDasharray="4 4" />
