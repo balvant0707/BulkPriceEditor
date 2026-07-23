@@ -144,7 +144,9 @@ const chartLegendDotStyle = {
   display: "inline-block",
 };
 
-const ANALYTICS_CHART_DAYS = 31;
+const ANALYTICS_CHART_PAST_DAYS = 7;
+const ANALYTICS_CHART_FUTURE_DAYS = 7;
+const ANALYTICS_CHART_DAYS = ANALYTICS_CHART_PAST_DAYS + 1 + ANALYTICS_CHART_FUTURE_DAYS;
 
 const donutStyle = (stats) => ({
   width: 168,
@@ -334,7 +336,7 @@ function buildAnalysisStats(tasks, sales) {
   const rollbacks = [...tasks, ...sales].filter(hasRollback).length;
   const rollbackRecords = [...tasks, ...sales].filter(hasRollback);
   const allRecords = [...tasks, ...sales];
-  const { currentStart, previousStart } = getPeriodBoundsForRecords(allRecords, ANALYTICS_CHART_DAYS - 1);
+  const { currentStart, previousStart } = getPeriodBoundsForRecords();
   const changesRecords = allRecords;
   const tasksChart = buildDailySeriesForPeriod(tasks, (task) => getRecordDate(task), () => 1, currentStart);
   const previousTasksChart = buildDailySeriesForPeriod(tasks, (task) => getRecordDate(task), () => 1, previousStart);
@@ -391,15 +393,18 @@ function buildAnalysisStats(tasks, sales) {
   };
 }
 
-function getPeriodBoundsForRecords(records, days = 30) {
-  const dates = records
-    .map((record) => getRecordDate(record))
-    .filter(Boolean)
-    .map((date) => new Date(date))
-    .filter((date) => !Number.isNaN(date.getTime()));
-  const end = dates.length ? new Date(Math.max(...dates.map((date) => date.getTime()))) : new Date();
-  const currentStart = new Date(end);
-  currentStart.setDate(currentStart.getDate() - days);
+function getAnalyticsChartStart(referenceDate = new Date()) {
+  const start = new Date(referenceDate);
+  start.setHours(0, 0, 0, 0);
+  start.setDate(start.getDate() - ANALYTICS_CHART_PAST_DAYS);
+
+  return start;
+}
+
+function getPeriodBoundsForRecords(days = ANALYTICS_CHART_DAYS) {
+  const currentStart = getAnalyticsChartStart();
+  const end = new Date(currentStart);
+  end.setDate(currentStart.getDate() + days);
   const previousStart = new Date(currentStart);
   previousStart.setDate(previousStart.getDate() - days);
 
@@ -409,21 +414,21 @@ function getPeriodBoundsForRecords(records, days = 30) {
 function isDateInRange(value, start, end) {
   if (!value) return false;
   const date = new Date(value);
-  return !Number.isNaN(date.getTime()) && date >= start && date <= end;
+  return !Number.isNaN(date.getTime()) && date >= start && date < end;
 }
 
 function countRecordsInSelectedPeriod(records) {
-  const { end, currentStart } = getPeriodBoundsForRecords(records);
+  const { end, currentStart } = getPeriodBoundsForRecords();
   return records.filter((record) => isDateInRange(getRecordDate(record), currentStart, end)).length;
 }
 
 function countRecordsInPreviousPeriod(records) {
-  const { currentStart, previousStart } = getPeriodBoundsForRecords(records);
+  const { currentStart, previousStart } = getPeriodBoundsForRecords();
   return records.filter((record) => isDateInRange(getRecordDate(record), previousStart, currentStart)).length;
 }
 
 function sumChangesInSelectedPeriod(records) {
-  const { end, currentStart } = getPeriodBoundsForRecords(records);
+  const { end, currentStart } = getPeriodBoundsForRecords();
   return records.reduce((sum, record) => (
     isDateInRange(getRecordDate(record), currentStart, end)
       ? sum + (getChangeCount(record) || 1)
@@ -432,7 +437,7 @@ function sumChangesInSelectedPeriod(records) {
 }
 
 function sumChangesInPreviousPeriod(records) {
-  const { currentStart, previousStart } = getPeriodBoundsForRecords(records);
+  const { currentStart, previousStart } = getPeriodBoundsForRecords();
   return records.reduce((sum, record) => (
     isDateInRange(getRecordDate(record), previousStart, currentStart)
       ? sum + (getChangeCount(record) || 1)
@@ -449,36 +454,7 @@ function getTrendLabel(currentValue, previousValue) {
 }
 
 function buildDailySeries(records, getDate, getValue = () => 1, days = ANALYTICS_CHART_DAYS) {
-  const dates = records
-    .map(getDate)
-    .filter(Boolean)
-    .map((date) => new Date(date))
-    .filter((date) => !Number.isNaN(date.getTime()));
-  const end = dates.length ? new Date(Math.max(...dates.map((date) => date.getTime()))) : new Date();
-  end.setHours(23, 59, 59, 999);
-  const start = new Date(end);
-  start.setDate(start.getDate() - (days - 1));
-  start.setHours(0, 0, 0, 0);
-  const buckets = new Map();
-
-  for (let index = 0; index < days; index += 1) {
-    const date = new Date(start);
-    date.setDate(start.getDate() + index);
-    buckets.set(date.toISOString().slice(0, 10), 0);
-  }
-
-  for (const record of records) {
-    const rawDate = getDate(record);
-    if (!rawDate) continue;
-
-    const date = new Date(rawDate);
-    if (Number.isNaN(date.getTime()) || date < start || date > end) continue;
-
-    const key = date.toISOString().slice(0, 10);
-    buckets.set(key, (buckets.get(key) || 0) + Math.max(0, Number(getValue(record)) || 0));
-  }
-
-  return [...buckets.entries()].map(([date, value]) => ({ date, value }));
+  return buildDailySeriesForPeriod(records, getDate, getValue, getAnalyticsChartStart(), days);
 }
 
 function buildDailySeriesForPeriod(records, getDate, getValue = () => 1, startDate, days = ANALYTICS_CHART_DAYS) {
@@ -555,10 +531,7 @@ function buildApplyToCards(records, kind, options) {
   }
 
   return [...grouped.values()].map((card) => {
-    const { currentStart, previousStart } = getPeriodBoundsForRecords(
-      card.chart.map((item) => ({ createdAt: item.date })),
-      ANALYTICS_CHART_DAYS - 1,
-    );
+    const { currentStart, previousStart } = getPeriodBoundsForRecords();
 
     return {
       ...card,
@@ -675,15 +648,7 @@ function buildChangeTrend(tasks, sales) {
     : Array.isArray(tasks)
       ? tasks
       : [];
-  const dates = records
-    .map((record) => getRecordDate(record))
-    .filter(Boolean)
-    .map((date) => new Date(date))
-    .filter((date) => !Number.isNaN(date.getTime()));
-  const end = dates.length ? new Date(Math.max(...dates.map((date) => date.getTime()))) : new Date();
-  end.setHours(0, 0, 0, 0);
-  const currentStart = new Date(end);
-  currentStart.setDate(end.getDate() - (ANALYTICS_CHART_DAYS - 1));
+  const currentStart = getAnalyticsChartStart();
   const previousStart = new Date(currentStart);
   previousStart.setDate(currentStart.getDate() - ANALYTICS_CHART_DAYS);
   const getRecordValue = (record) => Number(record.value) || getChangeCount(record) || 1;
@@ -735,7 +700,7 @@ function buildApplyToDailySeriesForPeriod(records, startDate, getValue = () => 1
     if (!rawDate) continue;
 
     const date = new Date(rawDate);
-    if (Number.isNaN(date.getTime()) || date < start || date > end) continue;
+    if (Number.isNaN(date.getTime()) || date < start || date >= end) continue;
 
     const key = date.toISOString().slice(0, 10);
     const bucket = buckets.get(key);
@@ -968,7 +933,7 @@ function MetricCard({
             </div>
           </InlineStack>
           <Text as="span" fontWeight="semibold">
-            Last 30 days
+            7 days before and after today
           </Text>
         </div>
       </Card>
@@ -1336,9 +1301,6 @@ function ChangeTrendCard({
             <InlineStack gap="200" blockAlign="center">
               <Text as="p" variant="headingLg">
                 {formatInteger(total)}
-              </Text>
-              <Text as="span" tone={isQuietTrend ? "subdued" : isDownTrend ? "critical" : "success"} fontWeight="semibold">
-                {trend}
               </Text>
             </InlineStack>
           </BlockStack>
