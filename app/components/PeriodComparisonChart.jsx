@@ -18,6 +18,7 @@ const tooltipStyle = {
   background: "#ffffff",
   boxShadow: "0 8px 24px rgba(0, 0, 0, 0.16)",
   border: "1px solid #e3e3e3",
+  zIndex: 2,
 };
 
 const legendDotStyle = {
@@ -79,22 +80,22 @@ export default function PeriodComparisonChart({
 
   return (
     <Card>
-      <div style={{ position: "relative" }}>
-        <BlockStack gap="400">
-          <InlineStack align="space-between" blockAlign="start" gap="400" wrap>
-            <BlockStack gap="050">
-              <Text as="h2" variant="headingMd">
-                {title}
+      <BlockStack gap="400">
+        <InlineStack align="space-between" blockAlign="start" gap="400" wrap>
+          <BlockStack gap="050">
+            <Text as="h2" variant="headingMd">
+              {title}
+            </Text>
+            {value == null ? null : (
+              <Text as="p" variant="headingLg">
+                {formatInteger(value)}
               </Text>
-              {value == null ? null : (
-                <Text as="p" variant="headingLg">
-                  {formatInteger(value)}
-                </Text>
-              )}
-            </BlockStack>
-            {controls}
-          </InlineStack>
+            )}
+          </BlockStack>
+          {controls}
+        </InlineStack>
 
+        <div style={{ position: "relative" }}>
           <svg
             viewBox={`0 0 ${chartWidth} ${chartHeight}`}
             role="img"
@@ -130,33 +131,33 @@ export default function PeriodComparisonChart({
             <rect x={padding.left} y={padding.top} width={plotWidth} height={plotHeight} fill="transparent" />
           </svg>
 
-          <InlineStack align="center" gap="500" wrap>
-            <InlineStack gap="150" blockAlign="center">
-              <span style={{ ...legendDotStyle, background: color }} />
-              <Text as="span" tone="subdued">{currentLabel}</Text>
-            </InlineStack>
-            <InlineStack gap="150" blockAlign="center">
-              <span style={{ ...legendDotStyle, background: comparisonColor }} />
-              <Text as="span" tone="subdued">{previousLabel}</Text>
-            </InlineStack>
-          </InlineStack>
-        </BlockStack>
+          {activePoint && activeData ? (
+            <div style={{ ...tooltipStyle, left: tooltipLeft, top: tooltipTop, transform: "translateX(-50%)" }}>
+              <BlockStack gap="100">
+                <Text as="p" fontWeight="semibold">{formatLongDate(activeData.date)}</Text>
+                {breakdownRows.length ? (
+                  breakdownRows.map((row) => (
+                    <Text as="p" key={row.value}>{`${row.label}: ${formatInteger(row.count)} changes`}</Text>
+                  ))
+                ) : (
+                  <Text as="p">{`${applyToLabel || title}: ${formatInteger(activeData.value)} changes`}</Text>
+                )}
+              </BlockStack>
+            </div>
+          ) : null}
+        </div>
 
-        {activePoint && activeData ? (
-          <div style={{ ...tooltipStyle, left: tooltipLeft, top: tooltipTop, transform: "translateX(-50%)" }}>
-            <BlockStack gap="100">
-              <Text as="p" fontWeight="semibold">{formatLongDate(activeData.date)}</Text>
-              {breakdownRows.length ? (
-                breakdownRows.map((row) => (
-                  <Text as="p" key={row.value}>{`${row.label}: ${formatInteger(row.count)} changes`}</Text>
-                ))
-              ) : (
-                <Text as="p">{`${applyToLabel || title}: ${formatInteger(activeData.value)} changes`}</Text>
-              )}
-            </BlockStack>
-          </div>
-        ) : null}
-      </div>
+        <InlineStack align="center" gap="500" wrap>
+          <InlineStack gap="150" blockAlign="center">
+            <span style={{ ...legendDotStyle, background: color }} />
+            <Text as="span" tone="subdued">{currentLabel}</Text>
+          </InlineStack>
+          <InlineStack gap="150" blockAlign="center">
+            <span style={{ ...legendDotStyle, background: comparisonColor }} />
+            <Text as="span" tone="subdued">{previousLabel}</Text>
+          </InlineStack>
+        </InlineStack>
+      </BlockStack>
     </Card>
   );
 }
