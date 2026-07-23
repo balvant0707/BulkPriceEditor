@@ -396,7 +396,8 @@ export async function action({ request, params }) {
     return json({ error: validationError }, { status: 400 });
   }
   if (
-    data.applyChangesTo === "markets" &&
+    (data.applyChangesTo === "markets" ||
+      (data.applyChangesTo === "products" && data.selectedMarkets?.length)) &&
     !(await hasRequiredMarketScopes(admin, session))
   ) {
     return json({ error: MARKET_SCOPE_ERROR }, { status: 400 });
@@ -1356,22 +1357,54 @@ async function executeTask(
       inventoryUpdates,
       reportUpdateProgress,
     );
-    const errors = [...variantResults.errors, ...inventoryResults.errors];
-    await persistTaskAuditLogs(auditLogs);
+    const localMarketResult = taskData.selectedMarkets?.length
+      ? await updateMarketPrices({
+          admin,
+          ownerType: "task",
+          ownerId: options.taskId,
+          shop,
+          markets: taskData.selectedMarkets,
+          variants,
+          priceChange: taskData.priceChange,
+          compareAtPriceChange: taskData.compareAtPriceChange,
+          applyToFixedPrices: false,
+        })
+      : null;
+    const localMarketAuditLogs = (localMarketResult?.logs || []).map((log) => ({
+      taskId: options.taskId,
+      shop,
+      productId: log.productId,
+      variantId: log.variantId,
+      previousPrice: log.oldPrice,
+      newPrice: log.newPrice,
+      action: log.status,
+      skipReason: log.errors?.join("; ") || null,
+    }));
+    const errors = [
+      ...variantResults.errors,
+      ...inventoryResults.errors,
+      ...(localMarketResult?.errors || []),
+    ];
+    await persistTaskAuditLogs([...auditLogs, ...localMarketAuditLogs]);
 
     return {
       ok: errors.length === 0,
       analyzedVariants: variants.length,
-      variantUpdates: productVariantUpdates.length,
+      variantUpdates: productVariantUpdates.length + (localMarketResult?.updatedCount || 0),
       inventoryUpdates: inventoryUpdates.length,
-      updatedVariants: variantResults.updatedCount,
+      updatedVariants: variantResults.updatedCount + (localMarketResult?.updatedCount || 0),
       updatedInventoryItems: inventoryResults.updatedCount,
-      totalPriceChanges: productVariantUpdates.length,
+      marketUpdates: localMarketResult?.updatedCount || 0,
+      totalPriceChanges: productVariantUpdates.length + (localMarketResult?.updatedCount || 0),
       skippedVariants:
         targetVariants.length - variants.length + variants.length - productVariantUpdates.length,
       skippedProducts: countSkippedProducts(skippedLogs),
-      logs: auditLogs.map(({ taskId, shop, ...log }) => log),
+      logs: [
+        ...auditLogs.map(({ taskId, shop, ...log }) => log),
+        ...(localMarketResult?.logs || []),
+      ],
       originalVariants,
+      originalMarketPrices: localMarketResult?.originalMarketPrices || [],
       originalInventoryItems,
       errors,
       cappedAt: MAX_TASK_VARIANTS,
@@ -3624,6 +3657,16 @@ export default function NewTaskPage() {
       ),
     [markets, selectedMarkets],
   );
+  const localMarketDetails = useMemo(
+    () =>
+      markets.filter(
+        (market) =>
+          !market.disabled &&
+          market.primary &&
+          (market.priceListIds || []).length > 0,
+      ),
+    [markets],
+  );
 
   useEffect(() => {
     setSelectedMarkets((current) =>
@@ -3786,6 +3829,44 @@ export default function NewTaskPage() {
         <Form method="post" id="task-create-form">
           {task?.id ? <input type="hidden" name="id" value={task.id} /> : null}
           <input type="hidden" name="apply_changes_to" value={applyChangesTo} />
+          {applyChangesTo === "products"
+            ? localMarketDetails.map((market) => (
+                <div key={market.id}>
+                  <input
+                    type="hidden"
+                    name="selected_market_ids[]"
+                    value={market.id}
+                  />
+                  <input
+                    type="hidden"
+                    name="selected_market_names[]"
+                    value={market.name}
+                  />
+                  <input
+                    type="hidden"
+                    name="selected_market_handles[]"
+                    value={market.handle}
+                  />
+                  <input
+                    type="hidden"
+                    name="selected_market_currency_codes[]"
+                    value={market.currencyCode}
+                  />
+                  <input
+                    type="hidden"
+                    name="selected_market_price_list_ids[]"
+                    value={(market.priceListIds || []).join(",")}
+                  />
+                  <input
+                    type="hidden"
+                    name="selected_market_price_list_currencies[]"
+                    value={(market.priceLists || [])
+                      .map((priceList) => priceList.currencyCode || "")
+                      .join(",")}
+                  />
+                </div>
+              ))
+            : null}
           <input
             type="hidden"
             name="include_draft_products"

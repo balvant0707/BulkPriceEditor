@@ -204,7 +204,8 @@ export async function action({ request, params }) {
     return json({ error: validationError }, { status: 400 });
   }
   if (
-    data.changeType === "markets" &&
+    (data.changeType === "markets" ||
+      (data.changeType === "products" && data.markets?.length)) &&
     !(await hasRequiredMarketScopes(admin, session))
   ) {
     return json({ error: MARKET_SCOPE_ERROR }, { status: 400 });
@@ -1946,6 +1947,16 @@ export default function NewSalePage() {
       ),
     [markets, form.markets],
   );
+  const localMarketDetails = useMemo(
+    () =>
+      markets.filter(
+        (market) =>
+          !market.disabled &&
+          market.primary &&
+          (market.priceListIds || []).length > 0,
+      ),
+    [markets],
+  );
 
   useEffect(() => {
     setForm((current) => ({
@@ -2291,7 +2302,8 @@ export default function NewSalePage() {
         ...form,
         timezoneOffsetMinutes: new Date().getTimezoneOffset(),
       },
-      selectedMarketDetails,
+      selectedMarketDetails:
+        form.changeType === "products" ? localMarketDetails : selectedMarketDetails,
       applyCollections,
       applyProducts,
       applyVariants,
