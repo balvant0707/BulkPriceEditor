@@ -108,19 +108,19 @@ export default function PeriodComparisonChart({
               return (
                 <g key={`tick-${tick}`}>
                   <line x1={padding.left} x2={chartWidth - padding.right} y1={y} y2={y} stroke="#eef0f3" strokeWidth="2" />
-                  <text x={padding.left - 42} y={y + 5} fill="#8b95a1" fontSize="18" fontWeight="500">
+                  <text x={padding.left - 42} y={y + 5} fill="#000000" fontSize="12" fontWeight="500">
                     {tick}
                   </text>
                 </g>
               );
             })}
             {labelIndexes.map((index) => (
-              <text key={safeData[index]?.date || index} x={points[index]?.x || padding.left} y={chartHeight - 12} fill="#8b95a1" fontSize="18" fontWeight="600" textAnchor="middle">
+              <text key={safeData[index]?.date || index} x={points[index]?.x || padding.left} y={chartHeight - 12} fill="#000000" fontSize="12" fontWeight="500" textAnchor="middle">
                 {formatShortDate(safeData[index]?.date)}
               </text>
             ))}
-            <path d={buildChartPath(previousPoints)} fill="none" stroke={comparisonColor} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="2 13" />
-            <path d={buildChartPath(points)} fill="none" stroke={color} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+            <path d={buildChartPath(previousPoints)} fill="none" stroke={comparisonColor} strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="2 13" />
+            <path d={buildChartPath(points)} fill="none" stroke={color} strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" />
             {activePoint ? (
               <g>
                 <line x1={activePoint.x} x2={activePoint.x} y1={padding.top} y2={chartHeight - padding.bottom} stroke="#c9cccf" strokeDasharray="4 4" />
