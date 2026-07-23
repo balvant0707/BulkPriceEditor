@@ -149,7 +149,7 @@ export const loader = async ({ request }) => {
   ];
   const availableYears = getAvailableYears(allRecords);
   const stats = buildAnalysisStats(tasks, sales);
-  const recentChanges = buildRecentChanges(tasks, sales);
+  const recentChanges = buildRecentChanges(tasks, sales, session.shop);
   const rollbackRows = buildRollbackRows(tasks, sales);
   const applyToSections = buildApplyToSections(tasks, sales);
   const chartRecords = buildChartRecords(tasks, sales);
@@ -685,7 +685,7 @@ function isCompletedTask(task) {
   return status === "complete" || status === "completed" || status.includes("success");
 }
 
-function buildRecentChanges(tasks, sales) {
+function buildRecentChanges(tasks, sales, shop) {
   const taskRows = tasks.flatMap((task) => {
     const logs = task.auditLogs?.length
       ? task.auditLogs
@@ -698,6 +698,7 @@ function buildRecentChanges(tasks, sales) {
       title: getTaskTitle(task),
       date: log.createdAt || task.completedAt || task.updatedAt,
       target: getLogTarget(log, task, titleLookup),
+      targetUrl: getShopifyAdminProductUrl(shop, log),
       change: formatChangeText(log, task),
       status: log.action || log.status || task.status,
       url: `/app/tasks/${task.id}`,
@@ -711,6 +712,7 @@ function buildRecentChanges(tasks, sales) {
       title: sale.title || `Sale #${sale.id}`,
       date: log.createdAt || sale.completedAt || sale.updatedAt,
       target: getLogTarget(log, sale, titleLookup),
+      targetUrl: getShopifyAdminProductUrl(shop, log),
       change: formatChangeText(log, sale),
       status: log.action || log.status || sale.status,
       url: `/app/sales/${sale.id}`,
@@ -719,6 +721,31 @@ function buildRecentChanges(tasks, sales) {
 
   return [...taskRows, ...saleRows]
     .sort((left, right) => new Date(right.date || 0) - new Date(left.date || 0));
+}
+
+function getShopifyAdminProductUrl(shop, log) {
+  const productId = getShopifyResourceId(
+    log?.productId ||
+      log?.product?.id ||
+      log?.admin_graphql_api_id ||
+      log?.productGid,
+    "Product",
+  );
+
+  if (!shop || !productId) return "";
+
+  return `https://${shop}/admin/products/${productId}`;
+}
+
+function getShopifyResourceId(value, resourceType) {
+  if (!value) return "";
+
+  const rawValue = String(value);
+  const gidMatch = rawValue.match(new RegExp(`gid://shopify/${resourceType}/(\\d+)`));
+  if (gidMatch) return gidMatch[1];
+
+  const numericMatch = rawValue.match(/^\d+$/);
+  return numericMatch ? numericMatch[0] : "";
 }
 
 function buildSummaryLogs(record, kind) {
@@ -1289,7 +1316,15 @@ function RecentChangesTable({ rows = [] }) {
       >
         {paginatedRows.map((row, index) => (
           <IndexTable.Row id={row.id} key={row.id} position={index}>
-             <IndexTable.Cell>{row.target}</IndexTable.Cell>
+            <IndexTable.Cell>
+              {row.targetUrl ? (
+                <Link url={row.targetUrl} removeUnderline>
+                  {row.target}
+                </Link>
+              ) : (
+                row.target
+              )}
+            </IndexTable.Cell>
             <IndexTable.Cell>
               <Link url={row.url} removeUnderline>
                 {row.change}
@@ -1339,7 +1374,7 @@ function RollbacksTable({ rows = [] }) {
         itemCount={safeRows.length}
         selectable={false}
         headings={[
-          { title: "Record" },
+          { title: "Title" },
           { title: "Changes" },
           { title: "Date" },
           { title: "Status" },
