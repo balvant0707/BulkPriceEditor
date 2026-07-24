@@ -5,7 +5,7 @@ application_url = "https://bulk-price-editor-lz64.vercel.app"
 embedded = true
 
 name = "Boltr Bulk Price Editor"
-handle = "boltr-bulk-price-editor"
+handle = "bulk-price-editor-boltr"
 
 [webhooks]
 api_version = "2026-07"

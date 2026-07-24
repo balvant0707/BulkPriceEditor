@@ -319,6 +319,12 @@ const GRAPHQL_RETRY_BASE_MS = 500;
 const TASK_AUDIT_SKIP_REASON_MAX_LENGTH = 500;
 const AUTO_REAPPLY_CONFLICT_MESSAGE =
   "You have completed a task with auto-reapply enabled for similar products. Disable auto-reapply on that task first.";
+const TASK_SCHEDULE_STATUSES = {
+  pending: "pending",
+  running: "running",
+  completed: "completed",
+  cancelled: "cancelled",
+};
 
 export async function loader({ request, params }) {
   const { admin, session } = await authenticate.admin(request);
@@ -439,28 +445,43 @@ export async function action({ request, params }) {
       throw new Response("Task not found", { status: 404 });
     }
 
-    if (!["Completed", "Complete"].includes(existingTask.status)) {
+    if (!canEditExistingTask(existingTask)) {
       return json(
         {
           error:
-            "Task cannot be changed until the current status is Completed.",
+            "Task can be changed only while a schedule is pending or after the task is completed.",
         },
         { status: 400 },
       );
     }
 
+    const nextStatus = data.scheduleEnabled ? "Pending" : "Pending";
+    const executionSummary = data.scheduleEnabled
+      ? {
+          progress: 0,
+          status: "Pending",
+          scheduleStatus: TASK_SCHEDULE_STATUSES.pending,
+          scheduledFor: data.startAt?.toISOString?.() || "",
+        }
+      : { progress: 0 };
+
     await db.task.updateMany({
       where: { id: taskId, shop: session.shop },
       data: {
         ...data,
-        status: "Pending",
-        executionSummary: { progress: 0 },
-        startedAt: new Date(),
+        status: nextStatus,
+        executionSummary,
+        startedAt: data.scheduleEnabled ? null : new Date(),
         completedAt: null,
+        executedAt: null,
+        lastCronRun: null,
+        cronError: null,
       },
     });
 
-    scheduleTaskExecution(admin, taskId, data, session.shop);
+    if (!data.scheduleEnabled) {
+      scheduleTaskExecution(admin, taskId, data, session.shop);
+    }
 
     flashSession.flash("toast", "Task updated.");
     return redirect(
@@ -477,12 +498,21 @@ export async function action({ request, params }) {
     data: {
       ...data,
       status: "Pending",
-      executionSummary: { progress: 0 },
-      startedAt: new Date(),
+      executionSummary: data.scheduleEnabled
+        ? {
+            progress: 0,
+            status: "Pending",
+            scheduleStatus: TASK_SCHEDULE_STATUSES.pending,
+            scheduledFor: data.startAt?.toISOString?.() || "",
+          }
+        : { progress: 0 },
+      startedAt: data.scheduleEnabled ? null : new Date(),
     },
   });
 
-  scheduleTaskExecution(admin, task.id, data, session.shop);
+  if (!data.scheduleEnabled) {
+    scheduleTaskExecution(admin, task.id, data, session.shop);
+  }
 
   flashSession.flash("toast", "Task created.");
   return redirect(
@@ -811,6 +841,7 @@ function buildTaskData(shop, formData) {
     applyScope,
   );
   const applyChangesTo = getFormValue(formData, "apply_changes_to", "products");
+  const schedule = buildTaskScheduleData(formData);
   const selectedMarkets =
     applyChangesTo === "markets"
       ? selectedMarketIds.map((id, index) => {
@@ -910,7 +941,87 @@ function buildTaskData(shop, formData) {
     autoReapplyChanges: hasFormValue(formData, "auto_reapply_changes"),
     autoReapplyIntervalUnit,
     autoReapplyIntervalValue,
+    ...schedule,
   };
+}
+
+function buildTaskScheduleData(formData) {
+  const scheduleEnabled = hasFormValue(formData, "schedule_enabled");
+  const endScheduleEnabled =
+    scheduleEnabled && hasFormValue(formData, "end_schedule_enabled");
+  const timezoneOffsetMinutes = getFormValue(
+    formData,
+    "schedule_timezone_offset_minutes",
+    "0",
+  );
+  const startDateValue = getFormValue(formData, "schedule_start_date");
+  const startTimeValue = getFormValue(formData, "schedule_start_time");
+  const endDateValue = getFormValue(formData, "schedule_end_date");
+  const endTimeValue = getFormValue(formData, "schedule_end_time");
+  const startAt = scheduleEnabled
+    ? parseScheduleDateTime(startDateValue, startTimeValue, timezoneOffsetMinutes)
+    : null;
+  const endAt = endScheduleEnabled
+    ? parseScheduleDateTime(endDateValue, endTimeValue, timezoneOffsetMinutes)
+    : null;
+
+  return {
+    isScheduled: scheduleEnabled,
+    scheduleEnabled,
+    startDate: scheduleEnabled ? parseDateOnly(startDateValue) : null,
+    startTime: scheduleEnabled ? parseTimeOnly(startTimeValue) : null,
+    startAt,
+    endScheduleEnabled,
+    endDate: endScheduleEnabled ? parseDateOnly(endDateValue) : null,
+    endTime: endScheduleEnabled ? parseTimeOnly(endTimeValue) : null,
+    endAt,
+    scheduleStatus: scheduleEnabled ? TASK_SCHEDULE_STATUSES.pending : null,
+  };
+}
+
+function parseDateOnly(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return null;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function parseTimeOnly(value) {
+  if (!/^\d{2}:\d{2}$/.test(String(value || ""))) return null;
+  const date = new Date(`1970-01-01T${value}:00.000Z`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function parseScheduleDateTime(date, time, timezoneOffsetMinutes = 0) {
+  if (
+    !/^\d{4}-\d{2}-\d{2}$/.test(String(date || "")) ||
+    !/^\d{2}:\d{2}$/.test(String(time || ""))
+  ) {
+    return null;
+  }
+
+  const [year, month, day] = String(date).split("-").map(Number);
+  const [hour, minute] = String(time).split(":").map(Number);
+  const offset = Number(timezoneOffsetMinutes);
+  const utcMs =
+    Date.UTC(year, month - 1, day, hour, minute, 0, 0) +
+    (Number.isFinite(offset) ? offset : 0) * 60 * 1000;
+  const parsed = new Date(utcMs);
+
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function canEditExistingTask(task) {
+  const status = String(task?.status || "").toLowerCase();
+  const scheduleStatus = String(task?.scheduleStatus || "").toLowerCase();
+
+  if (task?.scheduleEnabled || task?.isScheduled) {
+    return scheduleStatus === TASK_SCHEDULE_STATUSES.pending;
+  }
+
+  return (
+    status === "complete" ||
+    status === "completed"
+  );
 }
 
 function clampReapplyMinute(value) {
@@ -967,6 +1078,26 @@ function validateTaskData(taskData) {
   for (const [field, label, change] of changes) {
     const error = validateChangeData(field, label, change);
     if (error) return error;
+  }
+
+  if (taskData.scheduleEnabled) {
+    if (!taskData.startDate || !taskData.startTime || !taskData.startAt) {
+      return "Choose a valid start date and start time.";
+    }
+
+    if (taskData.startAt.getTime() <= Date.now()) {
+      return "Start date and time must be in the future.";
+    }
+
+    if (taskData.endScheduleEnabled) {
+      if (!taskData.endDate || !taskData.endTime || !taskData.endAt) {
+        return "Choose a valid end date and end time.";
+      }
+
+      if (taskData.endAt.getTime() <= taskData.startAt.getTime()) {
+        return "End date and time must be after the start date and time.";
+      }
+    }
   }
 
   return "";
@@ -3555,6 +3686,117 @@ function tagsToSelectedItems(tags) {
   return tags.map((title) => ({ id: title, title }));
 }
 
+function formatDateInput(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString().slice(0, 10);
+}
+
+function formatTimeInput(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+
+  return `${String(date.getUTCHours()).padStart(2, "0")}:${String(
+    date.getUTCMinutes(),
+  ).padStart(2, "0")}`;
+}
+
+function ScheduleFields({
+  enabled,
+  setEnabled,
+  startDate,
+  setStartDate,
+  startTime,
+  setStartTime,
+  endEnabled,
+  setEndEnabled,
+  endDate,
+  setEndDate,
+  endTime,
+  setEndTime,
+  timezoneOffset,
+  showErrors,
+}) {
+  return (
+    <SectionCard title="Schedule">
+      <BlockStack gap="300">
+        <input
+          type="hidden"
+          name="schedule_timezone_offset_minutes"
+          value={timezoneOffset}
+        />
+
+        <Checkbox
+          label="Enable Scheduled Task"
+          name="schedule_enabled"
+          checked={enabled}
+          onChange={setEnabled}
+        />
+
+        {enabled ? (
+          <BlockStack gap="300">
+            <FormLayout>
+              <FormLayout.Group>
+                <TextField
+                  label="Start date"
+                  name="schedule_start_date"
+                  type="date"
+                  value={startDate}
+                  onChange={setStartDate}
+                  autoComplete="off"
+                  error={showErrors && !startDate ? "Start date is required." : undefined}
+                />
+                <TextField
+                  label="Start time"
+                  name="schedule_start_time"
+                  type="time"
+                  value={startTime}
+                  onChange={setStartTime}
+                  autoComplete="off"
+                  error={showErrors && !startTime ? "Start time is required." : undefined}
+                />
+              </FormLayout.Group>
+            </FormLayout>
+
+            <Checkbox
+              label="Enable End Schedule"
+              name="end_schedule_enabled"
+              checked={endEnabled}
+              onChange={setEndEnabled}
+            />
+
+            {endEnabled ? (
+              <FormLayout>
+                <FormLayout.Group>
+                  <TextField
+                    label="End date"
+                    name="schedule_end_date"
+                    type="date"
+                    value={endDate}
+                    onChange={setEndDate}
+                    autoComplete="off"
+                    error={showErrors && !endDate ? "End date is required." : undefined}
+                  />
+                  <TextField
+                    label="End time"
+                    name="schedule_end_time"
+                    type="time"
+                    value={endTime}
+                    onChange={setEndTime}
+                    autoComplete="off"
+                    error={showErrors && !endTime ? "End time is required." : undefined}
+                  />
+                </FormLayout.Group>
+              </FormLayout>
+            ) : null}
+          </BlockStack>
+        ) : null}
+      </BlockStack>
+    </SectionCard>
+  );
+}
+
 export default function NewTaskPage() {
   const {
     markets = [],
@@ -3667,6 +3909,23 @@ export default function NewTaskPage() {
   const [autoReapplyIntervalValue, setAutoReapplyIntervalValue] = useState(
     String(initialAutoReapplyInterval.value),
   );
+  const [scheduleEnabled, setScheduleEnabled] = useState(Boolean(task?.scheduleEnabled));
+  const [scheduleStartDate, setScheduleStartDate] = useState(
+    formatDateInput(task?.startDate || task?.startAt),
+  );
+  const [scheduleStartTime, setScheduleStartTime] = useState(
+    formatTimeInput(task?.startTime),
+  );
+  const [endScheduleEnabled, setEndScheduleEnabled] = useState(
+    Boolean(task?.endScheduleEnabled),
+  );
+  const [scheduleEndDate, setScheduleEndDate] = useState(
+    formatDateInput(task?.endDate || task?.endAt),
+  );
+  const [scheduleEndTime, setScheduleEndTime] = useState(
+    formatTimeInput(task?.endTime),
+  );
+  const [scheduleTimezoneOffset, setScheduleTimezoneOffset] = useState("0");
 
   const [applyCollections, setApplyCollections] = useState(
     collectionConfigToSelectedItems(configuration, "apply"),
@@ -3720,6 +3979,10 @@ export default function NewTaskPage() {
       setAutoReapply(false);
     }
   }, [autoReapplyUnavailable]);
+
+  useEffect(() => {
+    setScheduleTimezoneOffset(String(new Date().getTimezoneOffset()));
+  }, []);
 
   useEffect(() => {
     const normalizedExclude = normalizeExcludeScopeForApply(exclude[0], applyTo[0]);
@@ -3776,10 +4039,14 @@ export default function NewTaskPage() {
           content: isSubmitting
             ? task
               ? "Updating..."
-              : "Running..."
+              : scheduleEnabled
+                ? "Scheduling..."
+                : "Running..."
             : task
               ? "Update"
-              : "Save",
+              : scheduleEnabled
+                ? "Schedule task"
+                : "Run Task",
           onAction: submitTaskForm,
           loading: isSubmitting,
           disabled: isSubmitting,
@@ -4033,6 +4300,23 @@ export default function NewTaskPage() {
                   />
                   <DiscountedExclusionInputs selected={excludeDiscounted} />
                 </SectionCard>
+
+                <ScheduleFields
+                  enabled={scheduleEnabled}
+                  setEnabled={setScheduleEnabled}
+                  startDate={scheduleStartDate}
+                  setStartDate={setScheduleStartDate}
+                  startTime={scheduleStartTime}
+                  setStartTime={setScheduleStartTime}
+                  endEnabled={endScheduleEnabled}
+                  setEndEnabled={setEndScheduleEnabled}
+                  endDate={scheduleEndDate}
+                  setEndDate={setScheduleEndDate}
+                  endTime={scheduleEndTime}
+                  setEndTime={setScheduleEndTime}
+                  timezoneOffset={scheduleTimezoneOffset}
+                  showErrors={Boolean(actionData?.error)}
+                />
 
                 <SectionCard title="Advanced" paddingBlockEnd="200">
                   <input

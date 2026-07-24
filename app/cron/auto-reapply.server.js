@@ -13,13 +13,21 @@ import {
 import { DEFAULT_REPORT_SETTINGS } from "../lib/product-reports";
 import { getNextAutoReapplyRunMs } from "../lib/task-auto-reapply";
 import { updateMarketPrices } from "../services/market-pricing.server";
+import { rollbackTask } from "../services/task-rollback.server";
 
 const AUTO_REAPPLY_INTERVAL_MS = 60 * 60 * 1000;
 const AUTO_REAPPLY_POLL_INTERVAL_MS = 60 * 1000;
 const AUTO_REAPPLY_RUNNING_LOCK_MS = 55 * 60 * 1000;
 const AUTO_REAPPLY_BATCH_SIZE = 25;
+const SCHEDULED_TASK_BATCH_SIZE = 20;
 const DEFAULT_SHOPIFY_API_VERSION = "2025-04";
 const TASK_AUDIT_SKIP_REASON_MAX_LENGTH = 500;
+const TASK_SCHEDULE_STATUSES = {
+  pending: "pending",
+  running: "running",
+  completed: "completed",
+  cancelled: "cancelled",
+};
 
 const TASK_VARIANTS_QUERY = `#graphql
   query TaskProductVariants($first: Int!, $after: String, $query: String) {
@@ -1550,7 +1558,338 @@ async function runSingleAutoReapplyTask(task) {
   }
 }
 
+function createScheduledTaskProgressUpdater(task) {
+  let lastWriteAt = 0;
+  let lastWrittenProgress = 0;
+
+  return async (progress, summary = {}, options = {}) => {
+    const safeProgress = Math.max(
+      0,
+      Math.min(100, Math.round(Number(progress) || 0)),
+    );
+    const now = Date.now();
+
+    const shouldWrite =
+      options.force ||
+      safeProgress >= 95 ||
+      safeProgress - lastWrittenProgress >= PROGRESS_UPDATE_MIN_DELTA ||
+      now - lastWriteAt >= PROGRESS_UPDATE_MIN_INTERVAL_MS;
+
+    if (!shouldWrite) return;
+
+    lastWriteAt = now;
+    lastWrittenProgress = safeProgress;
+
+    const latestTask = await db.task.findUnique({
+      where: { id: task.id },
+      select: { executionSummary: true },
+    });
+
+    await db.task.updateMany({
+      where: {
+        id: task.id,
+        shop: task.shop,
+        scheduleStatus: TASK_SCHEDULE_STATUSES.running,
+      },
+      data: {
+        executionSummary: {
+          ...getObjectValue(latestTask?.executionSummary),
+          ...summary,
+          status: "Applying",
+          scheduleStatus: TASK_SCHEDULE_STATUSES.running,
+          progress: safeProgress,
+        },
+      },
+    });
+  };
+}
+
+async function runScheduledTaskStart(task) {
+  const now = new Date();
+  const claimed = await db.task.updateMany({
+    where: {
+      id: task.id,
+      shop: task.shop,
+      scheduleEnabled: true,
+      scheduleStatus: TASK_SCHEDULE_STATUSES.pending,
+      startAt: { lte: now },
+    },
+    data: {
+      status: "Applying",
+      scheduleStatus: TASK_SCHEDULE_STATUSES.running,
+      executedAt: now,
+      lastCronRun: now,
+      cronError: null,
+      startedAt: now,
+      executionSummary: {
+        ...getObjectValue(task.executionSummary),
+        status: "Applying",
+        scheduleStatus: TASK_SCHEDULE_STATUSES.running,
+        progress: 1,
+        executedAt: now.toISOString(),
+      },
+    },
+  });
+
+  if (!claimed.count) {
+    return {
+      taskId: task.id,
+      skipped: true,
+      reason: "Task was already claimed or is no longer pending.",
+    };
+  }
+
+  const accessToken = await getShopAccessToken(task.shop);
+
+  if (!accessToken) {
+    const message = "Shop is not installed or access token is missing.";
+    await db.task.updateMany({
+      where: { id: task.id, shop: task.shop },
+      data: {
+        status: "Cancelled",
+        scheduleStatus: TASK_SCHEDULE_STATUSES.cancelled,
+        cronError: message,
+        completedAt: new Date(),
+        executionSummary: {
+          ...getObjectValue(task.executionSummary),
+          ok: false,
+          status: "Cancelled",
+          scheduleStatus: TASK_SCHEDULE_STATUSES.cancelled,
+          progress: 100,
+          error: message,
+        },
+      },
+    });
+
+    return { taskId: task.id, ok: false, error: message };
+  }
+
+  try {
+    const admin = createCronAdminClient(task.shop, accessToken);
+    const updateProgress = createScheduledTaskProgressUpdater(task);
+    const execution = await executeTask(admin, task, updateProgress, {
+      taskId: task.id,
+      shop: task.shop,
+    });
+    const finishedAt = new Date();
+    const executionOk = execution?.ok !== false;
+
+    await db.task.updateMany({
+      where: {
+        id: task.id,
+        shop: task.shop,
+        scheduleStatus: TASK_SCHEDULE_STATUSES.running,
+      },
+      data: {
+        status: executionOk ? "Completed" : "Cancelled",
+        scheduleStatus:
+          executionOk && task.endScheduleEnabled
+            ? TASK_SCHEDULE_STATUSES.running
+            : executionOk
+              ? TASK_SCHEDULE_STATUSES.completed
+              : TASK_SCHEDULE_STATUSES.cancelled,
+        autoReapply:
+          executionOk &&
+          Boolean(task.autoReapply || task.autoReapplyChanges) &&
+          execution.totalPriceChanges <= MAX_TASK_VARIANTS,
+        autoReapplyChanges:
+          executionOk &&
+          Boolean(task.autoReapply || task.autoReapplyChanges) &&
+          execution.totalPriceChanges <= MAX_TASK_VARIANTS,
+        cronError: executionOk ? null : execution?.error || "Scheduled task failed.",
+        completedAt: executionOk && task.endScheduleEnabled ? null : finishedAt,
+        executionSummary: {
+          ...execution,
+          progress: 100,
+          status: executionOk ? "Completed" : "Cancelled",
+          scheduleStatus:
+            executionOk && task.endScheduleEnabled
+              ? TASK_SCHEDULE_STATUSES.running
+              : executionOk
+                ? TASK_SCHEDULE_STATUSES.completed
+                : TASK_SCHEDULE_STATUSES.cancelled,
+          executedAt: now.toISOString(),
+          completedAt:
+            executionOk && task.endScheduleEnabled ? "" : finishedAt.toISOString(),
+        },
+      },
+    });
+
+    return {
+      taskId: task.id,
+      ok: executionOk,
+      action: "start",
+      endScheduled: Boolean(task.endScheduleEnabled),
+    };
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Scheduled task execution failed.";
+    await db.task.updateMany({
+      where: { id: task.id, shop: task.shop },
+      data: {
+        status: "Cancelled",
+        scheduleStatus: TASK_SCHEDULE_STATUSES.cancelled,
+        cronError: message,
+        completedAt: new Date(),
+        executionSummary: {
+          ...getObjectValue(task.executionSummary),
+          ok: false,
+          status: "Cancelled",
+          scheduleStatus: TASK_SCHEDULE_STATUSES.cancelled,
+          progress: 100,
+          error: message,
+        },
+      },
+    });
+
+    return { taskId: task.id, ok: false, action: "start", error: message };
+  }
+}
+
+async function runScheduledTaskEnd(task) {
+  const now = new Date();
+  const claimed = await db.task.updateMany({
+    where: {
+      id: task.id,
+      shop: task.shop,
+      scheduleEnabled: true,
+      endScheduleEnabled: true,
+      scheduleStatus: TASK_SCHEDULE_STATUSES.running,
+      status: { notIn: ["Cancelling", "Canceling"] },
+      endAt: { lte: now },
+    },
+    data: {
+      status: "Cancelling",
+      lastCronRun: now,
+      cronError: null,
+      executionSummary: {
+        ...getObjectValue(task.executionSummary),
+        scheduleStatus: TASK_SCHEDULE_STATUSES.running,
+        rollback: {
+          ok: null,
+          status: "Cancelling",
+          progress: 1,
+          startedAt: now.toISOString(),
+        },
+      },
+    },
+  });
+
+  if (!claimed.count) {
+    return {
+      taskId: task.id,
+      skipped: true,
+      reason: "Task end was already claimed or is no longer running.",
+    };
+  }
+
+  const accessToken = await getShopAccessToken(task.shop);
+
+  if (!accessToken) {
+    const message = "Shop is not installed or access token is missing.";
+    await db.task.updateMany({
+      where: { id: task.id, shop: task.shop },
+      data: {
+        status: "Cancelled",
+        scheduleStatus: TASK_SCHEDULE_STATUSES.cancelled,
+        cronError: message,
+        completedAt: new Date(),
+      },
+    });
+
+    return { taskId: task.id, ok: false, action: "end", error: message };
+  }
+
+  try {
+    const admin = createCronAdminClient(task.shop, accessToken);
+    const rollback = await rollbackTask(admin, task);
+    const completedAt = new Date();
+
+    await db.task.updateMany({
+      where: { id: task.id, shop: task.shop },
+      data: {
+        status: rollback.ok ? "Completed" : "Cancelled",
+        scheduleStatus: rollback.ok
+          ? TASK_SCHEDULE_STATUSES.completed
+          : TASK_SCHEDULE_STATUSES.cancelled,
+        cronError: rollback.ok ? null : rollback.error || "Scheduled task end failed.",
+        completedAt,
+        executionSummary: {
+          ...getObjectValue(task.executionSummary),
+          rollback,
+          scheduleStatus: rollback.ok
+            ? TASK_SCHEDULE_STATUSES.completed
+            : TASK_SCHEDULE_STATUSES.cancelled,
+          completedAt: completedAt.toISOString(),
+        },
+      },
+    });
+
+    return { taskId: task.id, ok: rollback.ok, action: "end" };
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Scheduled task end failed.";
+    await db.task.updateMany({
+      where: { id: task.id, shop: task.shop },
+      data: {
+        status: "Cancelled",
+        scheduleStatus: TASK_SCHEDULE_STATUSES.cancelled,
+        cronError: message,
+        completedAt: new Date(),
+      },
+    });
+
+    return { taskId: task.id, ok: false, action: "end", error: message };
+  }
+}
+
+export async function runScheduledTasks(options = {}) {
+  const now = new Date();
+  const take = Math.max(1, Number(options.take || SCHEDULED_TASK_BATCH_SIZE));
+  const [dueStarts, dueEnds] = await Promise.all([
+    db.task.findMany({
+      where: {
+        scheduleEnabled: true,
+        scheduleStatus: TASK_SCHEDULE_STATUSES.pending,
+        startAt: { lte: now },
+        shop: { not: "" },
+      },
+      orderBy: [{ startAt: "asc" }, { id: "asc" }],
+      take,
+    }),
+    db.task.findMany({
+      where: {
+        scheduleEnabled: true,
+        endScheduleEnabled: true,
+        scheduleStatus: TASK_SCHEDULE_STATUSES.running,
+        status: { notIn: ["Cancelling", "Canceling"] },
+        endAt: { lte: now },
+        shop: { not: "" },
+      },
+      orderBy: [{ endAt: "asc" }, { id: "asc" }],
+      take,
+    }),
+  ]);
+  const results = [];
+
+  for (const task of dueStarts) {
+    results.push(await runScheduledTaskStart(task));
+  }
+
+  for (const task of dueEnds) {
+    results.push(await runScheduledTaskEnd(task));
+  }
+
+  return {
+    ok: results.every((result) => result.ok !== false),
+    starts: dueStarts.length,
+    ends: dueEnds.length,
+    results,
+  };
+}
+
 export async function runAutoReapplyTasks(options = {}) {
+  const scheduled = await runScheduledTasks(options);
   const nowMs = Date.now();
   const take = Math.max(1, Number(options.take || AUTO_REAPPLY_BATCH_SIZE));
 
@@ -1574,7 +1913,8 @@ export async function runAutoReapplyTasks(options = {}) {
   }
 
   return {
-    ok: true,
+    ok: scheduled.ok,
+    scheduled,
     checked: completedTasks.length,
     due: dueTasks.length,
     results,

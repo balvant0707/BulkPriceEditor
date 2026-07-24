@@ -77,6 +77,10 @@ const TASK_TABS = [
     content: "Completed",
   },
   {
+    id: "scheduled",
+    content: "Scheduled",
+  },
+  {
     id: "cancelled",
     content: "Cancelled",
   },
@@ -164,6 +168,30 @@ function formatDate(value) {
     .toLowerCase();
 
   return `${monthDay} at ${time}`;
+}
+
+function normalizeScheduleStatus(task) {
+  return String(task?.scheduleStatus || "").toLowerCase().trim();
+}
+
+function isScheduledTask(task) {
+  return Boolean(task?.scheduleEnabled || task?.isScheduled);
+}
+
+function getScheduleStatusDisplay(task) {
+  if (!isScheduledTask(task)) {
+    return { label: "No", tone: "subdued" };
+  }
+
+  const status = normalizeScheduleStatus(task) || "pending";
+
+  if (status === "running") return { label: "Running", tone: "success" };
+  if (status === "completed") return { label: "Completed", tone: "subdued" };
+  if (status === "cancelled" || status === "canceled") {
+    return { label: "Cancelled", tone: "critical" };
+  }
+
+  return { label: "Pending", tone: "attention" };
 }
 
 function formatRelativeTime(value) {
@@ -695,6 +723,10 @@ function isRollbackProcessing(task) {
 }
 
 function isTaskPending(task) {
+  if (isScheduledTask(task) && normalizeScheduleStatus(task) === "pending") {
+    return true;
+  }
+
   return normalizeStatusKey(task.status) === "pending";
 }
 
@@ -704,6 +736,16 @@ function isTaskProcessing(task) {
 }
 
 function getTaskListStatus(task) {
+  if (isScheduledTask(task) && normalizeScheduleStatus(task) === "pending") {
+    return {
+      label: "Pending",
+      tone: "attention",
+      progress: 0,
+      showPendingSpinner: false,
+      showProgress: false,
+    };
+  }
+
   if (isRollbackProcessing(task)) {
     return {
       label: "Cancelling",
@@ -755,6 +797,10 @@ function taskMatchesTab(task, activeTab) {
       status.includes("completed") ||
       status.includes("success")
     );
+  }
+
+  if (activeTab === "scheduled") {
+    return isScheduledTask(task);
   }
 
   if (activeTab === "cancelled") {
@@ -939,6 +985,12 @@ function TasksListPage({ tasks }) {
         formatApplyTo(task),
         getStatusLabel(task.status),
         task.id,
+        isScheduledTask(task) ? "scheduled" : "immediate",
+        getScheduleStatusDisplay(task).label,
+        formatDate(task.startAt),
+        formatDate(task.endAt),
+        formatDate(task.executedAt),
+        formatDate(task.completedAt),
         JSON.stringify(task),
       ]
         .join(" ")
@@ -1082,6 +1134,42 @@ function TasksListPage({ tasks }) {
         </IndexTable.Cell>
 
         <IndexTable.Cell>
+          <BlockStack gap="050">
+            <Badge tone={getScheduleStatusDisplay(task).tone}>
+              {getScheduleStatusDisplay(task).label}
+            </Badge>
+            {isScheduledTask(task) ? (
+              <Text as="span" variant="bodySm" tone="subdued">
+                {task.endScheduleEnabled ? "Start and end" : "Start only"}
+              </Text>
+            ) : null}
+          </BlockStack>
+        </IndexTable.Cell>
+
+        <IndexTable.Cell>
+          <Text as="span" variant="bodyMd" tone="subdued">
+            {formatDate(task.startAt)}
+          </Text>
+        </IndexTable.Cell>
+
+        <IndexTable.Cell>
+          <Text as="span" variant="bodyMd" tone="subdued">
+            {formatDate(task.endAt)}
+          </Text>
+        </IndexTable.Cell>
+
+        <IndexTable.Cell>
+          <BlockStack gap="050">
+            <Text as="span" variant="bodySm" tone="subdued">
+              Executed: {formatDate(task.executedAt)}
+            </Text>
+            <Text as="span" variant="bodySm" tone="subdued">
+              Completed: {formatDate(task.completedAt)}
+            </Text>
+          </BlockStack>
+        </IndexTable.Cell>
+
+        <IndexTable.Cell>
           <InlineStack gap="200" blockAlign="center" wrap={false}>
             <Badge tone={taskStatus.tone}>
               <InlineStack gap="100" blockAlign="center" wrap={false}>
@@ -1200,6 +1288,18 @@ function TasksListPage({ tasks }) {
                 },
                 {
                   title: "Created",
+                },
+                {
+                  title: "Schedule",
+                },
+                {
+                  title: "Start",
+                },
+                {
+                  title: "End",
+                },
+                {
+                  title: "Execution",
                 },
                 {
                   title: "Status",
