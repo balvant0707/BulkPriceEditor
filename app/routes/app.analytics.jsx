@@ -1500,7 +1500,7 @@ export default function AnalysisPage() {
         <div style={pageContentStyle}>
         <BlockStack gap="500">
           <Text as="h1" variant="headingXl">
-            Analysis
+            Analytics
           </Text>
 
           <InlineGrid columns={{ xs: 1, sm: 2, md: 4 }} gap="400">

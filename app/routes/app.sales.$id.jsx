@@ -929,6 +929,7 @@ function SaleDetailsContent() {
   ].includes(normalizedStatus);
   const processFetcher = useFetcher();
   const saleMarkets = getSaleMarkets(sale);
+  const isMarketSale = String(sale.changeType || "").toLowerCase() === "markets";
   const saleCurrencyCode = getSaleCurrencyCode(sale, shopCurrency);
   const useVariantLogLinks = saleUsesVariantLogLinks(sale);
   const tagsToAdd = getTagRuleTitles(sale, "add");
@@ -1146,7 +1147,7 @@ function SaleDetailsContent() {
                   </BlockStack>
                 </DetailRow>
 
-                {saleMarkets.length ? (
+                {isMarketSale && saleMarkets.length ? (
                   <DetailRow label="Markets">
                     <FieldBadges items={saleMarkets.map(getMarketLabel).filter(Boolean)} />
                   </DetailRow>
