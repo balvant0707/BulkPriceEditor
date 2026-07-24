@@ -3022,29 +3022,6 @@ export default function TaskDetailsPage() {
                   </InlineStack>
                 </DetailRow>
 
-                {/* New: Schedule details */}
-                <DetailRow label="Schedule enabled" value={isScheduledTask(task) ? "Yes" : "No"} />
-                {isScheduledTask(task) ? (
-                  <>
-                    <DetailRow label="Schedule status">
-                      <Badge tone={scheduleStatusDisplay.tone}>{scheduleStatusDisplay.label}</Badge>
-                    </DetailRow>
-                    <DetailRow label="Start date" value={formatDate(task.startDate || task.startAt)} />
-                    <DetailRow label="Start time" value={formatTime(task.startTime || task.startAt)} />
-                    <DetailRow label="End schedule" value={task.endScheduleEnabled ? "Enabled" : "Disabled"} />
-                    {task.endScheduleEnabled ? (
-                      <>
-                        <DetailRow label="End date" value={formatDate(task.endDate || task.endAt)} />
-                        <DetailRow label="End time" value={formatTime(task.endTime || task.endAt)} />
-                      </>
-                    ) : null}
-                    <DetailRow label="Executed at" value={formatDate(task.executedAt)} />
-                    <DetailRow label="Completed at" value={formatDate(task.completedAt)} />
-                    <DetailRow label="Cron last run" value={formatDate(task.lastCronRun)} />
-                    {task.cronError ? <DetailRow label="Cron error" value={task.cronError} /> : null}
-                  </>
-                ) : null}
-
                 {isMarketTask && taskMarkets.length ? (
                   <DetailRow label="Markets">
                     <InlineStack gap="100" blockAlign="center">
