@@ -738,8 +738,8 @@ function isTaskProcessing(task) {
 function getTaskListStatus(task) {
   if (isScheduledTask(task) && normalizeScheduleStatus(task) === "pending") {
     return {
-      label: "Scheduled",
-      tone: "info",
+      label: "Pending",
+      tone: "attention",
       progress: 0,
       showPendingSpinner: false,
       showProgress: false,
@@ -938,6 +938,7 @@ function TasksListPage({ tasks }) {
 
   const updateSearchParams = (updates) => {
     const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete("q");
 
     Object.entries(updates).forEach(([key, value]) => {
       if (value === undefined || value === null || value === "") {
@@ -1043,7 +1044,7 @@ function TasksListPage({ tasks }) {
 
   const handlePreviousPage = () => {
     updateSearchParams({
-      page: currentPage - 1 <= 1 ? "" : currentPage - 1,
+      page: currentPage > 2 ? currentPage - 1 : "",
     });
   };
 
