@@ -789,6 +789,7 @@ function taskMatchesTab(task, activeTab) {
   }
 
   const status = String(task.status || "").toLowerCase();
+  const scheduleStatus = normalizeScheduleStatus(task);
 
   if (activeTab === "completed") {
     return (
@@ -800,7 +801,7 @@ function taskMatchesTab(task, activeTab) {
   }
 
   if (activeTab === "scheduled") {
-    return isScheduledTask(task);
+    return isScheduledTask(task) && scheduleStatus === "pending";
   }
 
   if (activeTab === "cancelled") {
@@ -811,7 +812,8 @@ function taskMatchesTab(task, activeTab) {
       status.includes("rolled back") ||
       status.includes("rollback") ||
       status.includes("failed") ||
-      status.includes("error")
+      status.includes("error") ||
+      (isScheduledTask(task) && scheduleStatus === "cancelled")
     );
   }
 

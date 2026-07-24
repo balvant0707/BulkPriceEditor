@@ -497,7 +497,7 @@ export async function action({ request, params }) {
   const task = await db.task.create({
     data: {
       ...data,
-      status: "Pending",
+      status: data.scheduleEnabled ? "Scheduled" : "Pending",
       executionSummary: data.scheduleEnabled
         ? {
             progress: 0,

@@ -43,6 +43,7 @@ const TASK_EXECUTION_TIMEOUT_MS = 10 * 60 * 1000;
 const POLL_INTERVAL_MS = 500;
 const ACTIVE_TASK_STATUSES = [
   "Pending",
+  "Scheduled", // Added Scheduled to active statuses for polling
   "Applying",
   "Cancelling",
 ];
@@ -190,6 +191,34 @@ export const action = async ({ request, params }) => {
     });
 
     return json({ ok: true, disabledAutoReapply: true });
+  }
+
+  // New: Handle cancel_schedule intent
+  if (intent === "cancel_schedule") {
+    const task = await db.task.findFirst({
+      where: {
+        id: taskId,
+        shop: session.shop,
+      },
+    });
+
+    if (!task) {
+      throw new Response("Task not found", { status: 404 });
+    }
+
+    if (!task.scheduleEnabled || task.scheduleStatus !== "pending") {
+      return json(
+        { ok: false, message: "Only pending scheduled tasks can be cancelled." },
+        { status: 400 },
+      );
+    }
+
+    const cancelledAt = new Date();
+    await db.task.updateMany({
+      where: { id: task.id, shop: session.shop, scheduleEnabled: true, scheduleStatus: "pending" },
+      data: { status: "Cancelled", scheduleStatus: "cancelled", completedAt: cancelledAt, executionSummary: { ...(task.executionSummary || {}), status: "Cancelled", scheduleStatus: "cancelled", cancelledAt: cancelledAt.toISOString() } },
+    });
+    return json({ ok: true, cancelledSchedule: true });
   }
 
   if (intent === "delete") {
@@ -729,6 +758,19 @@ function getBaseTaskDisplay(task) {
   const status = getTaskStatusValue(task);
   const normalized = normalizeStatus(status);
 
+  // Prioritize scheduled status
+  if (isPendingScheduledTask(task)) {
+    return {
+      label: "Scheduled",
+      tone: "info",
+      background: "#E0F2FE",
+      showPendingSpinner: false,
+      showProgress: false,
+      style: {
+        width: "fit-content",
+      },
+    };
+  }
   if (isTaskFailed(task)) {
     return {
       label: getCanceledStatusLabel(status),
@@ -746,19 +788,6 @@ function getBaseTaskDisplay(task) {
       label: "Completed",
       tone: "success",
       background: "#D1FADF",
-      showProgress: false,
-      style: {
-        width: "fit-content",
-      },
-    };
-  }
-
-  if (isPendingScheduledTask(task)) {
-    return {
-      label: "Scheduled",
-      tone: "info",
-      background: "#E0F2FE",
-      showPendingSpinner: false,
       showProgress: false,
       style: {
         width: "fit-content",
@@ -2595,6 +2624,8 @@ export default function TaskDetailsPage() {
   const taskCompleted = isTaskCompleted(task);
   const taskProcessing = isTaskProcessing(task);
   const taskPending = isTaskPending(task);
+  const pendingScheduledTask = isPendingScheduledTask(task); // Added
+  const runningScheduledTask = isRunningScheduledTask(task); // Added
   const autoReapplyEnabled = isAutoReapplyEnabled(task);
   const isAutoReapplySubmitting = autoReapplyFetcher.state !== "idle";
 
@@ -2767,6 +2798,22 @@ export default function TaskDetailsPage() {
     }
   }
 
+  // New: Actions for pending scheduled tasks
+  if (pendingScheduledTask) {
+    pageSecondaryActions.push({
+      content: "Edit task",
+      url: withShopifyEmbeddedParams(`/app/tasks/new?id=${task.id}`, location.search),
+    });
+    pageSecondaryActions.push({
+      content: isAutoReapplySubmitting ? "Cancelling schedule..." : "Cancel schedule",
+      destructive: true,
+      disabled: isAutoReapplySubmitting,
+      onAction: handleCancelSchedule,
+    });
+  }
+
+
+
   useEffect(() => {
     if (deleteFetcher.data?.deleted) {
       if (deleteFetcher.data.message) {
@@ -2790,7 +2837,7 @@ export default function TaskDetailsPage() {
   }, [rollbackCompleted, rollbackFailed]);
 
   useEffect(() => {
-    if (!taskProcessing && !rollbackProcessing) return undefined;
+    if (!taskProcessing && !rollbackProcessing && !runningScheduledTask) return undefined; // Added runningScheduledTask
 
     const timer = setInterval(() => {
       setProgressNowMs(Date.now());
@@ -2798,7 +2845,7 @@ export default function TaskDetailsPage() {
 
     return () => clearInterval(timer);
   }, [taskProcessing, rollbackProcessing]);
-
+  
   useEffect(() => {
     setCurrentPage(1);
   }, [searchQuery]);
@@ -2928,6 +2975,29 @@ export default function TaskDetailsPage() {
                     <StatusBadge display={visibleStatusDisplay} />
                   </InlineStack>
                 </DetailRow>
+
+                {/* New: Schedule details */}
+                <DetailRow label="Schedule enabled" value={isScheduledTask(task) ? "Yes" : "No"} />
+                {isScheduledTask(task) ? (
+                  <>
+                    <DetailRow label="Schedule status">
+                      <Badge tone={scheduleStatusDisplay.tone}>{scheduleStatusDisplay.label}</Badge>
+                    </DetailRow>
+                    <DetailRow label="Start date" value={formatDate(task.startDate || task.startAt)} />
+                    <DetailRow label="Start time" value={formatTime(task.startTime || task.startAt)} />
+                    <DetailRow label="End schedule" value={task.endScheduleEnabled ? "Enabled" : "Disabled"} />
+                    {task.endScheduleEnabled ? (
+                      <>
+                        <DetailRow label="End date" value={formatDate(task.endDate || task.endAt)} />
+                        <DetailRow label="End time" value={formatTime(task.endTime || task.endAt)} />
+                      </>
+                    ) : null}
+                    <DetailRow label="Executed at" value={formatDate(task.executedAt)} />
+                    <DetailRow label="Completed at" value={formatDate(task.completedAt)} />
+                    <DetailRow label="Cron last run" value={formatDate(task.lastCronRun)} />
+                    {task.cronError ? <DetailRow label="Cron error" value={task.cronError} /> : null}
+                  </>
+                ) : null}
 
                 {isMarketTask && taskMarkets.length ? (
                   <DetailRow label="Markets">
