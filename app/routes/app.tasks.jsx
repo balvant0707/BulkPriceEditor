@@ -1128,48 +1128,6 @@ function TasksListPage({ tasks }) {
         </IndexTable.Cell>
 
         <IndexTable.Cell>
-          <Text as="span" variant="bodyMd" tone="subdued">
-            {formatDate(task.createdAt || task.updatedAt)}
-          </Text>
-        </IndexTable.Cell>
-
-        <IndexTable.Cell>
-          <BlockStack gap="050">
-            <Badge tone={getScheduleStatusDisplay(task).tone}>
-              {getScheduleStatusDisplay(task).label}
-            </Badge>
-            {isScheduledTask(task) ? (
-              <Text as="span" variant="bodySm" tone="subdued">
-                {task.endScheduleEnabled ? "Start and end" : "Start only"}
-              </Text>
-            ) : null}
-          </BlockStack>
-        </IndexTable.Cell>
-
-        <IndexTable.Cell>
-          <Text as="span" variant="bodyMd" tone="subdued">
-            {formatDate(task.startAt)}
-          </Text>
-        </IndexTable.Cell>
-
-        <IndexTable.Cell>
-          <Text as="span" variant="bodyMd" tone="subdued">
-            {formatDate(task.endAt)}
-          </Text>
-        </IndexTable.Cell>
-
-        <IndexTable.Cell>
-          <BlockStack gap="050">
-            <Text as="span" variant="bodySm" tone="subdued">
-              Executed: {formatDate(task.executedAt)}
-            </Text>
-            <Text as="span" variant="bodySm" tone="subdued">
-              Completed: {formatDate(task.completedAt)}
-            </Text>
-          </BlockStack>
-        </IndexTable.Cell>
-
-        <IndexTable.Cell>
           <InlineStack gap="200" blockAlign="center" wrap={false}>
             <Badge tone={taskStatus.tone}>
               <InlineStack gap="100" blockAlign="center" wrap={false}>
@@ -1285,21 +1243,6 @@ function TasksListPage({ tasks }) {
                 },
                 {
                   title: "Apply to",
-                },
-                {
-                  title: "Created",
-                },
-                {
-                  title: "Schedule",
-                },
-                {
-                  title: "Start",
-                },
-                {
-                  title: "End",
-                },
-                {
-                  title: "Execution",
                 },
                 {
                   title: "Status",
