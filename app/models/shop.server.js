@@ -19,7 +19,14 @@ const SHOP_DETAILS_QUERY = `#graphql
   }
 `;
 
-export async function syncShopDetails({ admin, session }) {
+const DEFAULT_SHOP_DETAILS_STALE_AFTER_MS = 6 * 60 * 60 * 1000;
+
+export async function syncShopDetails({
+  admin,
+  session,
+  force = false,
+  staleAfterMs = DEFAULT_SHOP_DETAILS_STALE_AFTER_MS,
+} = {}) {
   if (!admin || !session?.shop) {
     return null;
   }
@@ -27,6 +34,29 @@ export async function syncShopDetails({ admin, session }) {
   const existingShop = await db.shop.findUnique({
     where: { shop: session.shop },
   });
+
+  const hasUsableShopDetails =
+    existingShop?.installed &&
+    existingShop?.accessToken === session.accessToken &&
+    existingShop?.name &&
+    existingShop?.email &&
+    existingShop?.currency;
+  const shopDetailsAgeMs = existingShop?.updatedAt
+    ? Date.now() - new Date(existingShop.updatedAt).getTime()
+    : Number.POSITIVE_INFINITY;
+
+  if (
+    !force &&
+    hasUsableShopDetails &&
+    Number.isFinite(shopDetailsAgeMs) &&
+    shopDetailsAgeMs < staleAfterMs
+  ) {
+    return {
+      shop: existingShop,
+      wasInstalled: false,
+      skippedRemoteSync: true,
+    };
+  }
 
   await db.shop.upsert({
     where: { shop: session.shop },

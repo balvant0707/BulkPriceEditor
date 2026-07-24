@@ -4,18 +4,29 @@ import { markShopUninstalled } from "../models/shop.server";
 import { normalizeScopePayload, normalizeWebhookTopic } from "./webhook-utils";
 
 export async function handleWebhook(webhook) {
-  try {
-    await processWebhook(webhook);
-  } catch (error) {
-    console.error("Webhook processing failed.", {
-      topic: webhook?.topic,
-      shop: webhook?.shop || webhook?.payload?.shop_domain,
-      webhookId: webhook?.webhookId,
-      error,
-    });
-  }
-
+  scheduleWebhookProcessing(webhook);
   return new Response(null, { status: 200 });
+}
+
+function scheduleWebhookProcessing(webhook) {
+  const process = async () => {
+    try {
+      await processWebhook(webhook);
+    } catch (error) {
+      console.error("Webhook processing failed.", {
+        topic: webhook?.topic,
+        shop: webhook?.shop || webhook?.payload?.shop_domain,
+        webhookId: webhook?.webhookId,
+        error,
+      });
+    }
+  };
+
+  if (typeof setImmediate === "function") {
+    setImmediate(process);
+  } else {
+    setTimeout(process, 0);
+  }
 }
 
 async function processWebhook({ payload, session, shop, topic, webhookId }) {
@@ -45,12 +56,18 @@ async function processWebhook({ payload, session, shop, topic, webhookId }) {
   if (normalizedTopic === "app/uninstalled") {
     const uninstallResult = await markShopUninstalled(shopDomain);
 
-    if (uninstallResult?.wasUninstalled) {
-      await sendAppUninstalledEmails(uninstallResult.previousShop || uninstallResult.shop);
-    }
-
     if (session) {
       await db.session.deleteMany({ where: { shop: shopDomain } });
+    }
+
+    if (uninstallResult?.wasUninstalled) {
+      sendAppUninstalledEmails(uninstallResult.previousShop || uninstallResult.shop).catch((error) => {
+        console.error("Failed to send app uninstall lifecycle emails.", {
+          shop: shopDomain,
+          webhookId,
+          error,
+        });
+      });
     }
 
     return;

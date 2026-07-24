@@ -376,13 +376,13 @@ function buildDailySeriesForPeriod(records, getDate, getValue = () => 1, startDa
   return [...buckets.entries()].map(([date, value]) => ({ date, value }));
 }
 
-function buildOverviewStats(tasks, sales, taskAuditLogs) {
+function buildOverviewStats(tasks, sales, taskAuditLogs, totalTaskChangesCount) {
   const { now, currentStart, previousStart } = getPeriodBounds();
   const currentSeriesStart = new Date(currentStart);
   currentSeriesStart.setHours(0, 0, 0, 0);
   const previousSeriesStart = new Date(previousStart);
   previousSeriesStart.setHours(0, 0, 0, 0);
-  const totalTaskChanges = taskAuditLogs.length;
+  const totalTaskChanges = totalTaskChangesCount ?? taskAuditLogs.length;
   const totalSaleChanges = sales.reduce(
     (sum, sale) => sum + getRecordChangeCount(sale),
     0,
@@ -457,8 +457,9 @@ function buildOverviewStats(tasks, sales, taskAuditLogs) {
 
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
+  const { previousStart } = getPeriodBounds();
 
-  const [tasks, sales, taskAuditLogs] = await Promise.all([
+  const [tasks, sales, taskAuditLogCount, taskAuditLogs] = await Promise.all([
     db.task.findMany({
       where: { shop: session.shop },
       select: { status: true, executionSummary: true, createdAt: true },
@@ -467,14 +468,21 @@ export const loader = async ({ request }) => {
       where: { shop: session.shop },
       select: { status: true, executionSummary: true, createdAt: true },
     }),
-    db.taskAuditLog.findMany({
+    db.taskAuditLog.count({
       where: { shop: session.shop, action: "applied" },
+    }),
+    db.taskAuditLog.findMany({
+      where: {
+        shop: session.shop,
+        action: "applied",
+        createdAt: { gte: previousStart },
+      },
       select: { createdAt: true },
     }),
   ]);
 
   return json({
-    overviewStats: buildOverviewStats(tasks, sales, taskAuditLogs),
+    overviewStats: buildOverviewStats(tasks, sales, taskAuditLogs, taskAuditLogCount),
     taskStats: buildStats(taskStatDefinitions, tasks, taskMatchesStatus),
     saleStats: buildStats(saleStatDefinitions, sales, saleMatchesStatus),
   });

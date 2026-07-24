@@ -22,10 +22,15 @@ const shopify = shopifyApp({
   sessionStorage: new PrismaSessionStorage(prisma),
   hooks: {
     afterAuth: async ({ admin, session }) => {
-      const syncResult = await syncShopDetails({ admin, session });
+      const syncResult = await syncShopDetails({ admin, session, force: true });
 
       if (syncResult?.wasInstalled) {
-        await sendAppInstalledEmails(syncResult.shop);
+        sendAppInstalledEmails(syncResult.shop).catch((error) => {
+          console.error("Failed to send app install lifecycle emails.", {
+            shop: syncResult.shop?.shop || session.shop,
+            error,
+          });
+        });
       }
     },
   },
