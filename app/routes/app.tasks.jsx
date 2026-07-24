@@ -1182,13 +1182,6 @@ function TasksListPage({ tasks }) {
     );
   });
 
-  const paginationLabel =
-    filteredTasks.length > 0
-      ? `${startIndex + 1}-${Math.min(endIndex, filteredTasks.length)} of ${
-          filteredTasks.length
-        }`
-      : "0 tasks";
-
   return (
     <Page
       title="Tasks"
@@ -1277,9 +1270,16 @@ function TasksListPage({ tasks }) {
                 borderBlockStartWidth="025"
                 borderColor="border"
               >
-                <InlineStack align="center">
+                <InlineStack align="space-between" blockAlign="center">
+                  <Text as="span" tone="subdued">
+                    {filteredTasks.length > 0
+                      ? `Showing ${startIndex + 1}-${Math.min(
+                          endIndex,
+                          filteredTasks.length,
+                        )} of ${filteredTasks.length} tasks`
+                      : "0 tasks"}
+                  </Text>
                   <Pagination
-                    label={paginationLabel}
                     hasPrevious={currentPage > 1}
                     onPrevious={handlePreviousPage}
                     hasNext={currentPage < totalPages}

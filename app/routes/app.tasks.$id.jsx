@@ -192,49 +192,6 @@ export const action = async ({ request, params }) => {
     return json({ ok: true, disabledAutoReapply: true });
   }
 
-  if (intent === "cancel_schedule") {
-    const task = await db.task.findFirst({
-      where: {
-        id: taskId,
-        shop: session.shop,
-      },
-    });
-
-    if (!task) {
-      throw new Response("Task not found", { status: 404 });
-    }
-
-    if (!task.scheduleEnabled || task.scheduleStatus !== "pending") {
-      return json(
-        { ok: false, message: "Only pending scheduled tasks can be cancelled." },
-        { status: 400 },
-      );
-    }
-
-    const cancelledAt = new Date();
-    await db.task.updateMany({
-      where: {
-        id: task.id,
-        shop: session.shop,
-        scheduleEnabled: true,
-        scheduleStatus: "pending",
-      },
-      data: {
-        status: "Cancelled",
-        scheduleStatus: "cancelled",
-        completedAt: cancelledAt,
-        executionSummary: {
-          ...(task.executionSummary || {}),
-          status: "Cancelled",
-          scheduleStatus: "cancelled",
-          cancelledAt: cancelledAt.toISOString(),
-        },
-      },
-    });
-
-    return json({ ok: true, cancelledSchedule: true });
-  }
-
   if (intent === "delete") {
     await db.task.deleteMany({
       where: {
@@ -300,6 +257,18 @@ function getCanceledStatusLabel(status) {
     : humanize(status);
 }
 
+function normalizeScheduleStatus(task) {
+  return String(task?.scheduleStatus || "").toLowerCase().trim();
+}
+
+function isScheduledTask(task) {
+  return Boolean(task?.scheduleEnabled || task?.isScheduled);
+}
+
+function isPendingScheduledTask(task) {
+  return isScheduledTask(task) && normalizeScheduleStatus(task) === "pending";
+}
+
 function formatDate(value) {
   if (!value) return "-";
 
@@ -313,50 +282,6 @@ function formatDate(value) {
     hour: "numeric",
     minute: "2-digit",
   });
-}
-
-function formatTime(value) {
-  if (!value) return "-";
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "-";
-
-  return date.toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
-function normalizeScheduleStatus(task) {
-  return String(task?.scheduleStatus || "").toLowerCase().trim();
-}
-
-function isScheduledTask(task) {
-  return Boolean(task?.scheduleEnabled || task?.isScheduled);
-}
-
-function isPendingScheduledTask(task) {
-  return isScheduledTask(task) && normalizeScheduleStatus(task) === "pending";
-}
-
-function isRunningScheduledTask(task) {
-  return isScheduledTask(task) && normalizeScheduleStatus(task) === "running";
-}
-
-function getScheduleStatusDisplay(task) {
-  if (!isScheduledTask(task)) {
-    return { label: "No", tone: "subdued" };
-  }
-
-  const status = normalizeScheduleStatus(task) || "pending";
-
-  if (status === "running") return { label: "Running", tone: "success" };
-  if (status === "completed") return { label: "Completed", tone: "subdued" };
-  if (status === "cancelled" || status === "canceled") {
-    return { label: "Cancelled", tone: "critical" };
-  }
-
-  return { label: "Pending", tone: "attention" };
 }
 
 function formatRelativeTime(value) {
@@ -821,6 +746,19 @@ function getBaseTaskDisplay(task) {
       label: "Completed",
       tone: "success",
       background: "#D1FADF",
+      showProgress: false,
+      style: {
+        width: "fit-content",
+      },
+    };
+  }
+
+  if (isPendingScheduledTask(task)) {
+    return {
+      label: "Scheduled",
+      tone: "info",
+      background: "#E0F2FE",
+      showPendingSpinner: false,
       showProgress: false,
       style: {
         width: "fit-content",
@@ -2657,9 +2595,6 @@ export default function TaskDetailsPage() {
   const taskCompleted = isTaskCompleted(task);
   const taskProcessing = isTaskProcessing(task);
   const taskPending = isTaskPending(task);
-  const pendingScheduledTask = isPendingScheduledTask(task);
-  const runningScheduledTask = isRunningScheduledTask(task);
-  const scheduleStatusDisplay = getScheduleStatusDisplay(task);
   const autoReapplyEnabled = isAutoReapplyEnabled(task);
   const isAutoReapplySubmitting = autoReapplyFetcher.state !== "idle";
 
@@ -2759,8 +2694,7 @@ export default function TaskDetailsPage() {
   );
 
   const shouldPoll =
-    !selectedProductId &&
-    (taskPending || taskProcessing || rollbackProcessing || runningScheduledTask);
+    !selectedProductId && (taskPending || taskProcessing || rollbackProcessing);
 
   const openRollbackModal = () => {
     setRollbackModalOpen(true);
@@ -2804,30 +2738,7 @@ export default function TaskDetailsPage() {
     );
   };
 
-  const handleCancelSchedule = () => {
-    autoReapplyFetcher.submit(
-      { intent: "cancel_schedule" },
-      {
-        method: "post",
-        action: `/app/tasks/${task.id}`,
-      },
-    );
-  };
-
   const pageSecondaryActions = [];
-
-  if (pendingScheduledTask) {
-    pageSecondaryActions.push({
-      content: "Edit task",
-      url: withShopifyEmbeddedParams(`/app/tasks/new?id=${task.id}`, location.search),
-    });
-    pageSecondaryActions.push({
-      content: isAutoReapplySubmitting ? "Cancelling schedule..." : "Cancel schedule",
-      destructive: true,
-      disabled: isAutoReapplySubmitting,
-      onAction: handleCancelSchedule,
-    });
-  }
 
   if (!rollbackProcessing && !rollbackFailed) {
     if (rollbackCompleted) {
@@ -2840,7 +2751,7 @@ export default function TaskDetailsPage() {
     } else {
       pageSecondaryActions.push({
         content: "Rollback",
-        disabled: !taskCompleted || pendingScheduledTask || runningScheduledTask,
+        disabled: !taskCompleted,
         onAction: openRollbackModal,
       });
 
@@ -2866,10 +2777,7 @@ export default function TaskDetailsPage() {
   }, [deleteFetcher.data, navigate, shopify]);
 
   useEffect(() => {
-    if (
-      autoReapplyFetcher.data?.disabledAutoReapply ||
-      autoReapplyFetcher.data?.cancelledSchedule
-    ) {
+    if (autoReapplyFetcher.data?.disabledAutoReapply) {
       revalidator.revalidate();
     }
   }, [autoReapplyFetcher.data, revalidator]);
@@ -2882,16 +2790,14 @@ export default function TaskDetailsPage() {
   }, [rollbackCompleted, rollbackFailed]);
 
   useEffect(() => {
-    if (!taskProcessing && !rollbackProcessing && !runningScheduledTask) {
-      return undefined;
-    }
+    if (!taskProcessing && !rollbackProcessing) return undefined;
 
     const timer = setInterval(() => {
       setProgressNowMs(Date.now());
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [taskProcessing, rollbackProcessing, runningScheduledTask]);
+  }, [taskProcessing, rollbackProcessing]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -3022,36 +2928,6 @@ export default function TaskDetailsPage() {
                     <StatusBadge display={visibleStatusDisplay} />
                   </InlineStack>
                 </DetailRow>
-
-                <DetailRow label="Schedule enabled" value={isScheduledTask(task) ? "Yes" : "No"} />
-
-                {isScheduledTask(task) ? (
-                  <>
-                    <DetailRow label="Schedule status">
-                      <Badge tone={scheduleStatusDisplay.tone}>
-                        {scheduleStatusDisplay.label}
-                      </Badge>
-                    </DetailRow>
-                    <DetailRow label="Start date" value={formatDate(task.startDate || task.startAt)} />
-                    <DetailRow label="Start time" value={formatTime(task.startTime || task.startAt)} />
-                    <DetailRow
-                      label="End schedule"
-                      value={task.endScheduleEnabled ? "Enabled" : "Disabled"}
-                    />
-                    {task.endScheduleEnabled ? (
-                      <>
-                        <DetailRow label="End date" value={formatDate(task.endDate || task.endAt)} />
-                        <DetailRow label="End time" value={formatTime(task.endTime || task.endAt)} />
-                      </>
-                    ) : null}
-                    <DetailRow label="Executed at" value={formatDate(task.executedAt)} />
-                    <DetailRow label="Completed at" value={formatDate(task.completedAt)} />
-                    <DetailRow label="Cron last run" value={formatDate(task.lastCronRun)} />
-                    {task.cronError ? (
-                      <DetailRow label="Cron error" value={task.cronError} />
-                    ) : null}
-                  </>
-                ) : null}
 
                 {isMarketTask && taskMarkets.length ? (
                   <DetailRow label="Markets">
