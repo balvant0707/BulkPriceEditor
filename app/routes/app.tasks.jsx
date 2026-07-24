@@ -738,8 +738,8 @@ function isTaskProcessing(task) {
 function getTaskListStatus(task) {
   if (isScheduledTask(task) && normalizeScheduleStatus(task) === "pending") {
     return {
-      label: "Pending",
-      tone: "attention",
+      label: "Scheduled",
+      tone: "info",
       progress: 0,
       showPendingSpinner: false,
       showProgress: false,
@@ -938,7 +938,6 @@ function TasksListPage({ tasks }) {
 
   const updateSearchParams = (updates) => {
     const nextParams = new URLSearchParams(searchParams);
-    nextParams.delete("q");
 
     Object.entries(updates).forEach(([key, value]) => {
       if (value === undefined || value === null || value === "") {
@@ -1128,6 +1127,19 @@ function TasksListPage({ tasks }) {
         </IndexTable.Cell>
 
         <IndexTable.Cell>
+          <BlockStack gap="050">
+            <Badge tone={getScheduleStatusDisplay(task).tone}>
+              {getScheduleStatusDisplay(task).label}
+            </Badge>
+            {isScheduledTask(task) ? (
+              <Text as="span" variant="bodySm" tone="subdued">
+                {task.endScheduleEnabled ? "Start and end" : "Start only"}
+              </Text>
+            ) : null}
+          </BlockStack>
+        </IndexTable.Cell>
+
+        <IndexTable.Cell>
           <InlineStack gap="200" blockAlign="center" wrap={false}>
             <Badge tone={taskStatus.tone}>
               <InlineStack gap="100" blockAlign="center" wrap={false}>
@@ -1236,6 +1248,9 @@ function TasksListPage({ tasks }) {
                 },
                 {
                   title: "Apply to",
+                },
+                {
+                  title: "Schedule",
                 },
                 {
                   title: "Status",
