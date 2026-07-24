@@ -1043,7 +1043,7 @@ function TasksListPage({ tasks }) {
 
   const handlePreviousPage = () => {
     updateSearchParams({
-      page: currentPage > 2 ? currentPage - 1 : "",
+      page: currentPage - 1 <= 1 ? "" : currentPage - 1,
     });
   };
 
@@ -1124,19 +1124,6 @@ function TasksListPage({ tasks }) {
           <Text as="span" variant="bodyMd">
             {formatApplyTo(task)}
           </Text>
-        </IndexTable.Cell>
-
-        <IndexTable.Cell>
-          <BlockStack gap="050">
-            <Badge tone={getScheduleStatusDisplay(task).tone}>
-              {getScheduleStatusDisplay(task).label}
-            </Badge>
-            {isScheduledTask(task) ? (
-              <Text as="span" variant="bodySm" tone="subdued">
-                {task.endScheduleEnabled ? "Start and end" : "Start only"}
-              </Text>
-            ) : null}
-          </BlockStack>
         </IndexTable.Cell>
 
         <IndexTable.Cell>
@@ -1248,9 +1235,6 @@ function TasksListPage({ tasks }) {
                 },
                 {
                   title: "Apply to",
-                },
-                {
-                  title: "Schedule",
                 },
                 {
                   title: "Status",
