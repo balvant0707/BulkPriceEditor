@@ -2311,7 +2311,7 @@ export default function NewSalePage() {
 
   return (
     <>
-      <TitleBar title="Pryxo Bulk Price Editor" />
+      <TitleBar title="Boltr Bulk Price Editor" />
 
       <Page
         title={sale ? "Edit sale" : "New sale"}

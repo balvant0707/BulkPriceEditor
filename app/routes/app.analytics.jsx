@@ -1495,7 +1495,7 @@ export default function AnalysisPage() {
 
   return (
     <>
-      <TitleBar title="Pryxo Bulk Price Editor" />
+      <TitleBar title="Boltr Bulk Price Editor" />
       <Page fullWidth>
         <div style={pageContentStyle}>
         <BlockStack gap="500">

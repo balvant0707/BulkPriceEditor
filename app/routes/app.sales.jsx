@@ -486,7 +486,6 @@ export default function SalesPage() {
   const navigation = useNavigation();
   const revalidator = useRevalidator();
   const actionFetcher = useFetcher();
-  const processFetcher = useFetcher();
   const [searchParams, setSearchParams] = useSearchParams();
   const [queryValue, setQueryValue] = useState("");
   const [deleteSale, setDeleteSale] = useState(null);
@@ -580,17 +579,6 @@ export default function SalesPage() {
     const interval = setInterval(() => revalidator.revalidate(), 1500);
     return () => clearInterval(interval);
   }, [revalidator, sales]);
-
-  useEffect(() => {
-    const pendingSale = sales.find((sale) => canProcessSale(sale));
-
-    if (!pendingSale || processFetcher.state !== "idle") return;
-
-    processFetcher.submit(null, {
-      method: "post",
-      action: `/app/sales/process/${pendingSale.id}`,
-    });
-  }, [processFetcher, sales]);
 
   if (location.pathname !== SALES_URL) {
     return <Outlet />;
@@ -766,7 +754,7 @@ export default function SalesPage() {
 
   return (
     <Frame>
-      <TitleBar title="Pryxo Bulk Price Editor">
+      <TitleBar title="Boltr Bulk Price Editor">
       </TitleBar>
 
       <Page>

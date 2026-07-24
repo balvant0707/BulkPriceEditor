@@ -74,11 +74,11 @@ function getSelectedInterval(searchParams) {
   return searchParams.get("interval") === "yearly" ? "yearly" : "monthly";
 }
 
-function PlanCard({ plan, interval, activePlan, submittingPlan }) {
+function PlanCard({ plan, interval, activePlan, hasActivePayment, submittingPlan }) {
   const planKey = interval === "yearly" ? plan.yearlyPlan : plan.monthlyPlan;
   const price = interval === "yearly" ? plan.yearlyPrice : plan.monthlyPrice;
-  const intervalLabel = interval === "yearly" ? "/year" : "/month";
-  const isCurrent = activePlan === planKey;
+  const intervalLabel = planKey ? (interval === "yearly" ? "/year" : "/month") : "";
+  const isCurrent = planKey ? activePlan === planKey : !hasActivePayment;
   const isLoading = submittingPlan === planKey;
 
   return (
@@ -97,23 +97,31 @@ function PlanCard({ plan, interval, activePlan, submittingPlan }) {
               <Text as="p" variant="headingXl" fontWeight="bold">
                 {price}
               </Text>
-              <Box paddingBlockEnd="100">
-                <Text as="span">{intervalLabel}</Text>
-              </Box>
+              {intervalLabel ? (
+                <Box paddingBlockEnd="100">
+                  <Text as="span">{intervalLabel}</Text>
+                </Box>
+              ) : null}
             </InlineStack>
 
-            <Form method="post">
-              <input type="hidden" name="plan" value={planKey} />
-              <Button
-                submit
-                fullWidth
-                variant={isCurrent ? "secondary" : "primary"}
-                disabled={isCurrent || Boolean(submittingPlan)}
-                loading={isLoading}
-              >
-                {isCurrent ? "Current plan" : "Choose plan"}
+            {planKey ? (
+              <Form method="post">
+                <input type="hidden" name="plan" value={planKey} />
+                <Button
+                  submit
+                  fullWidth
+                  variant={isCurrent ? "secondary" : "primary"}
+                  disabled={isCurrent || Boolean(submittingPlan)}
+                  loading={isLoading}
+                >
+                  {isCurrent ? "Current plan" : "Choose plan"}
+                </Button>
+              </Form>
+            ) : (
+              <Button fullWidth disabled={isCurrent} variant="secondary">
+                {isCurrent ? "Current plan" : "Free plan"}
               </Button>
-            </Form>
+            )}
           </BlockStack>
         </Box>
 
@@ -123,7 +131,7 @@ function PlanCard({ plan, interval, activePlan, submittingPlan }) {
           <BlockStack gap="300">
             <Bullet>Unlimited sales</Bullet>
             <Bullet>Unlimited tasks</Bullet>
-            <Bullet>{plan.productLimit}</Bullet>
+            <Bullet>{plan.priceChangeLimit}</Bullet>
           </BlockStack>
         </Box>
 
@@ -144,7 +152,7 @@ function PlanCard({ plan, interval, activePlan, submittingPlan }) {
 function Bullet({ children }) {
   return (
     <InlineStack gap="300" blockAlign="start" wrap={false}>
-      <Text as="span">•</Text>
+      <Text as="span">*</Text>
       <Text as="span">{children}</Text>
     </InlineStack>
   );
@@ -153,14 +161,14 @@ function Bullet({ children }) {
 function Check({ children }) {
   return (
     <InlineStack gap="300" blockAlign="start" wrap={false}>
-      <Text as="span">✓</Text>
+      <Text as="span">+</Text>
       <Text as="span">{children}</Text>
     </InlineStack>
   );
 }
 
 export default function PricingPage() {
-  const { activePlan, billingTestMode } = useLoaderData();
+  const { activePlan, billingTestMode, hasActivePayment } = useLoaderData();
   const navigation = useNavigation();
   const [searchParams, setSearchParams] = useSearchParams();
   const interval = getSelectedInterval(searchParams);
@@ -177,7 +185,7 @@ export default function PricingPage() {
 
   return (
     <>
-      <TitleBar title="Pryxo Bulk Price Editor" />
+      <TitleBar title="Boltr Bulk Price Editor" />
       <Page title="Manage your plan" fullWidth>
         <Layout>
           <Layout.Section>
@@ -200,7 +208,7 @@ export default function PricingPage() {
                     pressed={interval === "yearly"}
                     onClick={() => setInterval("yearly")}
                   >
-                    Yearly (Save 25%)
+                    Yearly (2 months free)
                   </Button>
                 </ButtonGroup>
               </InlineStack>
@@ -208,7 +216,7 @@ export default function PricingPage() {
               <div
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
                   gap: 20,
                   alignItems: "start",
                 }}
@@ -219,6 +227,7 @@ export default function PricingPage() {
                     plan={plan}
                     interval={interval}
                     activePlan={activePlan}
+                    hasActivePayment={hasActivePayment}
                     submittingPlan={submittingPlan}
                   />
                 ))}

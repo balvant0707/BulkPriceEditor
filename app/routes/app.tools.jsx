@@ -94,7 +94,7 @@ export default function ToolsPage() {
 
   return (
     <Page title="Tools">
-      <TitleBar title="Pryxo Bulk Price Editor" />
+      <TitleBar title="Boltr Bulk Price Editor" />
 
       <Layout>
         <Layout.Section>

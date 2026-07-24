@@ -796,7 +796,7 @@ function EmptyTasksPage() {
         disabled: isOpeningNewTask,
       }}
     >
-      <TitleBar title="Pryxo Bulk Price Editor" />
+      <TitleBar title="Boltr Bulk Price Editor" />
       <style>{`
         .Polaris-Modal-Dialog__Modal {
           max-width: 480px;
@@ -1154,7 +1154,7 @@ function TasksListPage({ tasks }) {
       }}
       fullWidth
     >
-      <TitleBar title="Pryxo Bulk Price Editor" />
+      <TitleBar title="Boltr Bulk Price Editor" />
 
       <Card padding="0">
             <Box borderBlockEndWidth="025" borderColor="border">

@@ -200,7 +200,7 @@ export default function ProductReportPage({ type }) {
       }}
       fullWidth
     >
-      <TitleBar title="Pryxo Bulk Price Editor" />
+      <TitleBar title="Boltr Bulk Price Editor" />
 
       <Card padding="0">
         <BlockStack gap="0">

@@ -2,6 +2,7 @@ import { json, redirect } from "@remix-run/node";
 import {
   useFetcher,
   useLoaderData,
+  useLocation,
   useNavigate,
   useParams,
   useRevalidator,
@@ -34,7 +35,6 @@ import {
   executeSaleConditionChangeRecord,
 } from "../lib/sales.server";
 import {
-  canProcessSale,
   canRollbackSale,
   getSaleStatusDisplay,
   normalizeSaleStatus,
@@ -49,6 +49,7 @@ import {
   REPORT_TYPES,
 } from "../lib/product-reports";
 import { commitFlashSession, getFlashSession } from "../lib/flash.server";
+import { withShopifyEmbeddedParams } from "../lib/shopify-embedded-url";
 import NewSalePage, {
   action as newSaleAction,
   loader as newSaleLoader,
@@ -767,7 +768,7 @@ function CompactSpinner({ label }) {
   );
 }
 
-function SaleProductDetailsView({ sale, productDetails, navigate }) {
+function SaleProductDetailsView({ productDetails, backUrl }) {
   const statusLabel = productDetails?.status || "Applied";
 
   return (
@@ -776,7 +777,7 @@ function SaleProductDetailsView({ sale, productDetails, navigate }) {
       titleMetadata={<Badge tone="success">{statusLabel}</Badge>}
       backAction={{
         content: "Sale details",
-        onAction: () => navigate(`/app/sales/${sale.id}`),
+        url: backUrl,
       }}
     >
       <TitleBar title="Price change details" />
@@ -869,6 +870,7 @@ function SaleDetailsContent() {
     toastMessage,
   } = useLoaderData();
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
   const actionFetcher = useFetcher();
   const revalidator = useRevalidator();
@@ -941,7 +943,6 @@ function SaleDetailsContent() {
     SALE_STATUS.CANCELING,
     SALE_STATUS.CHECKING_CHANGES,
   ].includes(normalizedStatus);
-  const processFetcher = useFetcher();
   const saleMarkets = getSaleMarkets(sale);
   const isMarketSale = String(sale.changeType || "").toLowerCase() === "markets";
   const saleCurrencyCode = getSaleCurrencyCode(sale, shopCurrency);
@@ -969,20 +970,6 @@ function SaleDetailsContent() {
   }, [revalidator, normalizedStatus]);
 
   useEffect(() => {
-    if (
-      !canProcessSale(sale) ||
-      processFetcher.state !== "idle"
-    ) {
-      return;
-    }
-
-    processFetcher.submit(null, {
-      method: "post",
-      action: `/app/sales/process/${sale.id}`,
-    });
-  }, [processFetcher, sale]);
-
-  useEffect(() => {
     setCurrentPage(1);
   }, [searchQuery]);
 
@@ -995,22 +982,21 @@ function SaleDetailsContent() {
   if (selectedProductId) {
     return (
       <SaleProductDetailsView
-        sale={sale}
         productDetails={productDetails}
-        navigate={navigate}
+        backUrl={withShopifyEmbeddedParams(`/app/sales/${sale.id}`, location.search)}
       />
     );
   }
 
   return (
     <>
-      <TitleBar title="Pryxo Bulk Price Editor" />
+      <TitleBar title="Boltr Bulk Price Editor" />
 
       <Page
         title={sale.title}
         backAction={{
           content: "Sales",
-          url: "/app/sales",
+          url: withShopifyEmbeddedParams("/app/sales", location.search),
         }}
         primaryAction={{
           content: "Edit sale",
@@ -1046,10 +1032,6 @@ function SaleDetailsContent() {
             <BlockStack gap="400">
               {actionFetcher.data?.message && actionFetcher.data?.ok === false ? (
                 <Banner tone="critical">{actionFetcher.data.message}</Banner>
-              ) : null}
-
-              {processFetcher.data?.error ? (
-                <Banner tone="critical">{processFetcher.data.error}</Banner>
               ) : null}
 
               <Card>

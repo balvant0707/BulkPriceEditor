@@ -936,7 +936,7 @@ export default function AppIndex() {
 
   return (
     <>
-      <TitleBar title="Pryxo Bulk Price Editor" />
+      <TitleBar title="Boltr Bulk Price Editor" />
 
       <Page title="Dashboard">
         <Layout>

@@ -2,6 +2,7 @@ import { json } from "@remix-run/node";
 import {
   useFetcher,
   useLoaderData,
+  useLocation,
   useNavigate,
   useRevalidator,
   useSubmit,
@@ -27,6 +28,7 @@ import { TitleBar, useAppBridge } from "@shopify/app-bridge-react";
 import db from "../db.server";
 import { authenticate } from "../shopify.server";
 import { commitFlashSession, getFlashSession } from "../lib/flash.server";
+import { withShopifyEmbeddedParams } from "../lib/shopify-embedded-url";
 import {
   AUTO_REAPPLY_TEXT,
   formatAutoReapplyInterval,
@@ -2434,7 +2436,7 @@ function SelectionDetails({
   );
 }
 
-function ProductDetailsView({ task, productDetails, navigate }) {
+function ProductDetailsView({ task, productDetails, backUrl }) {
   const rollbackState = getRollbackState(task);
   const statusDisplay = getDetailsStatusDisplay(task, rollbackState);
   const statusTone = getStatusToneFromDisplay(statusDisplay);
@@ -2446,10 +2448,10 @@ function ProductDetailsView({ task, productDetails, navigate }) {
       titleMetadata={<Badge tone={statusTone}>{statusDisplay.label}</Badge>}
       backAction={{
         content: "Task details",
-        onAction: () => navigate(`/app/tasks/${task.id}`),
+        url: backUrl,
       }}
     >
-      <TitleBar title="Pryxo Bulk Price Editor" />
+      <TitleBar title="Boltr Bulk Price Editor" />
 
       <Layout>
         <Layout.Section>
@@ -2558,6 +2560,7 @@ export default function TaskDetailsPage() {
 
   const shopify = useAppBridge();
   const navigate = useNavigate();
+  const location = useLocation();
   const revalidator = useRevalidator();
   const deleteFetcher = useFetcher();
   const autoReapplyFetcher = useFetcher();
@@ -2794,7 +2797,7 @@ export default function TaskDetailsPage() {
       <ProductDetailsView
         task={task}
         productDetails={productDetails}
-        navigate={navigate}
+        backUrl={withShopifyEmbeddedParams(`/app/tasks/${task.id}`, location.search)}
       />
     );
   }
@@ -2802,10 +2805,13 @@ export default function TaskDetailsPage() {
   return (
     <Page
       title="Task details"
-      backAction={{ content: "Tasks", onAction: () => navigate("/app/tasks") }}
+      backAction={{
+        content: "Tasks",
+        url: withShopifyEmbeddedParams("/app/tasks", location.search),
+      }}
       secondaryActions={pageSecondaryActions}
     >
-      <TitleBar title="Pryxo Bulk Price Editor" />
+      <TitleBar title="Boltr Bulk Price Editor" />
 
       <Modal
         open={rollbackModalOpen}

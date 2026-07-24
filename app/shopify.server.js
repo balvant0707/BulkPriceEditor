@@ -39,27 +39,27 @@ const shopify = shopifyApp({
       replacementBehavior: BillingReplacementBehavior.ApplyImmediately,
       lineItems: [
         {
-          amount: 9.99,
+          amount: 7.99,
           currencyCode: "USD",
           interval: BillingInterval.Every30Days,
         },
       ],
     },
-    [PRICING_PLANS.advancedMonthly]: {
+    [PRICING_PLANS.standardMonthly]: {
       replacementBehavior: BillingReplacementBehavior.ApplyImmediately,
       lineItems: [
         {
-          amount: 14.99,
+          amount: 12.99,
           currencyCode: "USD",
           interval: BillingInterval.Every30Days,
         },
       ],
     },
-    [PRICING_PLANS.premiumMonthly]: {
+    [PRICING_PLANS.unlimitedMonthly]: {
       replacementBehavior: BillingReplacementBehavior.ApplyImmediately,
       lineItems: [
         {
-          amount: 24.99,
+          amount: 17.99,
           currencyCode: "USD",
           interval: BillingInterval.Every30Days,
         },
@@ -69,27 +69,27 @@ const shopify = shopifyApp({
       replacementBehavior: BillingReplacementBehavior.ApplyImmediately,
       lineItems: [
         {
-          amount: 89,
+          amount: 79.9,
           currencyCode: "USD",
           interval: BillingInterval.Annual,
         },
       ],
     },
-    [PRICING_PLANS.advancedYearly]: {
+    [PRICING_PLANS.standardYearly]: {
       replacementBehavior: BillingReplacementBehavior.ApplyImmediately,
       lineItems: [
         {
-          amount: 134,
+          amount: 129.9,
           currencyCode: "USD",
           interval: BillingInterval.Annual,
         },
       ],
     },
-    [PRICING_PLANS.premiumYearly]: {
+    [PRICING_PLANS.unlimitedYearly]: {
       replacementBehavior: BillingReplacementBehavior.ApplyImmediately,
       lineItems: [
         {
-          amount: 224,
+          amount: 179.9,
           currencyCode: "USD",
           interval: BillingInterval.Annual,
         },

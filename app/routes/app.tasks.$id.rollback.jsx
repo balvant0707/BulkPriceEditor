@@ -747,7 +747,7 @@ export default function RollbackTaskPage() {
       title="Rollback task"
       backAction={{ content: "Task details", url: `/app/tasks/${task.id}` }}
     >
-      <TitleBar title="Pryxo Bulk Price Editor" />
+      <TitleBar title="Boltr Bulk Price Editor" />
 
       <Layout>
         <Layout.Section>
