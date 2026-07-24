@@ -738,8 +738,8 @@ function isTaskProcessing(task) {
 function getTaskListStatus(task) {
   if (isScheduledTask(task) && normalizeScheduleStatus(task) === "pending") {
     return {
-      label: "Pending",
-      tone: "attention",
+      label: "Schedule",
+      tone: "info",
       progress: 0,
       showPendingSpinner: false,
       showProgress: false,

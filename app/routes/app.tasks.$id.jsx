@@ -298,6 +298,10 @@ function isPendingScheduledTask(task) {
   return isScheduledTask(task) && normalizeScheduleStatus(task) === "pending";
 }
 
+function isRunningScheduledTask(task) {
+  return isScheduledTask(task) && normalizeScheduleStatus(task) === "running";
+}
+
 function formatDate(value) {
   if (!value) return "-";
 
@@ -308,6 +312,18 @@ function formatDate(value) {
     month: "long",
     day: "numeric",
     year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function formatTime(value) {
+  if (!value) return "-";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+
+  return date.toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
   });
@@ -761,7 +777,7 @@ function getBaseTaskDisplay(task) {
   // Prioritize scheduled status
   if (isPendingScheduledTask(task)) {
     return {
-      label: "Scheduled",
+      label: "Schedule",
       tone: "info",
       background: "#E0F2FE",
       showPendingSpinner: false,
@@ -2144,6 +2160,22 @@ function getProductDetails(task, productId, shopifyStoreHandle, shopCurrency = "
   };
 }
 
+function getScheduleStatusDisplay(task) {
+  if (!isScheduledTask(task)) {
+    return { label: "No", tone: "subdued" };
+  }
+
+  const status = normalizeScheduleStatus(task) || "pending";
+
+  if (status === "running") return { label: "Running", tone: "success" };
+  if (status === "completed") return { label: "Completed", tone: "subdued" };
+  if (status === "cancelled" || status === "canceled") {
+    return { label: "Cancelled", tone: "critical" };
+  }
+
+  return { label: "Pending", tone: "attention" };
+}
+
 function StatusBadge({ display }) {
   const showPendingSpinner = Boolean(display.showPendingSpinner);
   const showProgress = Boolean(display.showProgress);
@@ -2625,6 +2657,7 @@ export default function TaskDetailsPage() {
   const taskProcessing = isTaskProcessing(task);
   const taskPending = isTaskPending(task);
   const pendingScheduledTask = isPendingScheduledTask(task); // Added
+  const scheduleStatusDisplay = getScheduleStatusDisplay(task);
   const runningScheduledTask = isRunningScheduledTask(task); // Added
   const autoReapplyEnabled = isAutoReapplyEnabled(task);
   const isAutoReapplySubmitting = autoReapplyFetcher.state !== "idle";
@@ -2696,7 +2729,9 @@ export default function TaskDetailsPage() {
       : statusDisplay;
 
   const statusTone = getStatusToneFromDisplay(visibleStatusDisplay);
-  const logStatusLabel = getLogStatusLabel(task, visibleStatusDisplay, rollbackState);
+  const logStatusLabel = isScheduledTask(task)
+    ? "Schedule"
+    : getLogStatusLabel(task, visibleStatusDisplay, rollbackState);
 
   const logs = useMemo(() => {
     const productLogs = createProductGroups(task, shopifyStoreHandle, shopCurrency);
@@ -2762,6 +2797,17 @@ export default function TaskDetailsPage() {
 
     autoReapplyFetcher.submit(
       { intent: "disable_auto_reapply" },
+      {
+        method: "post",
+        action: `/app/tasks/${task.id}`,
+      },
+    );
+  };
+
+  const handleCancelSchedule = () => {
+    if (isAutoReapplySubmitting) return;
+    autoReapplyFetcher.submit(
+      { intent: "cancel_schedule" },
       {
         method: "post",
         action: `/app/tasks/${task.id}`,
@@ -2837,14 +2883,14 @@ export default function TaskDetailsPage() {
   }, [rollbackCompleted, rollbackFailed]);
 
   useEffect(() => {
-    if (!taskProcessing && !rollbackProcessing && !runningScheduledTask) return undefined; // Added runningScheduledTask
+    if (!taskProcessing && !rollbackProcessing && !runningScheduledTask) return;
 
     const timer = setInterval(() => {
       setProgressNowMs(Date.now());
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [taskProcessing, rollbackProcessing]);
+  }, [taskProcessing, rollbackProcessing, runningScheduledTask]);
   
   useEffect(() => {
     setCurrentPage(1);

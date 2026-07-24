@@ -455,11 +455,11 @@ export async function action({ request, params }) {
       );
     }
 
-    const nextStatus = data.scheduleEnabled ? "Pending" : "Pending";
+    const nextStatus = data.scheduleEnabled ? "Scheduled" : "Pending";
     const executionSummary = data.scheduleEnabled
       ? {
           progress: 0,
-          status: "Pending",
+          status: "Scheduled",
           scheduleStatus: TASK_SCHEDULE_STATUSES.pending,
           scheduledFor: data.startAt?.toISOString?.() || "",
         }
@@ -501,7 +501,7 @@ export async function action({ request, params }) {
       executionSummary: data.scheduleEnabled
         ? {
             progress: 0,
-            status: "Pending",
+            status: "Scheduled",
             scheduleStatus: TASK_SCHEDULE_STATUSES.pending,
             scheduledFor: data.startAt?.toISOString?.() || "",
           }
