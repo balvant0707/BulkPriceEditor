@@ -204,8 +204,7 @@ export async function action({ request, params }) {
     return json({ error: validationError }, { status: 400 });
   }
   if (
-    (data.changeType === "markets" ||
-      (data.changeType === "products" && data.markets?.length)) &&
+    data.changeType === "markets" &&
     !(await hasRequiredMarketScopes(admin, session))
   ) {
     return json({ error: MARKET_SCOPE_ERROR }, { status: 400 });
@@ -524,7 +523,8 @@ function buildSaleData(shop, title, payload) {
     applyToActiveProducts,
     applyToDraftProducts,
     applyToSoldoutProducts,
-    markets: payload.selectedMarketDetails || [],
+    markets:
+      form.changeType === "markets" ? payload.selectedMarketDetails || [] : [],
     priceChange: {
       action: form.priceAction || "",
       type: form.priceChangeType || "by_percent",
@@ -1947,15 +1947,6 @@ export default function NewSalePage() {
       ),
     [markets, form.markets],
   );
-  const localMarketDetails = useMemo(
-    () =>
-      markets.filter(
-        (market) =>
-          !market.disabled &&
-          (market.priceListIds || []).length > 0,
-      ),
-    [markets],
-  );
 
   useEffect(() => {
     setForm((current) => ({
@@ -2302,7 +2293,7 @@ export default function NewSalePage() {
         timezoneOffsetMinutes: new Date().getTimezoneOffset(),
       },
       selectedMarketDetails:
-        form.changeType === "products" ? localMarketDetails : selectedMarketDetails,
+        form.changeType === "markets" ? selectedMarketDetails : [],
       applyCollections,
       applyProducts,
       applyVariants,

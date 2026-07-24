@@ -309,32 +309,19 @@ export async function executeSaleRecord(admin, sale, onProgress = async () => {}
   }, { force: true });
 
   const variantResults = await applySaleVariantUpdates(admin, variantUpdates);
-  const localMarketResult = sale.markets?.length
-    ? await updateMarketPrices({
-        admin,
-        ownerType: "sale",
-        ownerId: sale.id,
-        shop: sale.shop,
-        markets: sale.markets,
-        variants,
-        priceChange: sale.priceChange,
-        compareAtPriceChange: sale.compareAtPriceChange,
-        applyToFixedPrices: false,
-      })
-    : null;
 
   await onProgress(60, {
     status: "Applying",
     analyzedVariants: variants.length,
-    variantUpdates: variantUpdates.length + (localMarketResult?.updatedCount || 0),
-    updatedVariants: variantResults.updatedCount + (localMarketResult?.updatedCount || 0),
+    variantUpdates: variantUpdates.length,
+    updatedVariants: variantResults.updatedCount,
   }, { force: true });
 
   await onProgress(70, {
     status: "Applying",
     analyzedVariants: variants.length,
-    variantUpdates: variantUpdates.length + (localMarketResult?.updatedCount || 0),
-    updatedVariants: variantResults.updatedCount + (localMarketResult?.updatedCount || 0),
+    variantUpdates: variantUpdates.length,
+    updatedVariants: variantResults.updatedCount,
   }, { force: true });
 
   const productIds = uniqueProductIds(variants);
@@ -342,39 +329,35 @@ export async function executeSaleRecord(admin, sale, onProgress = async () => {}
   await onProgress(80, {
     status: "Applying",
     analyzedVariants: variants.length,
-    variantUpdates: variantUpdates.length + (localMarketResult?.updatedCount || 0),
-    updatedVariants: variantResults.updatedCount + (localMarketResult?.updatedCount || 0),
+    variantUpdates: variantUpdates.length,
+    updatedVariants: variantResults.updatedCount,
     taggedProducts: tagResults.updatedCount,
   }, { force: true });
 
   await onProgress(90, {
     status: "Applying",
     analyzedVariants: variants.length,
-    variantUpdates: variantUpdates.length + (localMarketResult?.updatedCount || 0),
-    updatedVariants: variantResults.updatedCount + (localMarketResult?.updatedCount || 0),
+    variantUpdates: variantUpdates.length,
+    updatedVariants: variantResults.updatedCount,
     taggedProducts: tagResults.updatedCount,
   }, { force: true });
 
-  const errors = [
-    ...variantResults.errors,
-    ...tagResults.errors,
-    ...(localMarketResult?.errors || []),
-  ];
+  const errors = [...variantResults.errors, ...tagResults.errors];
 
   return {
     ok: errors.length === 0,
     status: errors.length === 0 ? "Completed" : "Failed",
     progress: 100,
     analyzedVariants: variants.length,
-    variantUpdates: variantUpdates.length + (localMarketResult?.updatedCount || 0),
-    updatedVariants: variantResults.updatedCount + (localMarketResult?.updatedCount || 0),
-    marketUpdates: localMarketResult?.updatedCount || 0,
+    variantUpdates: variantUpdates.length,
+    updatedVariants: variantResults.updatedCount,
+    marketUpdates: 0,
     taggedProducts: tagResults.updatedCount,
     skippedVariants:
       targetVariants.length - variants.length + variants.length - variantUpdates.length,
     originalVariants,
-    originalMarketPrices: localMarketResult?.originalMarketPrices || [],
-    logs: [...logs, ...(localMarketResult?.logs || [])],
+    originalMarketPrices: [],
+    logs,
     errors,
     cappedAt: MAX_SALE_VARIANTS,
     endAt: sale.endAt,
@@ -493,24 +476,6 @@ export async function executeSaleConditionChangeRecord(admin, sale, options = {}
 
   const addedResults = await applySaleVariantUpdates(admin, variantUpdates);
   const removedResults = await restoreOriginalSaleVariants(admin, removedOriginalVariants);
-  const existingMarketKeys = new Set(
-    existingOriginalMarketPrices.map((item) =>
-      [item.priceListId, item.variantId].filter(Boolean).join(":"),
-    ),
-  );
-  const marketResult = sale.markets?.length
-    ? await updateMarketPrices({
-        admin,
-        ownerType: "sale",
-        ownerId: sale.id,
-        shop: sale.shop,
-        markets: sale.markets,
-        variants: [...addedVariants, ...reappliedVariants].filter((variant) => variant?.id),
-        priceChange: sale.priceChange,
-        compareAtPriceChange: sale.compareAtPriceChange,
-        applyToFixedPrices: false,
-      })
-    : null;
   const removedVariantIds = new Set(removedOriginalVariants.map((variant) => variant.id));
   const removedMarketOriginals = existingOriginalMarketPrices.filter((item) =>
     removedVariantIds.has(item?.variantId),
@@ -531,7 +496,6 @@ export async function executeSaleConditionChangeRecord(admin, sale, options = {}
   const errors = [
     ...addedResults.errors,
     ...removedResults.errors,
-    ...(marketResult?.errors || []),
     ...marketRollback.errors,
     ...addedTagResults.errors,
     ...removedTagResults.errors,
@@ -543,12 +507,6 @@ export async function executeSaleConditionChangeRecord(admin, sale, options = {}
   ];
   const nextOriginalMarketPrices = [
     ...existingOriginalMarketPrices.filter((item) => !removedVariantIds.has(item?.variantId)),
-    ...(marketResult?.originalMarketPrices || []).filter((item) => {
-      const key = [item.priceListId, item.variantId].filter(Boolean).join(":");
-      if (existingMarketKeys.has(key)) return false;
-      existingMarketKeys.add(key);
-      return true;
-    }),
   ];
 
   return {
@@ -556,12 +514,12 @@ export async function executeSaleConditionChangeRecord(admin, sale, options = {}
     status: errors.length === 0 ? "Completed" : "Failed",
     progress: 100,
     analyzedVariants: variants.length,
-    addedVariants: addedResults.updatedCount + (marketResult?.updatedCount || 0),
+    addedVariants: addedResults.updatedCount,
     removedVariants: removedResults.restoredCount + marketRollback.updatedCount,
     taggedProducts: addedTagResults.updatedCount + removedTagResults.updatedCount,
     originalVariants: nextOriginalVariants,
     originalMarketPrices: nextOriginalMarketPrices,
-    logs: [...logs, ...(marketResult?.logs || [])],
+    logs,
     errors,
     checkedAt: new Date().toISOString(),
   };

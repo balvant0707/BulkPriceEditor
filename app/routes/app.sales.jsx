@@ -289,21 +289,31 @@ function humanize(value) {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-function getSingleSaleMarketCurrency(sale) {
+function getSaleMarketCurrencyCodes(sale) {
   const currencies = [
     ...new Set(
       (Array.isArray(sale.markets) ? sale.markets : [])
-        .map((market) => market.currencyCode)
+        .flatMap((market) => [
+          market.currencyCode,
+          market.currencySettings?.baseCurrency?.currencyCode,
+          ...(Array.isArray(market.priceLists)
+            ? market.priceLists.map((priceList) => priceList.currencyCode)
+            : []),
+        ])
         .filter(Boolean),
     ),
   ];
 
-  return currencies.length === 1 ? currencies[0] : "";
+  return currencies;
+}
+
+function getSaleMarketCurrencyLabel(sale) {
+  return getSaleMarketCurrencyCodes(sale).join(" / ");
 }
 
 function getSaleCurrencyCode(sale, shopCurrency = "") {
-  return sale.changeType === "markets"
-    ? getSingleSaleMarketCurrency(sale)
+  return String(sale.changeType || "").toLowerCase() === "markets"
+    ? getSaleMarketCurrencyLabel(sale)
     : shopCurrency;
 }
 

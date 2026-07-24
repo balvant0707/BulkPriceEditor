@@ -326,7 +326,7 @@ function formatAutoReapplyRemainingTime(value, nowMs = Date.now()) {
 function getTaskChangeItems(task, shopCurrency = "") {
   const currencyCode =
     String(task.applyChangesTo || "").toLowerCase() === "markets"
-      ? getSingleMarketCurrency(task)
+      ? getMarketCurrencyLabel(task)
       : shopCurrency;
   const changes = [
     formatChangePayload(task.priceChange, "price", currencyCode),
@@ -491,12 +491,26 @@ function formatMarketLabel(market) {
   return `${name}${currencyCode ? ` (${currencyCode})` : ""}`;
 }
 
-function getSingleMarketCurrency(task) {
+function getMarketCurrencyCodes(task) {
   const currencies = [
-    ...new Set(getTaskMarkets(task).map((market) => market.currencyCode).filter(Boolean)),
+    ...new Set(
+      getTaskMarkets(task)
+        .flatMap((market) => [
+          market.currencyCode,
+          market.currencySettings?.baseCurrency?.currencyCode,
+          ...(Array.isArray(market.priceLists)
+            ? market.priceLists.map((priceList) => priceList.currencyCode)
+            : []),
+        ])
+        .filter(Boolean),
+    ),
   ];
 
-  return currencies.length === 1 ? currencies[0] : "";
+  return currencies;
+}
+
+function getMarketCurrencyLabel(task) {
+  return getMarketCurrencyCodes(task).join(" / ");
 }
 
 function formatChangePayload(change, label, currencyCode = "") {
@@ -526,7 +540,7 @@ function formatChangePayload(change, label, currencyCode = "") {
 
   const value =
     change.type === "by_amount"
-      ? change.amount
+      ? `${change.amount || ""}${currencyCode && change.amount ? ` ${currencyCode}` : ""}`
       : change.percent
         ? `${change.percent}%`
         : change.amount;

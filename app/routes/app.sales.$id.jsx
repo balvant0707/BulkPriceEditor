@@ -376,17 +376,31 @@ function getSaleMarkets(sale) {
   return Array.isArray(sale.markets) ? sale.markets : [];
 }
 
-function getSingleSaleMarketCurrency(sale) {
+function getSaleMarketCurrencyCodes(sale) {
   const currencies = [
-    ...new Set(getSaleMarkets(sale).map((market) => market.currencyCode).filter(Boolean)),
+    ...new Set(
+      getSaleMarkets(sale)
+        .flatMap((market) => [
+          market.currencyCode,
+          market.currencySettings?.baseCurrency?.currencyCode,
+          ...(Array.isArray(market.priceLists)
+            ? market.priceLists.map((priceList) => priceList.currencyCode)
+            : []),
+        ])
+        .filter(Boolean),
+    ),
   ];
 
-  return currencies.length === 1 ? currencies[0] : "";
+  return currencies;
+}
+
+function getSaleMarketCurrencyLabel(sale) {
+  return getSaleMarketCurrencyCodes(sale).join(" / ");
 }
 
 function getSaleCurrencyCode(sale, shopCurrency = "") {
-  return sale.changeType === "markets"
-    ? getSingleSaleMarketCurrency(sale)
+  return String(sale.changeType || "").toLowerCase() === "markets"
+    ? getSaleMarketCurrencyLabel(sale)
     : shopCurrency;
 }
 
